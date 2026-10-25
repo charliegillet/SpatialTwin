@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 import re
 import secrets
@@ -129,6 +130,11 @@ def _default_to_graph_xy(alignment: dict, p: Sequence[float]) -> tuple[float, fl
     return to_graph_xy(_alignment_obj(alignment), tuple(p))
 
 
+def _default_scale_badge(alignment: dict) -> str:
+    from .sfm import scale_badge
+    return scale_badge(_alignment_obj(alignment))
+
+
 async def _default_extract(client, video, *, mode, deadline_s, anchor_hint=None):
     from .extract import extract_venue
     return await extract_venue(client, video, mode=mode, deadline_s=deadline_s,
@@ -136,13 +142,14 @@ async def _default_extract(client, video, *, mode, deadline_s, anchor_hint=None)
 
 
 async def _default_refine(client, graph, video, extraction, *, sfm, alignment, base_url,
-                          max_iterations=4, deadline_s):
+                          max_iterations=4, deadline_s, work_dir=None):
     from .loop import refine_graph
     return await refine_graph(
         client, graph, video, extraction,
         sfm=_sfm_obj(sfm) if sfm else None,
         alignment=_alignment_obj(alignment) if alignment else None,
-        base_url=base_url, max_iterations=max_iterations, deadline_s=deadline_s)
+        base_url=base_url, max_iterations=max_iterations, deadline_s=deadline_s,
+        work_dir=work_dir)
 
 
 async def _default_prepare_environment(client) -> str:
@@ -191,6 +198,7 @@ class Services:
     run_sfm: Callable[[PreparedVideo, Path], Any] = _default_run_sfm  # sync, run in a thread
     fit_alignment: Callable[[dict, VenueGraph], Any] = _default_fit_alignment  # sync
     to_graph_xy: Callable[[dict, Sequence[float]], tuple[float, float]] = _default_to_graph_xy
+    scale_badge: Callable[[dict], str] = _default_scale_badge
     extract: Callable[..., Awaitable[ExtractionResult]] = _default_extract
     refine: Callable[..., Awaitable[tuple[VenueGraph, list]]] = _default_refine
     prepare_environment: Callable[[Any], Awaitable[str]] = _default_prepare_environment
@@ -267,7 +275,8 @@ class SessionSnapshot(BaseModel):
     sfm: dict | None  # summary: status, registered_fraction, frame_count, point_count, ...
     alignment: dict | None
     alignment_error: str | None
-    ghost_path: list[GhostPoint]
+    geometry_unavailable_reason: str | None
+    ghost_path: list[GhostPoint]  # [] when geometry is unavailable
     extraction: ExtractionResult | None
     draft_graph: VenueGraph | None
     draft_revision: str | None
@@ -291,7 +300,10 @@ def _allowed(services: Services, s: Session) -> list[str]:
         return []
     try:
         return list(services.allowed_interventions(s.accepted_graph, s.scenario))
-    except Exception:  # noqa: BLE001 - walktwin.agent may not be importable yet
+    except ImportError:  # walktwin.agent not importable
+        return []
+    except Exception:  # noqa: BLE001 - a snapshot must always render
+        log.exception("allowed_interventions failed for session %s", s.id)
         return []
 
 
@@ -308,8 +320,9 @@ def _with_render_urls(sid: str, start: int, iterations: list[dict]) -> list[dict
 
 
 def _ghost_path(services: Services, s: Session) -> list[GhostPoint]:
-    if not s.alignment or not s.sfm or s.sfm.get("status") != "completed":
-        return []
+    if (not s.alignment or not s.sfm or s.sfm.get("status") != "completed"
+            or s.geometry_unavailable_reason):
+        return []  # never draw a path from a reconstruction we do not trust
     try:
         frames = sorted(s.sfm.get("frames") or [], key=lambda f: f["t_s"])
         out = []
@@ -340,7 +353,9 @@ def snapshot(services: Services, s: Session) -> SessionSnapshot:
                         url=f"/api/sessions/{s.id}/video"),
         anchor=s.anchor, anchor_hint=s.anchor_hint, anchor_width_m=s.anchor_width_m,
         jobs=s.jobs, sfm=_sfm_summary(s.sfm), alignment=s.alignment,
-        alignment_error=s.alignment_error, ghost_path=_ghost_path(services, s),
+        alignment_error=s.alignment_error,
+        geometry_unavailable_reason=s.geometry_unavailable_reason,
+        ghost_path=_ghost_path(services, s),
         extraction=s.extraction, draft_graph=s.draft_graph, draft_revision=s.draft_revision,
         findings=check_graph(s.draft_graph, s.video.duration_s) if s.draft_graph else [],
         accepted_graph=s.accepted_graph, accepted_revision=s.accepted_revision,
@@ -375,12 +390,37 @@ def _solve_checked(graph: VenueGraph, scenario: Scenario) -> tuple[FlowRun, Chec
     return run, check_run(graph, scenario, PARAMS, run)
 
 
+def normalise_scenario(hazards: Sequence[Hazard], interventions: Sequence[str]) -> Scenario:
+    """The one place a scenario is built: hazards sorted by (door_id, from_s) so the
+    same hazard set always hashes the same, whatever order the judge dropped them in."""
+    return Scenario(hazards=sorted(hazards, key=lambda h: (h.door_id, h.from_s)),
+                    interventions=list(interventions))
+
+
 def _scenario_for(graph: VenueGraph, scenario: Scenario) -> Scenario:
     """Drop hazards and interventions that name doors missing from ``graph``."""
     ids = {d.id for d in graph.doors}
-    return Scenario(
-        hazards=[h for h in scenario.hazards if h.door_id in ids],
-        interventions=[i for i in scenario.interventions if i.split(":", 1)[-1] in ids])
+    return normalise_scenario(
+        [h for h in scenario.hazards if h.door_id in ids],
+        [i for i in scenario.interventions if i.split(":", 1)[-1] in ids])
+
+
+def _within(path: Path, root: Path) -> bool:
+    try:
+        return Path(path).resolve().is_relative_to(Path(root).resolve())
+    except (OSError, ValueError):
+        return False
+
+
+def _clear_for_new_extraction(services: Services, s: Session) -> None:
+    """R27: a new extraction is a new coordinate frame; drop what was built on the old one."""
+    s.alignment = s.alignment_error = s.geometry_unavailable_reason = None
+    if s.sfm and s.sfm.get("status") != "completed":
+        s.geometry_unavailable_reason = f"sfm failed: {s.sfm.get('error') or 'unknown'}"[:300]
+    s.iterations = []
+    s.accepted_graph = s.current_run = s.current_check = None
+    s.scenario = Scenario()
+    services.store.cancel_jobs(s, "investigate", "superseded by a new extraction")
 
 
 def _resolve_anchor(s: Session) -> None:
@@ -417,9 +457,12 @@ def _start_sfm(services: Services, s: Session) -> None:
     async def body() -> str | None:
         res = await asyncio.to_thread(services.run_sfm, s.video, store.dir(s.id) / "sfm")
         s.sfm = to_jsonable(res)
-        store.save(s)
         if s.sfm.get("status") != "completed":
-            return s.sfm.get("error") or f"sfm status {s.sfm.get('status')}"
+            err = s.sfm.get("error") or f"status {s.sfm.get('status')}"
+            s.geometry_unavailable_reason = f"sfm failed: {err}"[:300]
+            store.save(s)
+            return err
+        store.save(s)
         return None
 
     _start(services, s, "sfm", "sfm", body)
@@ -438,7 +481,8 @@ def _start_investigation(services: Services, s: Session, graph: VenueGraph,
                                             [h.door_id for h in scenario.hazards])
         inv = await services.investigate(
             client, graph, scenario, PARAMS, environment_id=env, topdown_png=top,
-            deadline_s=services.investigate_deadline_s)
+            deadline_s=services.investigate_deadline_s,
+            sessions_dir=store.dir(s.id) / "investigations")
         d = to_jsonable(inv)
         if d.get("graph_revision") != graph.revision or d.get("scenario_hash") != scenario.hash:
             return "investigation tags do not match the requested graph revision and scenario"
@@ -462,8 +506,8 @@ def _precompute(services: Services, s: Session, graph: VenueGraph, run: FlowRun)
     exits = [d.id for d in graph.doors if OUTSIDE in (d.a, d.b) and d.id not in hazarded]
     keys = []
     for door_id in sorted(exits, key=lambda i: (-flow(i), i))[:3]:
-        sc = Scenario(hazards=[*s.scenario.hazards, Hazard(door_id=door_id, kind="fire")],
-                      interventions=list(s.scenario.interventions))
+        sc = normalise_scenario([*s.scenario.hazards, Hazard(door_id=door_id, kind="fire")],
+                                s.scenario.interventions)
         try:
             keys.append(_start_investigation(services, s, graph, sc, precomputed_for=door_id))
         except ApiError:
@@ -521,7 +565,7 @@ async def create_session(video: UploadFile = File(...),
                          anchor_door_hint: str | None = Form(None),
                          anchor_width_m: float | None = Form(None),
                          services: Services = Svc) -> dict:
-    if anchor_width_m is not None and not anchor_width_m > 0:
+    if anchor_width_m is not None and not (math.isfinite(anchor_width_m) and anchor_width_m > 0):
         raise ApiError(422, "invalid_anchor_width")
     store = services.store
     sid = store.new_id()
@@ -567,26 +611,27 @@ async def get_session(sid: str, services: Services = Svc) -> dict:
 @router.post("/sessions/{sid}/extract", status_code=202)
 async def start_extract(sid: str, body: ExtractBody, services: Services = Svc) -> dict:
     s = _session(services, sid)
-    if body.expected_revision is not None:
-        _stale(body.expected_revision, s.draft_revision)
+    if s.draft_graph is not None or body.expected_revision is not None:
+        _stale(body.expected_revision, s.draft_revision)  # R27: required once a draft exists
     store = services.store
     mode = body.mode
+    base = s.draft_revision  # captured at request time
+    hint = _anchor_hint_text(s)
 
     async def job() -> str | None:
-        base = s.draft_revision
         client = services.make_client()
         r = await services.extract(client, s.video, mode=mode,
-                                   deadline_s=services.extract_deadline_s,
-                                   anchor_hint=_anchor_hint_text(s))
+                                   deadline_s=services.extract_deadline_s, anchor_hint=hint)
+        if r.status != "completed" or r.graph is None:
+            return f"extraction {r.status}: {r.error or 'no graph'}"[:1000]
+        if s.draft_revision != base:
+            return "stale_draft: the draft changed during extraction; result not applied"
         s.extraction = r
-        if r.graph is not None:
-            if s.draft_revision != base:
-                store.save(s)
-                return "stale_draft: the draft changed during extraction; result kept, not applied"
-            s.draft_graph = r.graph
-            _resolve_anchor(s)
+        s.draft_graph = r.graph
+        _clear_for_new_extraction(services, s)
+        _resolve_anchor(s)
         store.save(s)
-        return None if r.status == "completed" else (r.error or r.status)
+        return None
 
     return {"job": _start(services, s, "extract", "extract", job)}
 
@@ -600,29 +645,44 @@ async def start_refine(sid: str, body: RevisionBody, services: Services = Svc) -
     if s.extraction is None or s.extraction.graph is None:
         raise ApiError(409, "no_extraction")
     store = services.store
+    # Captured at request time: the job refines exactly what the human asked for.
+    base, graph, extraction = s.draft_revision, s.draft_graph, s.extraction
+    work_dir = store.dir(s.id) / "refine" / secrets.token_hex(4)
 
     async def job() -> str | None:
-        base, graph = s.draft_revision, s.draft_graph
         sfm = s.sfm if (s.sfm and s.sfm.get("status") == "completed") else None
-        if sfm is not None and s.alignment is None:
+        reason = None
+        if s.sfm and s.sfm.get("status") != "completed":
+            reason = f"sfm failed: {s.sfm.get('error') or 'unknown'}"
+        if sfm is not None and s.alignment is None and s.extraction is extraction:
             # Fit once, on the iteration-0 (extraction) graph, then freeze.
             try:
-                al = await asyncio.to_thread(services.fit_alignment, sfm, s.extraction.graph)
+                al = await asyncio.to_thread(services.fit_alignment, sfm, extraction.graph)
                 s.alignment, s.alignment_error = to_jsonable(al), None
             except Exception as e:  # noqa: BLE001 - refine still runs without geometry
                 s.alignment_error = f"{type(e).__name__}: {e}"[:500]
-            store.save(s)
+                reason = f"alignment failed: {s.alignment_error}"
         alignment = s.alignment if sfm is not None else None
+        if alignment is not None:
+            # R30: a confidently wrong GLOMAP path only shows as a disagreeing scale badge.
+            try:
+                if services.scale_badge(alignment) == "disagrees":
+                    reason = "scale disagrees"
+            except Exception as e:  # noqa: BLE001
+                reason = f"scale badge unavailable: {type(e).__name__}: {e}"
+        if reason is not None:
+            sfm = alignment = None  # the loop runs on model-reported counts only
+        s.geometry_unavailable_reason = reason[:300] if reason else None
+        store.save(s)
         client = services.make_client()
         final, iterations = await services.refine(
-            client, graph, s.video, s.extraction, sfm=sfm if alignment else None,
+            client, graph, s.video, extraction, sfm=sfm if alignment else None,
             alignment=alignment, base_url=services.base_url, max_iterations=4,
-            deadline_s=services.refine_deadline_s)
+            deadline_s=services.refine_deadline_s, work_dir=work_dir)
+        if s.draft_revision != base or s.extraction is not extraction:
+            return "stale_draft: the draft changed during refine; result not applied"
         its = _with_render_urls(s.id, len(s.iterations), [to_jsonable(i) for i in iterations])
         s.iterations.extend(its)
-        if s.draft_revision != base:
-            store.save(s)
-            return "stale_draft: the draft changed during refine; iterations kept, graph not applied"
         s.draft_graph = final
         store.save(s)
         if its and its[-1].get("stop_reason") == "provider_failed":
@@ -687,7 +747,7 @@ async def set_scenario(sid: str, body: ScenarioBody, services: Services = Svc) -
     unknown = sorted({h.door_id for h in body.hazards} - ids)
     if unknown:
         raise ApiError(422, "unknown_door", doors=unknown)
-    scenario = Scenario(hazards=body.hazards, interventions=list(s.scenario.interventions))
+    scenario = normalise_scenario(body.hazards, s.scenario.interventions)
     run, check = _solve_checked(graph, scenario)
     s.scenario, s.current_run, s.current_check = scenario, run, check
     services.store.save(s)
@@ -734,8 +794,8 @@ async def approve(sid: str, body: ApproveBody, services: Services = Svc) -> dict
     if body.intervention_id not in services.allowed_interventions(graph, s.scenario):
         raise ApiError(422, "intervention_not_allowed", intervention_id=body.intervention_id)
 
-    scenario = Scenario(hazards=list(s.scenario.hazards),
-                        interventions=[*s.scenario.interventions, body.intervention_id])
+    scenario = normalise_scenario(s.scenario.hazards,
+                                  [*s.scenario.interventions, body.intervention_id])
     run, check = _solve_checked(graph, scenario)
     if not check.ok:
         raise ApiError(422, "check_failed", violations=check.violations[:20])
@@ -751,10 +811,16 @@ async def approve(sid: str, body: ApproveBody, services: Services = Svc) -> dict
     preview = s.model_copy(update={"scenario": scenario, "current_run": run,
                                    "current_check": check,
                                    "approvals": [*s.approvals, approval]})
+    rev_before, hash_before = s.accepted_revision, s.scenario.hash
     try:
-        note = services.draft_note(preview, approval)
+        note = await asyncio.to_thread(services.draft_note, preview, approval)
     except ReportUnavailable:
         raise ApiError(503, "report_unavailable") from None
+    # Another request may have run while the note was drafted.
+    _stale(rev_before, s.accepted_revision)
+    _stale(hash_before, s.scenario.hash, "scenario")
+    if any(a.note_path == approval.note_path for a in s.approvals):
+        raise ApiError(409, "stale", what="approvals")
     if not note.startswith(DRAFT_HEADER):
         note = f"{DRAFT_HEADER}\n\n{note}"
     notes_dir.mkdir(parents=True, exist_ok=True)
@@ -775,7 +841,8 @@ async def get_report(sid: str, services: Services = Svc) -> dict:
     except ReportUnavailable:
         raise ApiError(503, "report_unavailable") from None
     if isinstance(report, dict):
-        latest = _note_text(s.approvals[-1]) if s.approvals else None
+        latest = (_note_text(s.approvals[-1], services.store.dir(s.id))
+                  if s.approvals else None)
         report["security_note"] = latest or ""
     return report
 
@@ -789,9 +856,12 @@ async def get_report_html(sid: str, services: Services = Svc) -> HTMLResponse:
         raise ApiError(503, "report_unavailable") from None
 
 
-def _note_text(approval: Approval) -> str | None:
+def _note_text(approval: Approval, session_dir: Path) -> str | None:
+    path = Path(approval.note_path)
+    if not _within(path, session_dir):
+        return None
     try:
-        return Path(approval.note_path).read_text(encoding="utf-8")
+        return path.read_text(encoding="utf-8")
     except OSError:
         return None
 
@@ -801,7 +871,7 @@ async def get_note(sid: str, index: int, services: Services = Svc) -> Response:
     s = _session(services, sid)
     if not 0 <= index < len(s.approvals):
         raise ApiError(404, "not_found")
-    text = _note_text(s.approvals[index])
+    text = _note_text(s.approvals[index], services.store.dir(s.id))
     if text is None:
         raise ApiError(404, "note_missing")
     return Response(text, media_type="text/markdown; charset=utf-8")
@@ -818,7 +888,8 @@ async def get_render(sid: str, iteration: int, index: int,
         raise ApiError(404, "not_found")
     path = Path(str(renders[index].get("path") or ""))
     # Only paths recorded by the loop are served, and only PNG files.
-    if path.suffix.lower() != ".png" or not path.is_file():
+    if (path.suffix.lower() != ".png" or not _within(path, services.store.dir(s.id))
+            or not path.is_file()):
         raise ApiError(404, "render_missing")
     return FileResponse(path, media_type="image/png")
 
@@ -826,6 +897,8 @@ async def get_render(sid: str, iteration: int, index: int,
 @router.get("/sessions/{sid}/video")
 async def get_video(sid: str, services: Services = Svc) -> FileResponse:
     s = _session(services, sid)
+    if not _within(s.video.path, services.store.dir(s.id)) or not s.video.path.is_file():
+        raise ApiError(404, "video_missing")
     return FileResponse(s.video.path, media_type="video/mp4")
 
 

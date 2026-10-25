@@ -52,6 +52,13 @@ class Fakes:
         self.check_ok = True
         self.block_extract = threading.Event()
         self.block_extract.set()  # set = do not block
+        self.block_refine = threading.Event()
+        self.block_refine.set()
+        self.block_investigate = threading.Event()
+        self.block_investigate.set()
+        self.extract_status = "completed"
+        self.investigations_completed = 0
+        self.badge = "agrees"
         self.env_calls = 0
         self.notes: list[tuple] = []
 
@@ -84,18 +91,25 @@ class Fakes:
         while not self.block_extract.is_set():
             await asyncio.sleep(0.01)
         g = _office().model_copy(update={"video_sha256": video.sha256})
+        if self.extract_status != "completed":
+            return ExtractionResult(status=self.extract_status, graph=None, findings=[],
+                                    receipt=None, mode=mode, agentic_observed=None,
+                                    video_uri=None, error="provider status failed")
         return ExtractionResult(status="completed", graph=g,
                                 findings=check_graph(g, video.duration_s), receipt=None,
                                 mode=mode, agentic_observed=None,
                                 video_uri="https://fake.test/files/x", error=None)
 
     async def refine(self, client, graph, video, extraction, *, sfm, alignment, base_url,
-                     max_iterations=4, deadline_s):
-        self.refine_calls.append({"alignment": alignment, "sfm": sfm, "base_url": base_url})
+                     max_iterations=4, deadline_s, work_dir=None):
+        self.refine_calls.append({"alignment": alignment, "sfm": sfm, "base_url": base_url,
+                                  "work_dir": work_dir})
+        while not self.block_refine.is_set():
+            await asyncio.sleep(0.01)
         new = graph.model_copy(update={"zones": [
             z.model_copy(update={"name": z.name + "*"}) if z.id == "Z1" else z
             for z in graph.zones]})
-        rdir = video.path.parent / f"renders-{len(self.refine_calls)}"
+        rdir = work_dir / "renders"
         rdir.mkdir(parents=True, exist_ok=True)
         renders = []
         for i, (t, kind) in enumerate(((2.0, "perspective"), (None, "top"))):
@@ -125,14 +139,18 @@ class Fakes:
         return p
 
     async def investigate(self, client, graph, scenario, params, *, environment_id,
-                          topdown_png, deadline_s=180, max_rounds=4) -> dict:
+                          topdown_png, deadline_s=180, max_rounds=4, sessions_dir=None) -> dict:
+        assert sessions_dir is not None
         self.investigate_calls.append(scenario)
         self.active += 1
         self.max_active = max(self.max_active, self.active)
         try:
             await asyncio.sleep(0.05)
+            while not self.block_investigate.is_set():
+                await asyncio.sleep(0.01)
         finally:
             self.active -= 1
+        self.investigations_completed += 1
         results = []
         for iid in self.allowed_interventions(graph, scenario):
             s2 = scenario.model_copy(update={"interventions": [*scenario.interventions, iid]})
@@ -170,6 +188,7 @@ def services(tmp_path, fakes) -> Services:
         run_sfm=fakes.run_sfm,
         fit_alignment=fakes.fit_alignment,
         to_graph_xy=fakes.to_graph_xy,
+        scale_badge=lambda alignment: fakes.badge,
         extract=fakes.extract,
         refine=fakes.refine,
         prepare_environment=fakes.prepare_environment,
@@ -579,3 +598,218 @@ def test_note_route_and_report_security_note(client, services):
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/markdown")
     assert r.text.startswith("# DRAFT — not sent")
     assert client.get(f"/api/sessions/{sid}/report").json()["security_note"] == r.text
+
+
+# --- fix round 1 ----------------------------------------------------------------
+
+
+def _jobs(snap: dict, kind: str) -> dict:
+    return {k: j for k, j in snap["jobs"].items() if j["kind"] == kind}
+
+
+def test_double_accept_keeps_task_tracking(client, fakes):
+    """Re-accepting with the same revision and scenario reuses the job keys; every
+    superseded task must stay cancellable and never report done."""
+    fakes.block_investigate.clear()
+    sid, snap = with_draft(client)
+    rev = snap["draft_revision"]
+    for _ in range(3):
+        r = client.post(f"/api/sessions/{sid}/accept", json={"expected_revision": rev})
+        assert r.status_code == 200, r.text
+        rev = r.json()["revision"]
+        time.sleep(0.15)  # let superseded tasks process their cancellation
+    snap = client.get(f"/api/sessions/{sid}").json()
+    assert len(_jobs(snap, "investigate")) == 3
+    fakes.block_investigate.set()
+    snap = wait_for(client, sid, lambda s: idle(s) and len(s["investigations"]) == 3)
+    time.sleep(0.2)
+    snap = client.get(f"/api/sessions/{sid}").json()
+    assert fakes.investigations_completed == 3  # only the last accept's three ran to the end
+    assert len(snap["investigations"]) == 3
+    assert all(j["status"] == "done" for j in _jobs(snap, "investigate").values())
+
+
+def test_investigate_cap_409_and_at_most_three_at_once(client, fakes):
+    fakes.block_investigate.clear()
+    sid, snap = with_draft(client)
+    r = client.post(f"/api/sessions/{sid}/accept", json={"expected_revision": snap["draft_revision"]})
+    assert r.status_code == 200 and len(r.json()["investigation_jobs"]) == 3
+    end = time.monotonic() + 5
+    while fakes.active < 3 and time.monotonic() < end:
+        time.sleep(0.01)
+    assert fakes.active == 3
+    snap = client.get(f"/api/sessions/{sid}").json()
+    body = {"expected_revision": snap["accepted_revision"]}
+    # 4th: the current (no-hazard) scenario
+    r = client.post(f"/api/sessions/{sid}/investigate",
+                    json={**body, "expected_scenario": snap["scenario_hash"]})
+    assert r.status_code == 409 and r.json()["error"] == "job_running"
+    # 5th: another scenario
+    set_fire(client, sid, snap, "D1")
+    r = client.post(f"/api/sessions/{sid}/investigate",
+                    json={**body, "expected_scenario": _fire("D1").hash})
+    assert r.status_code == 409 and r.json()["error"] == "job_running"
+    fakes.block_investigate.set()
+    wait_for(client, sid, lambda s: idle(s) and len(s["investigations"]) == 3)
+    # once slots free up, the 5th request is accepted
+    r = client.post(f"/api/sessions/{sid}/investigate",
+                    json={**body, "expected_scenario": _fire("D1").hash})
+    assert r.status_code == 202 and r.json()["reused"] is False
+    wait_for(client, sid, lambda s: idle(s) and len(s["investigations"]) == 4)
+    assert fakes.max_active == 3  # three ran together, never more
+
+
+def test_hazard_order_normalised(client):
+    sid, snap = accepted(client)
+    set_fire(client, sid, snap, "D4")
+    snap = client.get(f"/api/sessions/{sid}").json()
+    r = client.post(f"/api/sessions/{sid}/accept", json={"expected_revision": snap["draft_revision"]})
+    assert r.status_code == 200
+    snap = wait_for(client, sid, lambda s: idle(s) and len(s["investigations"]) == 5)
+    want = _fire("D2", "D4").hash  # precompute: current {D4} + fire on D2, sorted
+    assert want in {i["scenario_hash"] for i in snap["investigations"]}
+    a = set_fire(client, sid, snap, "D4", "D2").json()
+    b = set_fire(client, sid, snap, "D2", "D4").json()
+    assert a["scenario_hash"] == b["scenario_hash"] == want
+    assert a["ready_investigation_id"] is not None
+    assert a["ready_investigation_id"] == b["ready_investigation_id"]
+    assert [h["door_id"] for h in a["scenario"]["hazards"]] == ["D2", "D4"]
+
+
+def test_extract_requires_revision_and_resets_frame(client, fakes):
+    sid, snap = with_draft(client)
+    wait_for(client, sid, lambda s: s["jobs"]["sfm"]["status"] == "done")
+    client.post(f"/api/sessions/{sid}/refine", json={"expected_revision": snap["draft_revision"]})
+    snap = wait_for(client, sid, lambda s: idle(s) and len(s["iterations"]) == 1)
+    r = client.post(f"/api/sessions/{sid}/accept", json={"expected_revision": snap["draft_revision"]})
+    assert r.status_code == 200
+    snap = wait_for(client, sid, idle)
+    assert snap["alignment"] is not None and snap["accepted_graph"] is not None
+    r = client.post(f"/api/sessions/{sid}/extract", json={"mode": "static"})
+    assert r.status_code == 409 and r.json()["error"] == "stale"
+    r = client.post(f"/api/sessions/{sid}/extract",
+                    json={"mode": "static", "expected_revision": snap["draft_revision"]})
+    assert r.status_code == 202
+    snap = wait_for(client, sid, lambda s: idle(s) and s["extraction"]["mode"] == "static")
+    assert snap["alignment"] is None and snap["iterations"] == []
+    assert snap["accepted_graph"] is None and snap["current_run"] is None
+    assert snap["current_check"] is None and snap["scenario_hash"] == Scenario().hash
+    assert snap["ghost_path"] == []
+
+
+def test_refine_finishing_after_put_is_stale(client, fakes):
+    sid, snap = with_draft(client)
+    fakes.block_refine.clear()
+    r = client.post(f"/api/sessions/{sid}/refine", json={"expected_revision": snap["draft_revision"]})
+    assert r.status_code == 202
+    g = VenueGraph.model_validate(snap["draft_graph"])
+    edited = g.model_copy(update={"doors": [
+        d.model_copy(update={"state": "closed"}) if d.id == "D6" else d for d in g.doors]})
+    r = client.put(f"/api/sessions/{sid}/graph", json={
+        "expected_revision": snap["draft_revision"], "graph": edited.model_dump(mode="json")})
+    assert r.status_code == 200
+    fakes.block_refine.set()
+    snap = wait_for(client, sid, lambda s: s["jobs"]["refine"]["status"] in ("done", "failed"))
+    assert snap["jobs"]["refine"]["status"] == "failed"
+    assert snap["jobs"]["refine"]["error"].startswith("stale_draft")
+    assert snap["draft_revision"] == edited.revision
+    assert snap["iterations"] == []
+    # the job refined the graph as it was at request time
+    assert fakes.refine_calls[-1]["work_dir"] is not None
+
+
+def test_extract_finishing_after_put_is_stale(client, fakes):
+    sid, snap = with_draft(client)
+    fakes.block_extract.clear()
+    r = client.post(f"/api/sessions/{sid}/extract",
+                    json={"mode": "static", "expected_revision": snap["draft_revision"]})
+    assert r.status_code == 202
+    g = VenueGraph.model_validate(snap["draft_graph"])
+    edited = g.model_copy(update={"zones": [
+        z.model_copy(update={"occupants": 7}) if z.id == "Z4" else z for z in g.zones]})
+    r = client.put(f"/api/sessions/{sid}/graph", json={
+        "expected_revision": snap["draft_revision"], "graph": edited.model_dump(mode="json")})
+    assert r.status_code == 200
+    fakes.block_extract.set()
+    snap = wait_for(client, sid, lambda s: s["jobs"]["extract"]["status"] in ("done", "failed"))
+    assert snap["jobs"]["extract"]["error"].startswith("stale_draft")
+    assert snap["draft_revision"] == edited.revision
+    assert snap["extraction"]["mode"] == "static_hifps"  # not overwritten
+
+
+def test_failed_extraction_not_applied(client, fakes):
+    fakes.extract_status = "failed"
+    sid = upload(client)
+    client.post(f"/api/sessions/{sid}/extract", json={"mode": "static"})
+    snap = wait_for(client, sid, lambda s: s["jobs"]["extract"]["status"] in ("done", "failed"))
+    assert snap["jobs"]["extract"]["status"] == "failed"
+    assert "provider status failed" in snap["jobs"]["extract"]["error"]
+    assert snap["draft_graph"] is None and snap["extraction"] is None
+
+
+@pytest.mark.parametrize("width", ["nan", "inf", "-1", "0"])
+def test_anchor_width_must_be_finite_positive(client, width):
+    r = client.post("/api/sessions", files={"video": ("w.mp4", b"x", "video/mp4")},
+                    data={"anchor_door_hint": "D1", "anchor_width_m": width})
+    assert r.status_code == 422
+
+
+def test_render_path_outside_session_not_served(client, services, tmp_path):
+    sid, snap = with_draft(client)
+    outside = tmp_path / "elsewhere.png"
+    outside.write_bytes(b"\x89PNG")
+    s = services.store.get(sid)
+    s.iterations.append({"renders": [{"path": str(outside), "kind": "top", "t_s": None}]})
+    s.approvals.append(api.Approval(intervention_id="OPEN:D5", investigation_id="inv-x",
+                                    graph_revision="g", scenario_hash="s", run_id="r",
+                                    note_path=str(outside), approved_at="now"))
+    r = client.get(f"/api/sessions/{sid}/renders/0/0.png")
+    assert r.status_code == 404 and r.json()["error"] == "render_missing"
+    r = client.get(f"/api/sessions/{sid}/approvals/0/note")
+    assert r.status_code == 404
+
+
+def test_scale_disagrees_runs_model_reported_only(client, fakes):
+    fakes.badge = "disagrees"
+    sid, snap = with_draft(client)
+    wait_for(client, sid, lambda s: s["jobs"]["sfm"]["status"] == "done")
+    client.post(f"/api/sessions/{sid}/refine", json={"expected_revision": snap["draft_revision"]})
+    snap = wait_for(client, sid, lambda s: idle(s) and len(s["iterations"]) == 1)
+    assert snap["alignment"] is not None  # persisted, frozen
+    assert snap["geometry_unavailable_reason"] == "scale disagrees"
+    assert snap["ghost_path"] == []
+    assert fakes.refine_calls[-1]["sfm"] is None and fakes.refine_calls[-1]["alignment"] is None
+    # agreeing badge: geometry is used and the ghost path appears
+    fakes.badge = "agrees"
+    client.post(f"/api/sessions/{sid}/refine", json={"expected_revision": snap["draft_revision"]})
+    snap = wait_for(client, sid, lambda s: idle(s) and len(s["iterations"]) == 2)
+    assert snap["geometry_unavailable_reason"] is None and len(snap["ghost_path"]) == 3
+    assert fakes.refine_calls[-1]["alignment"]["hash"] == "al-1"
+
+
+def test_sfm_failure_sets_geometry_reason(client, services):
+    services.run_sfm = lambda video, work_dir: {
+        "status": "failed", "frames": [], "points": [], "registered_fraction": 0.0,
+        "elapsed_ms": 1, "error": "no_floor_plane"}
+    sid = upload(client)
+    snap = wait_for(client, sid, lambda s: s["jobs"]["sfm"]["status"] == "failed")
+    assert snap["geometry_unavailable_reason"] == "sfm failed: no_floor_plane"
+
+
+def test_default_runners_rehydrate_real_sfm_types():
+    from walktwin import sfm
+    from walktwin.sessions import to_jsonable
+    res = sfm.SfmResult(status="completed",
+                        frames=[sfm.SfmFrame(t_s=0.5, center=(1.0, 2.0, 0.5),
+                                             R=[[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+                                             K=[[500, 0, 32], [0, 500, 32], [0, 0, 1]])],
+                        points=[(0.0, 0.0, 0.0)], registered_fraction=1.0, elapsed_ms=3,
+                        error=None)
+    back = api._sfm_obj(to_jsonable(res))
+    assert back == res
+    al = sfm.Alignment(scale=2.0, yaw_rad=0.3, tx=1.0, ty=-1.0, floor_normal=(0.0, 0.0, 1.0),
+                       floor_offset=0.0, residual_m=0.1, eye_height_m=1.5, hash="h")
+    d = to_jsonable(al)
+    assert api._alignment_obj(d) == al
+    assert api._default_to_graph_xy(d, (1.0, 2.0, 0.5)) == sfm.to_graph_xy(al, (1.0, 2.0, 0.5))
+    assert api._default_scale_badge(d) == sfm.scale_badge(al)

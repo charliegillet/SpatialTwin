@@ -64,6 +64,7 @@ class Session(BaseModel):
     sfm: dict | None = None  # walktwin.sfm.SfmResult as JSON
     alignment: dict | None = None  # walktwin.sfm.Alignment as JSON (frozen once fitted)
     alignment_error: str | None = None
+    geometry_unavailable_reason: str | None = None  # R30: why the loop runs model-reported only
     draft_graph: VenueGraph | None = None
     accepted_graph: VenueGraph | None = None
     scenario: Scenario = Field(default_factory=Scenario)
@@ -130,6 +131,7 @@ class SessionStore:
         self.root = Path(root)
         self._sessions: dict[str, Session] = {}
         self._tasks: dict[tuple[str, str], asyncio.Task] = {}
+        self._cancelled: set[asyncio.Task] = set()  # referenced until they finish
 
     # -- paths / ids -------------------------------------------------------------
     @staticmethod
@@ -138,7 +140,7 @@ class SessionStore:
 
     @staticmethod
     def valid_id(sid: str) -> bool:
-        return bool(_ID_RE.match(sid))
+        return bool(_ID_RE.fullmatch(sid))
 
     def dir(self, sid: str) -> Path:
         if not self.valid_id(sid):
@@ -211,7 +213,9 @@ class SessionStore:
             finally:
                 job.finished_at = _now()
                 self._save_id(sid)
-                self._tasks.pop((sid, key), None)
+                # A key can be reused after a cancel: only drop our own entry.
+                if self._tasks.get((sid, key)) is asyncio.current_task():
+                    del self._tasks[(sid, key)]
 
         self._tasks[(sid, key)] = asyncio.create_task(run(), name=f"{sid}:{key}")
         return job
@@ -225,13 +229,16 @@ class SessionStore:
             task = self._tasks.pop((session.id, key), None)
             if task is not None:
                 task.cancel()
+                self._cancelled.add(task)
+                task.add_done_callback(self._cancelled.discard)
             cancelled.append(key)
         if cancelled:
             self.save(session)
         return cancelled
 
     async def shutdown(self) -> None:
-        tasks = list(self._tasks.values())
+        loop = asyncio.get_running_loop()
+        tasks = [t for t in (*self._tasks.values(), *self._cancelled) if t.get_loop() is loop]
         for t in tasks:
             t.cancel()
         if tasks:
