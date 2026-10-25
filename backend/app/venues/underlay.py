@@ -163,6 +163,11 @@ def resolve_underlay(venue_id: str, *, registry: VenueRegistry, root: Path) -> T
         draft = VenueDraftV1.model_validate(record["draft"])
     except ValidationError:
         raise UnderlayUnavailable("invalid_record") from None
+    # Rooms the operator left out at Accept were compiled as voids; recompile the same way or nothing lines up.
+    left_out = set(record.get("left_out_rooms") or [])
+    if left_out:
+        draft = draft.model_copy(update={"rooms": [room.model_copy(update={"kind": "void"}) if room.key in left_out
+                                                   else room for room in draft.rooms]})
     source = _read_source(root, draft_id, sha)
     width = record.get("building_width_m")
     width = float(width) if isinstance(width, (int, float)) and not isinstance(width, bool) and width > 0 else None

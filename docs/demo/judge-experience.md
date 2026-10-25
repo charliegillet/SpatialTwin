@@ -47,6 +47,17 @@ Measured (live, `gemini-4-argon`, thinking medium):
 | Synthetic office map | 36–50 s | not needed | ready |
 | Synthetic home sketch | 19 s | not needed | accepted |
 
+**Full live run-through (26 October, in the browser).** The Level 2 map photo went in through the Build upload: Argon
+read it in 24 s, the critique round took 52 s (14 → 3 errors), and the three remaining errors were east-wing rooms
+the map draws with no door. The operator ticked "Leave … out of the walkable floor" for each (said in the venue's
+provenance), marked one motorized door and accepted. Fire in the North-West Wing: 71 of 80, "+33 by opening D5"; the
+agent team started by itself (strategist 26 s, 2/2; robustness 75 s, 12/12 computed in the sandbox: "D5 open holds 12
+of 12 single failures"). Approve: D5 "ACK · heard, not arrived", then "Endpoint confirmed · open", and only then the
+announcement said "is open". Jam D5 and approve: fallback, 38 of 80, "fallback · D5 stuck · −33 vs the plan".
+
+If a reading ends with only "room cannot reach any exit" errors on rooms the map draws without a door, leave those
+rooms out (one checkbox each); Accept stays blocked for any other error.
+
 Say while it reads: "Argon proposes the geometry. Nothing becomes the venue until the checks pass and you accept."
 If the reading is slow or fails, say so and open a **saved run** (labelled as such, never passed off as live).
 

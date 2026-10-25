@@ -201,6 +201,16 @@ def test_a_dropped_outer_box_does_not_hide_an_aligned_photo(setup):
     assert client.get(f"/api/venues/{VENUE_ID}/underlay").json()["available"] is True
 
 
+def test_rooms_left_out_at_accept_still_get_their_photo(setup):
+    """The operator left a doorless room out at Accept (compiled as a void); the stored draft is the original reading."""
+    client, accept, _ = setup
+    original = build(home_raw())
+    voided = original.model_copy(update={"rooms": [r.model_copy(update={"kind": "void"}) if r.key == "BED_2" else r
+                                                   for r in original.rooms]})
+    accept(draft=voided, record_extra={"draft": original.model_dump(mode="json"), "left_out_rooms": ["BED_2"]})
+    assert client.get(f"/api/venues/{VENUE_ID}/underlay").json()["available"] is True
+
+
 def test_voids_frame_the_image_like_the_compiler(setup):
     """A void along the west edge frames the drawing; the rooms keep their offset and the corners account for it."""
     client, accept, _ = setup
