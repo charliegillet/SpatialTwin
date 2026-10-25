@@ -65,11 +65,28 @@ def read(name: str) -> dict | None:
     return json.loads(p.read_text()) if p.exists() else None
 
 
+REFUSAL_CODES = {400, 403, 404, 422}
+
+
+def http_status(e: BaseException) -> int | None:
+    """HTTP status from either SDK error family (GenAiError.status_code, errors.APIError.code)."""
+    for attr in ("status_code", "code"):
+        v = getattr(e, attr, None)
+        if isinstance(v, int):
+            return v
+    return None
+
+
+def is_api_refusal(e: BaseException) -> bool:
+    """True only for a genuine API rejection (HTTP 400/403/404/422), never for
+    timeouts, 429, 5xx, network errors or probe bugs."""
+    return http_status(e) in REFUSAL_CODES
+
+
 def err_info(e: BaseException) -> dict:
-    msg = str(e)
-    return {"ok": False, "error": f"{type(e).__name__}: {msg[:2000]}",
-            "refused": any(k in msg.lower() for k in ("not supported", "not allowed",
-                                                       "invalid_argument", "permission")),
+    return {"ok": False, "error": f"{type(e).__name__}: {str(e)[:2000]}",
+            "error_class": type(e).__name__, "http_status": http_status(e),
+            "refused": is_api_refusal(e),
             "traceback": traceback.format_exc()[-2000:]}
 
 
@@ -147,16 +164,24 @@ async def probe_video_chain(client, clip):
     if not prev or not prev.get("receipt", {}).get("interaction_id"):
         await probe_video_agentic(client, clip)
         prev = read("video_agentic")
-    up = await upload_video(client, clip)
+    if not prev or not prev.get("receipt", {}).get("interaction_id"):
+        write("video_chain", {"ok": False, "repeated_uri_accepted": "inconclusive",
+                              "error": "video_agentic did not produce an interaction"})
+        return
+    if prev.get("input_mode") != "uri" or not prev.get("uri"):
+        write("video_chain", {"ok": False, "repeated_uri_accepted": "not testable",
+                              "note": "turn 1 used inline base64, so there is no URI to repeat",
+                              "input_mode": prev.get("input_mode")})
+        return
+    uri = prev["uri"]  # the SAME URI as turn 1: no re-upload
     first_usage = prev["receipt"]["usage"]
     frame = Path(tempfile.mkdtemp()) / "f.jpg"
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-ss", "1", "-i", str(clip),
                     "-frames:v", "1", str(frame)], check=True)
     image = {"type": "image", "mime_type": "image/jpeg",
              "data": base64.b64encode(frame.read_bytes()).decode()}
-    zoom = video_part(up.uri, {"type": "static", "start_offset": "2s", "end_offset": "8s",
-                               "fps": 5}, resolution="high")
-    obs: dict = {}
+    zoom = video_part(uri, {"type": "static", "start_offset": "2s", "end_offset": "8s",
+                            "fps": 5}, resolution="high")
     try:
         i, r, o = await direct(
             client, previous_interaction_id=prev["receipt"]["interaction_id"],
@@ -164,16 +189,21 @@ async def probe_video_chain(client, clip):
                    "Using this extra image and the zoomed clip segment, recount the doors as JSON."}],
             response_format=RESPONSE_FORMAT)
     except Exception as e:  # noqa: BLE001
-        write("video_chain", {**err_info(e), "repeated_uri_accepted": False,
-                              "note": "Task 11 should skip zoom parts"})
+        info = err_info(e)
+        if info["refused"]:
+            write("video_chain", {**info, "repeated_uri_accepted": False,
+                                  "note": "API refused: Task 11 should skip zoom parts"})
+        else:
+            write("video_chain", {**info, "repeated_uri_accepted": "inconclusive",
+                                  "note": "not an API refusal (timeout/429/5xx/network/bug); rerun"})
         return
     u = r.usage
     delta = {k: u.get(k, 0) - first_usage.get(k, 0)
              for k in ("total_input_tokens", "total_tokens", "total_cached_tokens")
              if isinstance(u.get(k), int)}
     write("video_chain", {"ok": r.status == "completed", "repeated_uri_accepted": True,
-                          "usage_first_turn": first_usage, "usage_second_turn": u,
-                          "usage_delta_vs_first": delta, **summarize(i, r), **obs, **o})
+                          "uri": uri, "usage_first_turn": first_usage, "usage_second_turn": u,
+                          "usage_delta_vs_first": delta, **summarize(i, r), **o})
 
 
 def _pending_calls(interaction, allow: set[str]) -> list:
@@ -225,8 +255,7 @@ async def probe_agent_env(client, clip):
         env_id = i.environment_id
         out["environment_id_returned"] = bool(env_id)
         reuse: dict = {}
-        for label, net in (("allowlist_disabled", {"allowlist": "disabled"}),
-                           ("network_disabled", "disabled")):
+        for label, net in (("network_disabled", "disabled"),):
             try:
                 i2, r2 = await agent_turn(
                     client, environment={"type": "remote", "environment_id": env_id, "network": net},

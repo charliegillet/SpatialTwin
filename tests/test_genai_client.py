@@ -33,7 +33,6 @@ async def test_run_background_returns_non_completed_terminal(status):
 
 
 def test_joined_text_concatenates_model_output_steps():
-    from fakes import FakeClient as F  # noqa: F401
     from google.genai._gaos.types.interactions.interaction import Interaction
     i = Interaction.model_validate({"status": "completed", "steps": [
         text_step('{"a":'), processing_call_step(), text_step("1}")]})
@@ -103,3 +102,61 @@ def test_make_client_reads_dotenv(monkeypatch, tmp_path):
     assert make_client() is not None
     import os
     assert os.environ["GEMINI_API_KEY"] == "k-test"
+
+
+async def test_cancel_failure_reported_in_timeout():
+    client = FakeClient(["in_progress"])
+
+    async def boom(id, **kw):
+        raise RuntimeError("nope")
+    client.aio.interactions.cancel = boom
+    with pytest.raises(TimeoutError, match="cancel failed: RuntimeError: nope"):
+        await run_background(client, deadline_s=0.05, poll_s=0.01, model="m", input="x")
+
+
+async def test_hung_create_is_bounded():
+    import asyncio
+    client = FakeClient(["in_progress"])
+
+    async def hang(**kw):
+        await asyncio.sleep(10)
+    client.aio.interactions.create = hang
+    with pytest.raises(TimeoutError):
+        await run_background(client, deadline_s=0.05, poll_s=0.01, model="m", input="x")
+
+
+async def test_cancelled_error_propagates():
+    import asyncio
+    client = FakeClient(["in_progress"])
+    task = asyncio.create_task(
+        run_background(client, deadline_s=5, poll_s=0.01, model="m", input="x"))
+    await asyncio.sleep(0.03)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+async def test_fake_rejects_unknown_kwargs_and_bad_input():
+    client = FakeClient(["completed"], ["completed"])
+    with pytest.raises(TypeError, match="bogus"):
+        await client.aio.interactions.create(model="m", input="x", bogus=1)
+    with pytest.raises(TypeError, match="type"):
+        await client.aio.interactions.create(model="m", input=[{"text": "no type"}])
+    await client.aio.interactions.create(model="m", input=[{"type": "text", "text": "ok"}],
+                                         generation_config={}, previous_interaction_id="p")
+
+
+async def test_fake_cancel_sticks():
+    client = FakeClient(["in_progress", "completed"])
+    i = await client.aio.interactions.create(model="m", input="x")
+    await client.aio.interactions.cancel(i.id)
+    assert (await client.aio.interactions.get(i.id)).status == "cancelled"
+
+
+async def test_fake_agents_and_file_delete():
+    client = FakeClient()
+    await client.aio.agents.create(id="a1", base_agent="b")
+    assert (await client.aio.agents.get(id="a1")).base_agent == "b"
+    await client.aio.agents.delete(id="a1")
+    await client.aio.files.delete(name="files/x")
+    assert client.agents_deleted == ["a1"] and client.file_deletes == ["files/x"]
