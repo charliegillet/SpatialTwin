@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { Minus, Plus, RotateCcw } from 'lucide-react';
-import { clampPan, forecastTargets, formatForecastClosure, panByKey, type ForecastClosure, type Pan } from '../features/spatial-view/spatialView';
+import { clampPan, forecastTargets, formatForecastClosure, isDrag, panByKey, type ForecastClosure, type Pan } from '../features/spatial-view/spatialView';
 import { arrowPolygon, exitArrows, plumePuffs, type Point as GeoPoint } from '../features/spatial-view/stageGeometry';
 import type { ScenarioSnapshot } from '../types';
 import type { HazardTool } from '../ai/hazardTools';
@@ -112,7 +112,7 @@ export const SpatialViewport: React.FC<SpatialViewportProps> = ({ snapshot, sele
   }, []);
   const [pan, setPan] = useState<Pan>({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
-  const drag = useRef<{ x: number; y: number; scale: number } | null>(null);
+  const drag = useRef<{ x: number; y: number; scale: number; captured: boolean } | null>(null);
   const downAt = useRef<{ x: number; y: number } | null>(null);
   const uid = useId().replace(/:/g, '');
   const plan = snapshot?.current_plan;
@@ -157,21 +157,27 @@ export const SpatialViewport: React.FC<SpatialViewportProps> = ({ snapshot, sele
     if (event.pointerType === 'touch' && !touchArmed) { setTouchArmed(true); return; }
     const ctm = event.currentTarget.getScreenCTM();
     if (!ctm || !ctm.a) return;
-    drag.current = { x: event.clientX, y: event.clientY, scale: ctm.a };
-    event.currentTarget.setPointerCapture(event.pointerId);
-    setDragging(true);
+    // Capture waits for real movement: capturing on press would retarget a pad tap's click to the SVG.
+    drag.current = { x: event.clientX, y: event.clientY, scale: ctm.a, captured: false };
   };
   const onPointerMove = (event: React.PointerEvent<SVGSVGElement>) => {
     const start = drag.current;
     if (!start) return;
+    if (!start.captured) {
+      // Uncaptured, a release outside the SVG never reaches onPointerUp; a buttonless move ends that press.
+      if (event.buttons === 0) { drag.current = null; return; }
+      if (!isDrag(start, { x: event.clientX, y: event.clientY })) return;
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setDragging(true);
+    }
     const dx = (event.clientX - start.x) / start.scale, dy = (event.clientY - start.y) / start.scale;
-    drag.current = { ...start, x: event.clientX, y: event.clientY };
+    drag.current = { ...start, x: event.clientX, y: event.clientY, captured: true };
     setPan(current => clampPan({ x: current.x + dx, y: current.y + dy }, zoom, BOUNDS));
   };
   const onSvgClick = (event: React.MouseEvent<SVGSVGElement>) => {
     if (!armedTool || !onBackgroundTap || (event.target as Element).closest('.spatial-model-target')) return;
     const start = downAt.current;
-    if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > 6) return;
+    if (start && isDrag(start, { x: event.clientX, y: event.clientY })) return;
     onBackgroundTap();
   };
   const endDrag = () => { drag.current = null; setDragging(false); };

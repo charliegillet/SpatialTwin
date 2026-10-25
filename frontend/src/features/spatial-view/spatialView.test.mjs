@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { clampPan, panByKey, formatForecastClosure, forecastTargets } from './spatialView.ts';
+import { clampPan, isDrag, panByKey, formatForecastClosure, forecastTargets } from './spatialView.ts';
 
 const bounds = { width: 1000, height: 500 };
 
@@ -40,4 +40,12 @@ test('forecastTargets maps venue ids and drops unknown ids and bad times', () =>
   ]);
   assert.deepEqual(result, [{ target: 'portal:P1', close_at_s: 5 }, { target: 'boundary:B2', close_at_s: 0 }]);
   assert.deepEqual(forecastTargets(undefined), []);
+});
+
+test('isDrag treats a press that stays within the click slop as a click', () => {
+  // Capturing the pointer on press retargets the click to the SVG, so a pad tap must not start a drag.
+  assert.equal(isDrag({ x: 100, y: 100 }, { x: 100, y: 100 }), false);
+  assert.equal(isDrag({ x: 100, y: 100 }, { x: 104, y: 104 }), false);
+  assert.equal(isDrag({ x: 100, y: 100 }, { x: 107, y: 100 }), true);
+  assert.equal(isDrag({ x: 100, y: 100 }, { x: 102, y: 100 }, 1), true);
 });

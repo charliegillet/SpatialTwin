@@ -5,6 +5,7 @@ export interface ForecastClosure { element_id: string; close_at_s: number; }
 
 export const PAN_STEP = 40;
 export const PAN_REACH = 0.4;
+export const CLICK_SLOP = 6;
 
 const VENUE_TO_TARGET: Record<string, SpatialTargetId> = { P1: 'portal:P1', P2: 'portal:P2', B2: 'boundary:B2' };
 
@@ -14,6 +15,11 @@ export function clampPan(pan: Pan, zoom: number, bounds: PanBounds): Pan {
   const limitY = bounds.height * zoom * PAN_REACH;
   const fit = (value: number, limit: number) => (Number.isFinite(value) ? Math.max(-limit, Math.min(limit, value)) : 0);
   return { x: fit(pan.x, limitX), y: fit(pan.y, limitY) };
+}
+
+/** A press becomes a drag only once it moves past the click slop, in screen pixels. */
+export function isDrag(down: Pan, current: Pan, slop: number = CLICK_SLOP): boolean {
+  return Math.hypot(current.x - down.x, current.y - down.y) > slop;
 }
 
 /** Arrow keys move the model in the key's direction; any other key returns null. */

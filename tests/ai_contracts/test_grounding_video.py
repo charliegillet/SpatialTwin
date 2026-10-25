@@ -292,14 +292,14 @@ async def test_schema_failure_names_fields_not_values(adapter, context, mock_htt
 
 
 def test_video_schema_leaves_operation_to_the_application():
-    from backend.app.ai.grounding.video import _VideoGroundingOutput, _video_response_schema
-    schema = _video_response_schema()
+    from backend.app.ai.grounding.adapter import _GroundingOutput, _grounding_response_schema
+    schema = _grounding_response_schema()
     assert "operation" not in schema["properties"]
     assert "operation" not in schema.get("required", [])
     base = {"status": "matched", "candidate_ids": ["portal:P2"], "selected_entity_type": "portal",
             "selected_entity_id": "P2", "evidence": "Token on the east pad in every frame.", "box_2d": None}
-    assert _VideoGroundingOutput.model_validate(base).operation == "SET_UNAVAILABLE"
+    assert _GroundingOutput.model_validate(base).operation == "SET_UNAVAILABLE"
     import pytest
     from pydantic import ValidationError
     with pytest.raises(ValidationError):
-        _VideoGroundingOutput.model_validate({**base, "operation": "OPEN_GATE"})
+        _GroundingOutput.model_validate({**base, "operation": "OPEN_GATE"})

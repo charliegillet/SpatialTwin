@@ -73,14 +73,19 @@ Coordinate = Annotated[StrictInt, Field(ge=0, le=1000)]
 
 
 class _GroundingOutput(BaseModel):
-    """Only provider-owned perception fields belong in the model response."""
+    """Only provider-owned perception fields belong in the model response.
+
+    `operation` is always SET_UNAVAILABLE; it is not perception, so the provider schema omits it and it is filled
+    here. Live camera reads on 25 October 2026 answered no_match with operation "NONE" and failed only on this
+    field. Any other value the model still sends fails closed.
+    """
 
     model_config = ConfigDict(extra="forbid", strict=True)
     status: Literal["matched", "ambiguous", "no_match"]
     candidate_ids: list[Literal["portal:P1", "portal:P2", "boundary:B2"]] = Field(max_length=3)
     selected_entity_type: Optional[Literal["portal", "boundary"]]
     selected_entity_id: Optional[Literal["P1", "P2", "B2"]]
-    operation: Literal["SET_UNAVAILABLE"]
+    operation: Literal["SET_UNAVAILABLE"] = "SET_UNAVAILABLE"
     evidence: str = Field(min_length=1, max_length=1000)
     box_2d: Optional[Annotated[list[Coordinate], Field(min_length=4, max_length=4)]]
 
@@ -103,6 +108,15 @@ class _GroundingOutput(BaseModel):
             if ymin >= ymax or xmin >= xmax:
                 raise ValueError("unordered or empty box")
         return self
+
+
+def _grounding_response_schema() -> dict:
+    """The provider schema: every output field except the application-owned `operation`."""
+    schema = _GroundingOutput.model_json_schema()
+    schema.get("properties", {}).pop("operation", None)
+    if "required" in schema:
+        schema["required"] = [name for name in schema["required"] if name != "operation"]
+    return schema
 
 
 def _json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -231,7 +245,7 @@ class GroundingAdapter:
                     {"type": "image", "data": image_base64, "mime_type": "image/jpeg"},
                 ],
                 generation_config={"thinking_level": thinking_level, "max_output_tokens": 8192},
-                response_format={"type": "text", "mime_type": "application/json", "schema": _GroundingOutput.model_json_schema()},
+                response_format={"type": "text", "mime_type": "application/json", "schema": _grounding_response_schema()},
                 # The documented stored-interaction mode supports durable
                 # provider-side observability/retrieval by interaction receipt.
                 store=True,

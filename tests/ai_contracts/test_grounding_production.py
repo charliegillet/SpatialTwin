@@ -121,7 +121,9 @@ async def test_real_sdk_async_schema_image_and_typed_usage(adapter, capture, con
     assert body["response_format"]["mime_type"] == "application/json"
     schema = body["response_format"]["schema"]
     assert schema["additionalProperties"] is False
-    assert set(schema["required"]) == set(VALID_OUTPUT)
+    # `operation` is application-owned: the provider schema never asks for it.
+    assert "operation" not in schema["properties"]
+    assert set(schema["required"]) == set(VALID_OUTPUT) - {"operation"}
     assert body["generation_config"] == {"thinking_level": "low", "max_output_tokens": 8192}
     content = body["input"][0]["content"]
     assert content[1] == {"type": "image", "mime_type": "image/jpeg", "data": capture.image_base64}
@@ -281,6 +283,19 @@ async def test_valid_boundary_and_abstention_results_remain_reviewable(adapter, 
     assert result.provenance == "live"
     assert result.proposal.selected_entity_id == payload["selected_entity_id"]
     assert result.proposal.status.value == payload["status"]
+
+
+@pytest.mark.asyncio
+async def test_abstention_without_operation_is_reviewable(adapter, capture, context, mock_http):
+    # The live provider answered a camera still with no board this way on 25 October 2026.
+    state, _ = mock_http
+    payload = {"status": "no_match", "candidate_ids": [], "selected_entity_type": None, "selected_entity_id": None,
+               "evidence": "The SpatialTwin tabletop model, token pads, and BLOCKED tokens are not visible.", "box_2d": None}
+    state["response"]["steps"][0]["content"][0]["text"] = json.dumps(payload)
+    result = await adapter.interpret_capture(capture, context)
+    assert result.status == "completed", result.errors
+    assert result.proposal.status == GroundingStatus.NO_MATCH
+    assert result.proposal.operation == "SET_UNAVAILABLE"
 
 
 @pytest.mark.asyncio
