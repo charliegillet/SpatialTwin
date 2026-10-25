@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { graphToScene } from './graphToScene'
 import type { Door, VenueGraph, Zone } from '../types'
 
 export const WALL_HEIGHT_M = 2.7
@@ -29,7 +30,7 @@ function wallBox(
   const geo = new THREE.BoxGeometry(horizontal ? len : WALL_THICK, WALL_HEIGHT_M, horizontal ? WALL_THICK : len)
   const m = new THREE.Mesh(geo, mat)
   m.name = name
-  m.position.set((x0 + x1) / 2, WALL_HEIGHT_M / 2, (y0 + y1) / 2)
+  m.position.copy(graphToScene((x0 + x1) / 2, (y0 + y1) / 2, WALL_HEIGHT_M / 2))
   group.add(m)
 }
 
@@ -62,7 +63,7 @@ function zoneWalls(zone: Zone, doors: Door[], group: THREE.Object3D, mat: THREE.
   })
 }
 
-/** Pure scene construction: no DOM, no renderer. Graph (x,y) -> three (x,0,y). */
+/** Pure scene construction: no DOM, no renderer. Graph (x,y) -> three (x,0,-y) (right-handed, +y graph = -z three). */
 export function buildScene(graph: VenueGraph, opts: BuildOpts): THREE.Scene {
   const scene = new THREE.Scene()
   scene.background = new THREE.Color(0xdfe6ee)
@@ -80,7 +81,7 @@ export function buildScene(graph: VenueGraph, opts: BuildOpts): THREE.Scene {
       new THREE.MeshStandardMaterial({ color: floorColors[i % floorColors.length] }),
     )
     floor.name = `zone:${z.id}`
-    floor.position.set(x + w / 2, -0.025, y + h / 2)
+    floor.position.copy(graphToScene(x + w / 2, y + h / 2, -0.025))
     scene.add(floor)
     zoneWalls(z, graph.doors, scene, wallMat)
   })
@@ -98,7 +99,7 @@ export function buildScene(graph: VenueGraph, opts: BuildOpts): THREE.Scene {
     const frame = new THREE.Mesh(
       new THREE.BoxGeometry(onXEdge ? 0.2 : wdt, 0.12, onXEdge ? wdt : 0.2), mat)
     frame.name = `door:${d.id}`
-    frame.position.set(d.position[0], 2.1, d.position[1])
+    frame.position.copy(graphToScene(d.position[0], d.position[1], 2.1))
     scene.add(frame)
 
     if (d.b === 'OUTSIDE' || d.kind === 'exit') {
@@ -106,7 +107,7 @@ export function buildScene(graph: VenueGraph, opts: BuildOpts): THREE.Scene {
         new THREE.BoxGeometry(0.5, 0.25, 0.1),
         new THREE.MeshStandardMaterial({ color: 0x1fbf5f, emissive: 0x1fbf5f, emissiveIntensity: 0.8 }))
       sign.name = `exit:${d.id}`
-      sign.position.set(d.position[0], 2.4, d.position[1])
+      sign.position.copy(graphToScene(d.position[0], d.position[1], 2.4))
       scene.add(sign)
     }
   }
@@ -118,7 +119,7 @@ export function buildScene(graph: VenueGraph, opts: BuildOpts): THREE.Scene {
       new THREE.BoxGeometry(0.8, 0.8, 0.8),
       new THREE.MeshStandardMaterial({ color: 0xff2020, emissive: 0xff0000, emissiveIntensity: 1.0 }))
     hz.name = `hazard:${id}`
-    hz.position.set(d.position[0], 0.4, d.position[1])
+    hz.position.copy(graphToScene(d.position[0], d.position[1], 0.4))
     scene.add(hz)
   }
 
@@ -130,7 +131,7 @@ export function buildScene(graph: VenueGraph, opts: BuildOpts): THREE.Scene {
       new THREE.BoxGeometry(0.2, Math.max(0.05, flow), 0.2),
       new THREE.MeshStandardMaterial({ color: 0x2060ff }))
     bar.name = `flow:${id}`
-    bar.position.set(d.position[0], Math.max(0.05, flow) / 2, d.position[1])
+    bar.position.copy(graphToScene(d.position[0], d.position[1], Math.max(0.05, flow) / 2))
     scene.add(bar)
   }
   return scene

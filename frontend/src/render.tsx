@@ -12,7 +12,9 @@ async function main() {
   const q = new URLSearchParams(location.search)
   const url = q.get('graph')
   if (!url) throw new Error('missing ?graph=')
-  const graph = (await (await fetch(url)).json()) as VenueGraph
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`graph fetch failed: ${res.status}`)
+  const graph = (await res.json()) as VenueGraph
   const hazards = (q.get('hazards') ?? '').split(',').filter(Boolean)
   const scene = buildScene(graph, { hazards })
 
@@ -20,8 +22,9 @@ async function main() {
   if (q.get('view') === 'top') {
     camera = topDownCamera(graph)
   } else {
-    const t = Number(q.get('t') ?? graph.keyframes[0]?.t_s ?? 0)
     if (!graph.keyframes.length) throw new Error('graph has no keyframes')
+    const t = Number(q.get('t') ?? graph.keyframes[0].t_s)
+    if (!Number.isFinite(t) || q.get('t') === '') throw new Error(`invalid t: ${q.get('t')}`)
     // keyframe nearest in time
     const k = graph.keyframes.reduce((a, b) => (Math.abs(b.t_s - t) < Math.abs(a.t_s - t) ? b : a))
     camera = cameraFor(k)
