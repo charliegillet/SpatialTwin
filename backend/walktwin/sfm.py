@@ -414,3 +414,19 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def from_graph_xyz(alignment: Alignment, x: float, y: float, height_m: float) -> tuple[float, float, float]:
+    """SfM world point at graph (x, y) metres and `height_m` above the floor.
+
+    Exact inverse of `to_graph_xy` and `height_above_floor_m` (reflection included).
+    """
+    u, v = _plane_basis(alignment.floor_normal, alignment._reflected)
+    n = np.asarray(alignment.floor_normal, float)
+    norm = float(np.linalg.norm(n))
+    c, si = math.cos(alignment.yaw_rad), math.sin(alignment.yaw_rad)
+    dx, dy = (x - alignment.tx) / alignment.scale, (y - alignment.ty) / alignment.scale
+    q0, q1 = c * dx + si * dy, -si * dx + c * dy  # R(yaw)^T applied
+    h = (height_m / alignment.scale - alignment.floor_offset) / norm
+    p = q0 * u + q1 * v + h * (n / norm)
+    return float(p[0]), float(p[1]), float(p[2])
