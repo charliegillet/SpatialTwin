@@ -1,5 +1,5 @@
 import {
-  canSend, doorAxis, HAZARD_INFO, labelPoint, mapViewBox, nameLines, parsePlan, PROPOSAL_STATUS_LABELS, proposeErrorMessage, roomAt, tapToMetres,
+  canSend, doorAxis, HAZARD_INFO, labelPoint, mapViewBox, nameLines, parsePlan, PROPOSAL_STATUS_LABELS, proposeErrorMessage, roomAt, tapToMetres, toScreen,
   type HazardType, type Plan, type ProposalPublic, type ProposerState, type Spot,
 } from './signView.ts';
 
@@ -43,6 +43,8 @@ function isProposerState(raw: unknown): raw is ProposerState {
   return !!value && typeof value.venue_id === 'string' && Array.isArray(value.rooms) && Array.isArray(value.hazard_types)
     && Array.isArray(value.mine) && typeof value.active === 'boolean' && parsePlan(value.plan) !== null;
 }
+
+const onMap = (plan: Plan, spot: Spot): Spot => { const [x, y] = toScreen(plan, [spot.x, spot.y]); return { x, y }; };
 
 function pin(parent: Element, spot: Spot, type: HazardType, radius: number, className: string): void {
   const group = svgNode('g', { class: className, transform: `translate(${spot.x} ${spot.y})` }, parent);
@@ -97,31 +99,32 @@ export function startProposePage(root: HTMLElement): void {
     mapHost.textContent = '';
     mapSvg = null;
     if (!plan) return;
+    const shown: Plan = plan;  // narrowed once for the callbacks below
     const { box, aspect } = mapViewBox(plan);
     const svg = svgNode('svg', { viewBox: box, class: 'plan-svg', role: 'img', 'aria-label': 'Floor plan. Tap a spot to place the hazard pin.', preserveAspectRatio: 'xMidYMid meet' });
     svg.style.aspectRatio = String(aspect);
     // Strokes, labels and marks are in metres; scale them with the venue so a big building stays legible on a phone.
     const unit = (plan.extent[0] / 40) * 1.6;
     for (const room of plan.rooms) {
-      svgNode('polygon', { points: room.polygon.map(p => p.join(',')).join(' '), class: 'plan-room', 'stroke-width': 0.18 * unit }, svg);
+      svgNode('polygon', { points: room.polygon.map(p => toScreen(shown, p).join(',')).join(' '), class: 'plan-room', 'stroke-width': 0.18 * unit }, svg);
     }
     for (const door of plan.doors) {
       const vertical = doorAxis(plan, door.position) === 'vertical';
       const half = door.width / 2;
-      const [x, y] = door.position;
+      const [x, y] = toScreen(plan, door.position);
       svgNode('line', {
         x1: vertical ? x : x - half, x2: vertical ? x : x + half, y1: vertical ? y - half : y, y2: vertical ? y + half : y,
         class: 'plan-door', 'stroke-width': 0.5 * unit,
       }, svg);
     }
     for (const room of plan.rooms) {
-      const [cx, cy] = labelPoint(room.polygon);
+      const [cx, cy] = toScreen(plan, labelPoint(room.polygon));
       const lines = nameLines(room.name);
       const label = svgNode('text', { x: cx, y: cy - (lines.length - 1) * 0.6 * unit, class: 'plan-name', 'font-size': unit, 'text-anchor': 'middle', 'dominant-baseline': 'middle' }, svg);
       lines.forEach((line, index) => svgNode('tspan', { x: cx, dy: index === 0 ? 0 : 1.2 * unit }, label, line));
     }
     for (const exit of plan.exits) {
-      const [x, y] = exit.position;
+      const [x, y] = toScreen(plan, exit.position);
       const r = 0.9 * unit;
       if (exit.kind === 'stair') svgNode('rect', { x: x - r, y: y - r, width: 2 * r, height: 2 * r, rx: r * 0.25, class: 'plan-exit' }, svg);
       else svgNode('circle', { cx: x, cy: y, r, class: 'plan-exit' }, svg);
@@ -150,9 +153,9 @@ export function startProposePage(root: HTMLElement): void {
     layer.textContent = '';
     const unit = (plan.extent[0] / 40) * 1.6;
     for (const item of data?.mine ?? []) {
-      if (item.position) pin(layer, item.position, item.type, 0.8 * unit, `pin-mine status-${item.status}`);
+      if (item.position) pin(layer, onMap(plan, item.position), item.type, 0.8 * unit, `pin-mine status-${item.status}`);
     }
-    if (spot) pin(layer, spot, type ?? 'FIRE', 1.15 * unit, 'pin-new');
+    if (spot) pin(layer, onMap(plan, spot), type ?? 'FIRE', 1.15 * unit, 'pin-new');
   }
 
   function render(): void {

@@ -229,7 +229,11 @@ export function roomAt(plan: Plan, x: number, y: number): PlanRoom | null {
   return plan.rooms.find(room => pointInPolygon(x, y, room.polygon)) ?? null;
 }
 
-/** The SVG viewBox in metres (y grows downward on screen) and the aspect ratio the element must have. */
+/** Venue metres (y grows north) -> map coordinates (y grows down the screen), so north is at the top, as on the posted
+ *  map and in the 3D twin. */
+export const toScreen = (plan: Plan, [x, y]: Pt): Pt => [x, plan.extent[1] - y];
+
+/** The SVG viewBox in map coordinates (see toScreen) and the aspect ratio the element must have. */
 export function mapViewBox(plan: Plan): { box: string; aspect: number } {
   const w = plan.extent[0] + 2 * MAP_PAD_M;
   const h = plan.extent[1] + 2 * MAP_PAD_M;
@@ -242,7 +246,7 @@ export function tapToMetres(plan: Plan, rect: { left: number; top: number; width
   const h = plan.extent[1] + 2 * MAP_PAD_M;
   return {
     x: Math.round(((clientX - rect.left) / rect.width * w - MAP_PAD_M) * 100) / 100,
-    y: Math.round(((clientY - rect.top) / rect.height * h - MAP_PAD_M) * 100) / 100,
+    y: Math.round((plan.extent[1] - ((clientY - rect.top) / rect.height * h - MAP_PAD_M)) * 100) / 100,
   };
 }
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  canSend, connectionNote, doorAxis, mapViewBox, parsePlan, roomAt, tapToMetres, exitDisplay, hazardSummary, overviewDisplays, parseSignState, proposeErrorMessage, routedLabel,
+  canSend, connectionNote, doorAxis, mapViewBox, toScreen, parsePlan, roomAt, tapToMetres, exitDisplay, hazardSummary, overviewDisplays, parseSignState, proposeErrorMessage, routedLabel,
   signDisplay, STALE_AFTER_MS,
 } from './signView.ts';
 
@@ -121,7 +121,9 @@ const PLAN = {
 test('a tap maps to venue metres and to its room', () => {
   const rect = { left: 10, top: 100, width: 430, height: 270 };  // 43 x 27 m with 1.5 m padding: 10 px per metre
   assert.deepEqual(tapToMetres(PLAN, rect, 10 + 215, 100 + 135), { x: 20, y: 12 });
-  assert.deepEqual(tapToMetres(PLAN, rect, 10 + 15, 100 + 15), { x: 0, y: 0 });
+  assert.deepEqual(tapToMetres(PLAN, rect, 10 + 15, 100 + 15), { x: 0, y: 24 }, 'north (high y) is at the top of the map');
+  assert.deepEqual(tapToMetres(PLAN, rect, 10 + 15, 100 + 255), { x: 0, y: 0 });
+  assert.deepEqual(toScreen(PLAN, [20, 4]), [20, 20]);
   assert.equal(roomAt(PLAN, 20, 12).id, 'HALL');
   assert.equal(roomAt(PLAN, 20, 4).id, 'LOBBY');
   assert.equal(roomAt(PLAN, 5, 4), null);
