@@ -185,7 +185,9 @@ class SalvageResult:
     error: Optional[str] = None
 
 
-_OUTSIDE_WORDS = {"OUTSIDE", "EXTERIOR", "STREET", "OUT", "EXIT"}
+# Words a model uses for "the other side is outdoors". Not EXIT or OUT: a door keyed to EXIT usually leads to an
+# exit stair or lobby the model also read as a room, and an invented outside exit is a safety claim.
+_OUTSIDE_WORDS = {"OUTSIDE", "EXTERIOR", "STREET"}
 _LIMITS = {"name": 40, "evidence": 160, "label": 40}
 
 
@@ -218,14 +220,32 @@ def salvage_draft(raw: Any) -> SalvageResult:
     """Validate a decoded model output element by element into a VenueDraftV1.
 
     Repairs that cannot change meaning are applied and listed (integral coordinates, clamping to the grid, key
-    normalisation, over-long text). A door to the outside becomes an exit. Every element that still fails its own
-    model, references an unknown room or repeats a key is dropped with a reason. Only a reading with no usable room
-    fails as a whole.
+    normalisation, over-long text). A door to the outside becomes an exit, but only when its other end is an outside
+    word and never a key the model also gave a room (that room was dropped: the door goes with it). Every element
+    that still fails its own model, references an unknown room or repeats a key is dropped with a reason. Two rooms
+    whose keys normalise to one key are ambiguous: a door or exit naming that key is kept only when its raw text is
+    exactly the kept room's key. Only a reading with no usable room fails as a whole.
     """
     result = SalvageResult(draft=None)
     if not isinstance(raw, dict):
         result.error = "draft_not_an_object"
         return result
+
+    # Every room key the model wrote, normalised -> the raw spellings (dropped rooms included).
+    raw_room_keys: Dict[str, List[Any]] = {}
+    for item in raw.get("rooms") or []:
+        if isinstance(item, dict) and isinstance(item.get("key"), str):
+            raw_room_keys.setdefault(_key(item["key"]), []).append(item["key"])
+    kept_spelling: Dict[str, Any] = {}       # normalised key -> raw spelling of the room that was kept
+
+    def ambiguous(value: Any) -> bool:
+        """A reference to a key two raw rooms share after normalising, unless it names the kept room exactly."""
+        if not isinstance(value, str):
+            return False
+        spellings = raw_room_keys.get(_key(value), [])
+        if len(spellings) < 2:
+            return False
+        return not (kept_spelling.get(_key(value)) == value and spellings.count(value) == 1)
 
     def text(item: Dict[str, Any], name: str, what: str) -> None:
         limit = _LIMITS[name]
@@ -260,6 +280,7 @@ def salvage_draft(raw: Any) -> SalvageResult:
     seen: set = set()
     rooms: List[DraftRoom] = []
     for item in raw.get("rooms") or []:
+        spelling = item.get("key") if isinstance(item, dict) else None
         item = prepare(item, "room")
         if item is None:
             continue
@@ -275,25 +296,33 @@ def salvage_draft(raw: Any) -> SalvageResult:
         else:
             seen.add(room.key)
             rooms.append(room)
+            kept_spelling[room.key] = spelling
     room_keys = {room.key for room in rooms}
 
     doors: List[DraftDoor] = []
     exits: List[DraftExit] = []
+    from_doors: List[Dict[str, Any]] = []
     for item in raw.get("doors") or []:
+        raw_between = item.get("between") if isinstance(item, dict) else None
+        unclear = [value for value in raw_between if ambiguous(value)] if isinstance(raw_between, list) else []
         item = prepare(item, "door")
         if item is None:
+            continue
+        if unclear:
+            result.dropped.append(f"door {str(item.get('key', '?'))[:24]}: room key {str(unclear[0])[:24]!r} is "
+                                  f"ambiguous (two rooms normalise to {_key(unclear[0])})")
             continue
         between = item.get("between") if isinstance(item.get("between"), list) else []
         known = [key for key in between if key in room_keys]
         unknown = [key for key in between if key not in room_keys]
-        if len(between) == 2 and len(known) == 1 and unknown and unknown[0] in _OUTSIDE_WORDS:
+        if (len(between) == 2 and len(known) == 1 and unknown and unknown[0] in _OUTSIDE_WORDS
+                and unknown[0] not in raw_room_keys):
             # A door from a room to the outside is an exit, not an internal door.
             item = {"key": item.get("key"), "room": known[0], "point": item.get("point"),
                     "width_m": item.get("width_m"), "kind": "door", "label": "door to outside",
                     "confidence": item.get("confidence", 0.5), "evidence": item.get("evidence", "")}
             result.repaired.append(f"door {item['key']}: leads outside, kept as an exit")
-            raw_exits = list(raw.get("exits") or [])
-            raw = {**raw, "exits": raw_exits + [item]}
+            from_doors.append(item)
             continue
         try:
             door = DraftDoor.model_validate(item)
@@ -301,8 +330,11 @@ def salvage_draft(raw: Any) -> SalvageResult:
             result.dropped.append(f"door {item.get('key', '?')}: {_issue(error)}")
             continue
         a, b = door.between
+        dropped_rooms = [key for key in (a, b) if key not in room_keys and key in raw_room_keys]
         if door.key in seen:
             result.dropped.append(f"door {door.key}: duplicate key")
+        elif dropped_rooms:
+            result.dropped.append(f"door {door.key}: joins room {dropped_rooms[0]}, which was dropped")
         elif a == b or a not in room_keys or b not in room_keys:
             missing = ", ".join(key for key in (a, b) if key not in room_keys) or a
             result.dropped.append(f"door {door.key}: joins unknown or identical room {missing}")
@@ -312,7 +344,13 @@ def salvage_draft(raw: Any) -> SalvageResult:
             seen.add(door.key)
             doors.append(door)
 
-    for item in raw.get("exits") or []:
+    # Exits the model listed, then doors to the outside kept as exits (their room was checked as a door end).
+    listed = [(item, True) for item in raw.get("exits") or []] + [(item, False) for item in from_doors]
+    for item, check_room in listed:
+        if check_room and isinstance(item, dict) and ambiguous(item.get("room")):
+            result.dropped.append(f"exit {str(item.get('key', '?'))[:24]}: room key {str(item['room'])[:24]!r} is "
+                                  f"ambiguous (two rooms normalise to {_key(item['room'])})")
+            continue
         item = prepare(item, "exit")
         if item is None:
             continue

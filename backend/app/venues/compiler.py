@@ -30,7 +30,7 @@ from pydantic import ValidationError
 
 from backend.app.ai.real2sim.schema import CompileReport, CompileResult, DraftDoor, DraftRoom, \
     SourceImage, VenueDraftV1
-from backend.app.venues.model import VenueV2, load_building_v2
+from backend.app.venues.model import VenueV2, load_building_v2, point_in_polygon
 
 # ---- declared defaults (documented in docs/plans/contracts/compiler.md) -----------------------------------------
 GRID_M = 0.1                       # every coordinate is rounded to 0.1 m
@@ -54,6 +54,10 @@ LED_PIXELS_PER_ELEMENT = 3
 MIN_HORIZON_S, MAX_HORIZON_S = 30, 120
 WALK_SPEED_M_PER_S = 1.6           # horizon = (width + height) / 1.6 s plus queueing time, see _horizon
 MAX_FREE_DOORS = 3
+# An exit stair with no outside wall (an upper floor's stair core) is a way down inside its room, not a wall
+# opening. Only circulation space can hold one: a "stair" inside an office or a bedroom is a misreading.
+INTERIOR_STAIR_ROOMS = frozenset({"stair", "lobby", "corridor"})
+STAIR_CLEARANCE_M = 0.5            # the drawn or label point must sit this far inside every wall of the room
 EPS = 1e-9
 
 Rect = Tuple[float, float, float, float]            # x0, y0, x1, y1 in metres, y0 < y1
@@ -87,7 +91,9 @@ class _Frame:
 
 # ---- snapping --------------------------------------------------------------------------------------------------
 def _cluster(values: Sequence[float], tol: float) -> Tuple[Dict[float, float], List[Tuple[List[float], float]]]:
-    """Single-linkage clusters of 1-D coordinates (gap <= tol, span <= 2*tol); lowest cluster pinned to 0."""
+    """Single-linkage clusters of 1-D coordinates (gap <= tol, span <= 2*tol); the lowest cluster is pinned to 0
+    when it holds the frame origin. A void drawn along the west or south edge frames the building but is not a
+    room, so the rooms then start east or north of 0 and keep that offset (no hidden shift against the overlay)."""
     clusters: List[List[float]] = []
     for value in sorted(set(values)):
         if clusters and value - clusters[-1][-1] <= tol and value - clusters[-1][0] <= 2 * tol:
@@ -97,7 +103,7 @@ def _cluster(values: Sequence[float], tol: float) -> Tuple[Dict[float, float], L
     reps: List[float] = []
     groups: List[List[List[float]]] = []
     for i, cluster in enumerate(clusters):
-        rep = 0.0 if i == 0 else _r1(sum(cluster) / len(cluster))
+        rep = 0.0 if i == 0 and cluster[0] <= tol else _r1(sum(cluster) / len(cluster))
         if reps and rep <= reps[-1] + GRID_M / 2:        # two clusters rounding to one grid line: merge them
             groups[-1].append(cluster)
             continue
@@ -241,6 +247,43 @@ def _place(point: Tuple[float, float], seg: Segment, width: float) -> Tuple[Tupl
     return ((along, at) if axis == "h" else (at, along)), width
 
 
+def _rect_segments(rect: Rect) -> List[Segment]:
+    x0, y0, x1, y1 = rect
+    return _segments([(x0, y0), (x1, y0), (x1, y1), (x0, y1)])
+
+
+def _overlaps(a: Segment, b: Segment) -> bool:
+    return a[0] == b[0] and abs(a[1] - b[1]) < EPS and min(a[3], b[3]) - max(a[2], b[2]) > EPS
+
+
+def _snap_to_rooms(value: float, mapping: Dict[float, float], tol: float) -> float:
+    """A coordinate that is not a room edge (a void's) onto the grid line of the nearest room edge within the
+    snapping tolerance, so a void drawn against a wall shares that wall exactly; otherwise it is only rounded."""
+    nearest = min(mapping, key=lambda raw: (abs(raw - value), raw))
+    return mapping[nearest] if abs(nearest - value) <= tol else _r1(value)
+
+
+def _wall_clearance(point: Tuple[float, float], polygon: Sequence[Tuple[float, float]]) -> float:
+    """Distance from ``point`` to the nearest wall of a rectilinear room."""
+    px, py = point
+    best = math.inf
+    for axis, at, lo, hi in _segments(polygon):
+        along, across = (px, py) if axis == "h" else (py, px)
+        best = min(best, math.hypot(along - min(max(along, lo), hi), across - at))
+    return best
+
+
+def _interior_point(candidates: Sequence[Tuple[str, Tuple[float, float], float]],
+                    polygon: Sequence[Tuple[float, float]]) -> Optional[Tuple[str, Tuple[float, float]]]:
+    """The first candidate (rounded to 1 cm) inside ``polygon`` at least its clearance from every wall."""
+    for how, (x, y), clearance in candidates:
+        point = (round(x, 2), round(y, 2))
+        gap = _wall_clearance(point, polygon)
+        if point_in_polygon(point[0], point[1], polygon) and gap > 1e-6 and gap >= clearance:
+            return how, point
+    return None
+
+
 # ---- helpers ---------------------------------------------------------------------------------------------------
 def _distribute(total: int, areas: Dict[str, float], caps: Dict[str, int]) -> Dict[str, int]:
     """Largest-remainder split of ``total`` over rooms by area, never above a room's cap."""
@@ -299,8 +342,10 @@ def compile_draft(draft: VenueDraftV1, image: SourceImage, *, venue_id: str,
     # Voids (open to below, atria, light wells, shafts) are drawn on the plan but are not floor. They still frame the
     # building (the scale and the overlay use the full drawing) but never become zones; openings into them are not
     # doors and an exit cannot be in one. A real evacuation map reads them this way, and without it they would be
-    # unreachable "rooms" that block Accept.
-    voids = {room.key for room in draft.rooms if room.kind == "void"}
+    # unreachable "rooms" that block Accept. Their outlines are kept (in metres, below) for one purpose: a wall that
+    # faces an atrium is not an outside wall, so no exit is placed on it.
+    void_rooms = [room for room in draft.rooms if room.kind == "void"]
+    voids = {room.key for room in void_rooms}
     if voids:
         for key in sorted(voids):
             report.edits.append(f"room {key}: open to below / void; kept out of the walkable floor")
@@ -375,6 +420,9 @@ def compile_draft(draft: VenueDraftV1, image: SourceImage, *, venue_id: str,
     # -- rooms -> rectilinear polygons --------------------------------------------------------------------------
     rooms: Dict[str, DraftRoom] = {}
     polygons: Dict[str, List[Tuple[float, float]]] = {}
+    # Drawn outlines that are not zones but are not outside either: voids, and extra boxes the compiler could not
+    # attach to their room (still drawn floor). Exits never go on a wall facing one of them.
+    not_outside: Dict[str, List[Segment]] = {}
     for room in draft.rooms:
         rects = [(map_x[r[0]], map_y[r[1]], map_x[r[2]], map_y[r[3]]) for r in raw[room.key]]
         if rects[0][2] - rects[0][0] < GRID_M / 2 or rects[0][3] - rects[0][1] < GRID_M / 2:
@@ -391,6 +439,7 @@ def compile_draft(draft: VenueDraftV1, image: SourceImage, *, venue_id: str,
             for i in range(1, len(kept)):
                 if i not in linked:
                     report.dropped.append(f"room {room.key}: extra box {i} does not touch the room; ignored")
+                    not_outside[f"the unattached extra box {i} of {room.key}"] = _rect_segments(kept[i])
             kept = [kept[i] for i in linked]
             if len(kept) > 1:
                 report.edits.append(f"room {room.key}: merged {len(kept)} boxes into one rectilinear outline")
@@ -402,6 +451,14 @@ def compile_draft(draft: VenueDraftV1, image: SourceImage, *, venue_id: str,
     width_m = max(p[0] for poly in polygons.values() for p in poly)
     height_m = max(p[1] for poly in polygons.values() for p in poly)
     seg = {k: _segments(p) for k, p in polygons.items()}
+    for room in void_rooms:
+        for i, box in enumerate([room.box, *room.extra_boxes]):
+            x0, y1 = frame.to_m(box[0], box[1])
+            x1, y0 = frame.to_m(box[2], box[3])
+            rect = (_snap_to_rooms(x0, map_x, tol_x), _snap_to_rooms(y0, map_y, tol_y),
+                    _snap_to_rooms(x1, map_x, tol_x), _snap_to_rooms(y1, map_y, tol_y))
+            if rect[2] - rect[0] > GRID_M / 2 and rect[3] - rect[1] > GRID_M / 2:
+                not_outside[f"void {room.key}" + (f" (box {i})" if i else "")] = _rect_segments(rect)
 
     # -- ids -----------------------------------------------------------------------------------------------------
     reserved = {f"D{i}" for i in range(1, len(draft.doors) + 1)} | {f"E{i}" for i in range(1, len(draft.exits) + 1)}
@@ -509,27 +566,57 @@ def compile_draft(draft: VenueDraftV1, image: SourceImage, *, venue_id: str,
         if ex.room not in rooms:
             report.dropped.append(f"exit {ex.key}: its room {ex.room} was dropped")
             continue
-        outside = _exterior(seg[ex.room], (seg[k] for k in rooms if k != ex.room))
-        wall = _nearest_segment(frame.to_m(ex.point[0], ex.point[1]), outside, MIN_OPENING_M)
-        stair = ex.kind == "stair" or rooms[ex.room].kind == "stair"
-        stair_core = False
-        if wall is None and stair:
-            # On an upper floor the exit is a stair core inside the floor plate, with no outside wall: the stair is
-            # the way out, so the exit sits on the core's own wall nearest the drawn point.
-            wall = _nearest_segment(frame.to_m(ex.point[0], ex.point[1]), seg[ex.room], MIN_OPENING_M)
-            stair_core = wall is not None
-            if stair_core:
-                report.edits.append(f"exit {ex.key}: stair core inside the floor; exit placed on its own stair wall")
-        if wall is None:
-            report.dropped.append(f"exit {ex.key}: {ex.room} has no outside wall long enough for an exit; dropped")
-            continue
-        default_width = ex.width_m is None
+        room = rooms[ex.room]
+        point = frame.to_m(ex.point[0], ex.point[1])
+        # An exit the drawing marks as a stair is the way down inside the floor, never a wall opening: on an upper
+        # floor a stair drawn as a facade door would be an exit into the air, and on a shared wall it would cut into
+        # the next room. Door and window exits look for an outside wall first.
+        stair_exit = ex.kind == "stair"
+        wall = None
+        if not stair_exit:
+            neighbours = [seg[k] for k in rooms if k != ex.room]
+            wall = _nearest_segment(point, _exterior(seg[ex.room], neighbours + list(not_outside.values())),
+                                    MIN_OPENING_M)
+            naive = _nearest_segment(point, _exterior(seg[ex.room], neighbours), MIN_OPENING_M)
+            if naive is not None and naive != wall:
+                facing = [what for what, outline in not_outside.items()
+                          if any(_overlaps(naive, s) for s in outline)]
+                if facing:
+                    report.edits.append(f"exit {ex.key}: the wall of {ex.room} nearest its point faces "
+                                        f"{', '.join(facing)} (drawn, not outside); not used as an outside wall")
         window = ex.kind == "window"
+        default_width = ex.width_m is None
         want = ex.width_m if ex.width_m else (DEFAULT_WINDOW_M if window else DEFAULT_DOOR_M)
         want = min(max(want, MIN_OPENING_M), MAX_OPENING_M)
-        pos, width = _place(frame.to_m(ex.point[0], ex.point[1]), wall, want)
-        if width < want - 1e-9:
-            report.edits.append(f"exit {ex.key}: narrowed to {_fmt(width)} m to fit the outside wall")
+        # A door or window exit in a stair room with no outside wall is that stair core's way out: also inside.
+        interior = stair_exit or (wall is None and room.kind == "stair")
+        if interior:
+            if room.kind not in INTERIOR_STAIR_ROOMS:
+                report.dropped.append(f"exit {ex.key}: an exit stair in {ex.room} ({room.kind}); an interior exit "
+                                      f"stair must be in a stair, lobby or corridor; dropped")
+                continue
+            polygon = polygons[ex.room]
+            xs, ys = [p[0] for p in polygon], [p[1] for p in polygon]
+            found = _interior_point([
+                ("drawn point", point, STAIR_CLEARANCE_M),
+                ("room label point", frame.to_m(room.label_point[0], room.label_point[1]), STAIR_CLEARANCE_M),
+                ("room centre", ((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2), 0.0)], polygon)
+            if found is None:
+                report.dropped.append(f"exit {ex.key}: no point inside {ex.room} clear of its walls for the interior "
+                                      f"exit stair; dropped")
+                continue
+            how, pos = found
+            width = want
+            why = "exit stair" if stair_exit else "stair room with no outside wall"
+            report.edits.append(f"exit {ex.key}: {why}; placed inside {ex.room} at ({_fmt(pos[0])}, "
+                                f"{_fmt(pos[1])}) m ({how}), not in a wall")
+        elif wall is None:
+            report.dropped.append(f"exit {ex.key}: {ex.room} has no outside wall long enough for an exit; dropped")
+            continue
+        else:
+            pos, width = _place(point, wall, want)
+            if width < want - 1e-9:
+                report.edits.append(f"exit {ex.key}: narrowed to {_fmt(width)} m to fit the outside wall")
         index += 1
         eid = f"E{index}"
         if default_width:
@@ -542,11 +629,11 @@ def compile_draft(draft: VenueDraftV1, image: SourceImage, *, venue_id: str,
         printed = ex.label.strip()
         generic = printed.upper().rstrip(".!") in ("", "EXIT", "EXITS", "EMERGENCY EXIT", "FIRE EXIT")
         label = printed if not generic else ("Escape window" if window else
-                                             rooms[ex.room].name if "exit" in rooms[ex.room].name.lower()
-                                             else f"{rooms[ex.room].name} exit")
+                                             room.name if "exit" in room.name.lower() else f"{room.name} exit")
+        # "stair" means exactly this: inside its room, not in a wall (graph_checks and the 3D walls rely on it).
         venue_exits.append({"id": eid, "zone": zone_id[ex.room], "name": label, "position": [pos[0], pos[1]],
                             "width": width, "service_rate_per_sec": round(width * per_m, 2),
-                            "kind": "stair" if stair else ("window" if window else "door")})
+                            "kind": "stair" if interior else ("window" if window else "door")})
     if not venue_exits:
         return CompileResult(None, report, "no_exit_survived")
     for key in rooms:

@@ -84,3 +84,21 @@ def test_topdown_is_bounded_and_deterministic(width):
 def test_topdown_renders_the_shipped_building():
     img = decode(render_topdown(load_building_v2()))
     assert img.width > 1000 and img.height > 600
+
+
+def test_an_interior_exit_stair_is_a_box_at_its_point_not_a_wall_tick():
+    """An interior stair is on no wall: both renders draw a small green box at (6.0, 6.6) m inside the core."""
+    from tests.real2sim.test_compiler_stairs_voids import core_raw
+
+    raw = core_raw(exit_point=(460, 500), label=(440, 520))
+    draft = build(raw)
+    result = compile_draft(draft, SourceImage(1000, 1000, ""), venue_id="home-test", building_width_m=12)
+    stair = next(e for e in result.venue.exits if e.kind == "stair")
+    assert stair.position == (6.0, 6.6)
+    # Overlay: 6.0 m, 6.6 m is draft [y=460, x=500]; the 0.9 m box spans 60 px around it, filled translucent green.
+    out = decode(render_overlay(image_bytes(), draft, result))
+    p = out.getpixel((520, 450))
+    assert p[1] > p[0] + 40 and p[1] > p[2] + 20
+    # Top-down at 1200 px: 40 px margin, 93.3 px per metre, so the stair centre is at (600, 544).
+    top = decode(render_topdown(result.venue, 1200))
+    assert top.getpixel((620, 524)) == (196, 230, 208)

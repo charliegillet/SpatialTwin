@@ -90,6 +90,7 @@ def check_venue(venue: VenueV2) -> List[GraphIssue]:
 
     # Openings sit on walls: a door inside the wall both rooms share, an exit inside an outside wall of its room.
     # The whole opening must fit, not just its centre: a door at a corner or T-junction has no wall to open.
+    # The one exception is an interior exit stair (kind "stair"): it sits strictly inside its room, on no wall.
     for door in venue.doors:
         a, b = (zones[z] for z in door.zones)
         if not (_on_boundary(door.position, a.polygon) and _on_boundary(door.position, b.polygon)):
@@ -105,14 +106,21 @@ def check_venue(venue: VenueV2) -> List[GraphIssue]:
         zone = zones[exit_.zone]
         others = [other for other in venue.zones if other.id != zone.id]
         if exit_.kind == "stair":
-            # An exit stair core inside the floor plate: on a wall of its own zone, interior walls allowed.
-            if not _on_boundary(exit_.position, zone.polygon) or not _opening_fits(
-                    exit_.position, exit_.width, [zone.polygon], None):
-                issues.append(GraphIssue("exit_off_its_stair_wall", "error",
-                                         f"{exit_.id} is not on a wall of its stair {zone.name}.", (exit_.id,)))
+            # An interior exit stair (an upper floor's stair core) is the way down inside its room, not an opening:
+            # on a wall it would cut into whatever room is on the other side, which the planner never connects.
+            if not _strictly_inside(exit_.position[0], exit_.position[1], zone.polygon):
+                issues.append(GraphIssue("stair_exit_not_inside_its_room", "error",
+                                         f"{exit_.id} is an exit stair but is not inside its room {zone.name}.",
+                                         (exit_.id,)))
             if not MIN_OPENING_M <= exit_.width <= MAX_OPENING_M:
                 issues.append(GraphIssue("unusual_width", "warning", f"{exit_.id} is {exit_.width:.1f} m wide.", (exit_.id,)))
             continue
+        # A wall exit and a door cannot share one gap: the 3D wall shows one opening that the planner reads as two.
+        for door in venue.doors:
+            if _openings_overlap(exit_.position, exit_.width, [zone.polygon],
+                                 door.position, door.width, [zones[z].polygon for z in door.zones]):
+                issues.append(GraphIssue("exit_overlaps_door", "error",
+                                         f"{exit_.id} overlaps door {door.id} on the same wall.", (exit_.id, door.id)))
         shared = [other.id for other in others if _on_boundary(exit_.position, other.polygon)]
         if not _on_boundary(exit_.position, zone.polygon) or shared:
             issues.append(GraphIssue("exit_not_on_outside_wall", "error",
@@ -189,6 +197,17 @@ def _axis_spans(point, polygon) -> List[Tuple[str, float, float, float]]:
         elif abs(ax - bx) < EPS and abs(point[0] - ax) < EPS and min(ay, by) - EPS <= point[1] <= max(ay, by) + EPS:
             spans.append(("y", ax, min(ay, by), max(ay, by)))
     return spans
+
+
+def _openings_overlap(a, a_width: float, a_polygons: List, b, b_width: float, b_polygons: List) -> bool:
+    """True when two axis-aligned openings lie on one wall line and their gaps (centre ± width/2) intersect."""
+    a_lines = {(axis, round(line, 6)) for polygon in a_polygons for axis, line, _, _ in _axis_spans(a, polygon)}
+    b_lines = {(axis, round(line, 6)) for polygon in b_polygons for axis, line, _, _ in _axis_spans(b, polygon)}
+    for axis, _ in a_lines & b_lines:
+        along_a, along_b = (a[0], b[0]) if axis == "x" else (a[1], b[1])
+        if abs(along_a - along_b) < (a_width + b_width) / 2 - EPS:
+            return True
+    return False
 
 
 def _opening_fits(point, width: float, sides: List, other_side: Optional[List], blocked: Optional[List] = None) -> bool:

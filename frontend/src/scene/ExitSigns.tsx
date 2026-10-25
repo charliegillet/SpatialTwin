@@ -37,6 +37,19 @@ function xGeometry(): THREE.BufferGeometry {
   return merged;
 }
 
+/** Floor marker for an interior exit stair: a square outline of the given side with three treads across it. */
+function stairGeometry(side: number): THREE.BufferGeometry {
+  const outer = side / Math.SQRT2;
+  const ring = new THREE.RingGeometry(outer * 0.82, outer, 4, 1, Math.PI / 4).toNonIndexed();
+  const treads = [-0.25, 0, 0.25].map((t) => new THREE.PlaneGeometry(side * 0.62, 0.06).translate(0, t * side, 0).toNonIndexed());
+  const parts = [ring, ...treads].map((g) => g.getAttribute('position').array as Float32Array);
+  const pos = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
+  parts.reduce((offset, p) => { pos.set(p, offset); return offset + p.length; }, 0);
+  const merged = new THREE.BufferGeometry();
+  merged.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  return merged;
+}
+
 function ExitSign({ exit, reducedMotion }: { exit: ExitRender; reducedMotion: boolean }) {
   const chevrons = useRef<(THREE.Mesh | null)[]>([]);
   const billboard = useRef<THREE.Group>(null);
@@ -44,6 +57,8 @@ function ExitSign({ exit, reducedMotion }: { exit: ExitRender; reducedMotion: bo
   const prevLamp = useRef(exit.lamp);
   const chevron = useMemo(chevronGeometry, []);
   const cross = useMemo(xGeometry, []);
+  const stairSide = Math.max(exit.width, 1.0);
+  const stair = useMemo(() => (exit.interior ? stairGeometry(stairSide) : null), [exit.interior, stairSide]);
   const [x, y] = exit.position;
   const [ox, oy] = exit.outward;
   // Direction of travel on the floor: chevron local +y must point along outward (floor) = world (ox, 0, -oy).
@@ -82,18 +97,29 @@ function ExitSign({ exit, reducedMotion }: { exit: ExitRender; reducedMotion: bo
   const showUnsafe = exit.kind === 'unsafe';
   const lampY = WALL_HEIGHT + 0.3;
   const barSize: [number, number, number] = exit.axis === 'x' ? [exit.width, 0.1, 0.1] : [0.1, 0.1, exit.width];
+  // A wall exit's chevrons run through the doorway; an interior stair's lead up to its floor marker, and only those
+  // whose tail (0.8 m behind the tip) stays on its room's floor are drawn. The floor X sits just inside a wall exit,
+  // or on the stair itself.
+  const lead = exit.interior ? -stairSide / 2 - 2.0 : -1.2;
+  const inward = exit.interior ? 0 : 1.2;
+  const shown = [0, 1, 2].filter((i) => i * 0.9 + lead - 0.8 >= -exit.approach + 0.1);
   return (
     <group>
       <mesh position={toWorld(x, y, lampY)}>
         <boxGeometry args={barSize} />
         <meshBasicMaterial color={exit.color} />
       </mesh>
-      {showSafe && [0, 1, 2].map((i) => (
+      {stair && (
+        <mesh geometry={stair} position={toWorld(x, y, 0.025)} rotation={[-Math.PI / 2, 0, 0]}>
+          <meshBasicMaterial color={exit.color} side={THREE.DoubleSide} />
+        </mesh>
+      )}
+      {showSafe && shown.map((i) => (
         <mesh
           key={i}
           ref={(el) => { chevrons.current[i] = el; }}
           geometry={chevron}
-          position={toWorld(x + ox * (i * 0.9 - 1.2), y + oy * (i * 0.9 - 1.2), 0.03)}
+          position={toWorld(x + ox * (i * 0.9 + lead), y + oy * (i * 0.9 + lead), 0.03)}
           rotation={[-Math.PI / 2, 0, yaw, 'YXZ']}
         >
           <meshBasicMaterial color={exit.color} transparent side={THREE.DoubleSide} depthWrite={false} />
@@ -101,7 +127,7 @@ function ExitSign({ exit, reducedMotion }: { exit: ExitRender; reducedMotion: bo
       ))}
       {showUnsafe && (
         <>
-          <mesh geometry={cross} position={toWorld(x - ox * 1.2, y - oy * 1.2, 0.03)} rotation={[-Math.PI / 2, 0, 0]}>
+          <mesh geometry={cross} position={toWorld(x - ox * inward, y - oy * inward, 0.03)} rotation={[-Math.PI / 2, 0, 0]}>
             <meshBasicMaterial color={exit.color} side={THREE.DoubleSide} />
           </mesh>
           <group ref={billboard} position={toWorld(x, y, WALL_HEIGHT + 1.0)}>

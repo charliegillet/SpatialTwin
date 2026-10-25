@@ -171,6 +171,29 @@ async def test_provider_schema_is_the_lead_schema_without_unproven_keywords():
     assert provider_schema_copy()["properties"]
 
 
+def _schema_keywords(node, field_names=False):
+    """Every schema keyword used anywhere in the tree (keys under properties/$defs are names, not keywords)."""
+    if isinstance(node, list):
+        return set().union(*(_schema_keywords(item) for item in node)) if node else set()
+    if not isinstance(node, dict):
+        return set()
+    found = set() if field_names else set(node)
+    for key, value in node.items():
+        found |= _schema_keywords(value, field_names=key in ("properties", "$defs") and not field_names)
+    return found
+
+
+async def test_the_sent_schema_has_no_bounds_anywhere():
+    """Live, gemini-4-argon answered HTTP 400 ("too many states for serving") to the bounded schema (26 Oct 2026)."""
+    keywords = _schema_keywords(provider_schema_copy())
+    for bound in ("minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "minItems", "maxItems",
+                  "minLength", "maxLength", "pattern", "const", "default"):
+        assert bound not in keywords, bound
+    assert {"type", "properties", "required", "enum", "items"} <= keywords
+    # The walk does see field names as names: the draft's own `title` and `exits` survive.
+    assert {"title", "rooms", "exits"} <= set(provider_schema_copy()["properties"])
+
+
 async def test_non_streaming_flag_reads_steps_and_summaries(adapter, mock_http):
     state, calls = mock_http
     state["json"] = {
