@@ -259,6 +259,10 @@ class EventLog:
 
     async def stream(self, last_event_id: int = 0, ping_seconds: float = DEFAULT_PING_SECONDS) -> AsyncIterator[str]:
         cursor = max(0, int(last_event_id))
+        # A cursor beyond this log means the log was rebuilt (server restart or eviction) with fresh ids; following it
+        # would skip everything, including the terminal event, on every reconnect. Replay the retained log instead.
+        if cursor > self.last_id:
+            cursor = 0
         while True:
             pending = self.after(cursor)
             for entry in pending:
