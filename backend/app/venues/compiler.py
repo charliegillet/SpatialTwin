@@ -537,7 +537,13 @@ def compile_draft(draft: VenueDraftV1, image: SourceImage, *, venue_id: str,
         report.element_ids[ex.key] = eid
         report.evidence_points[eid] = (ex.point[0], ex.point[1])
         per_m = WINDOW_SERVICE_PER_M if window else EXIT_SERVICE_PER_M
-        label = ex.label.strip() or ("Escape window" if window else f"{rooms[ex.room].name} exit")
+        # Signs label every exit "EXIT"; announcements need to tell them apart, so a bare label names the exit after
+        # its room ("North Exit Stair") instead.
+        printed = ex.label.strip()
+        generic = printed.upper().rstrip(".!") in ("", "EXIT", "EXITS", "EMERGENCY EXIT", "FIRE EXIT")
+        label = printed if not generic else ("Escape window" if window else
+                                             rooms[ex.room].name if "exit" in rooms[ex.room].name.lower()
+                                             else f"{rooms[ex.room].name} exit")
         venue_exits.append({"id": eid, "zone": zone_id[ex.room], "name": label, "position": [pos[0], pos[1]],
                             "width": width, "service_rate_per_sec": round(width * per_m, 2),
                             "kind": "stair" if stair else ("window" if window else "door")})
