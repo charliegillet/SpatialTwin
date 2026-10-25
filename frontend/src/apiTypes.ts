@@ -76,8 +76,31 @@ export interface GeometryScore {
 /** `url` is added by api.py (`/api/sessions/{id}/renders/{iteration}/{index}.png`). */
 export interface RenderedView { t_s: number | null; path: string; kind: 'perspective' | 'top'; url?: string }
 
+/** D1. Missing on old data, which means "round". */
+export type IterationKind = 'baseline' | 'round' | 'accepted'
+
+export interface Discrepancy { t_s: number; element_id: string | null; description: string }
+/** patch.py PatchOp: `op` names the type; update/remove ops carry `id`, add ops carry `door` / `zone`. */
+export interface PatchOp {
+  op: string; cite_t_s: number; reason: string
+  id?: string; door?: { id: string } & Record<string, unknown>; zone?: { id: string } & Record<string, unknown>
+  [field: string]: unknown
+}
+/** critique.py CritiqueResult, as serialized on each round. */
+export interface Critique {
+  status: 'completed' | 'failed' | 'timeout' | 'invalid' | string
+  discrepancies: Discrepancy[]
+  ops: PatchOp[]
+  interaction_id: string | null
+  receipt: Receipt | null
+  error?: string | null
+  /** ops the model returned that did not validate: (index, error) */
+  dropped_ops?: [number, string][]
+}
+
 export interface Iteration {
   index: number
+  kind?: IterationKind
   graph_revision: string
   discrepancy_count: number
   applied: number[]
@@ -88,6 +111,7 @@ export interface Iteration {
   receipt: Receipt | null
   stop_reason: string | null
   rejected_geometry?: GeometryScore | null
+  critique?: Critique | null
 }
 
 export type VideoMode = 'static' | 'static_hifps' | 'agentic'
@@ -112,6 +136,8 @@ export interface SweepClaim { intervention_id: string; claimed_reached_exit: num
 export interface Recommendation {
   intervention_id: string | null; claimed_reached_exit: number | null; rationale: string; caveats: string[]
   sweep_summary?: SweepClaim[]
+  /** D5: banned words found in rationale/caveats; the text itself stays unedited. */
+  copy_flags?: string[]
 }
 export interface LedgerEntry {
   call_id: string; kind: 'client_function' | 'sandbox_step'; name: string
@@ -144,6 +170,9 @@ export interface Approval {
 
 export interface GhostPoint { t_s: number; x: number; y: number }
 
+/** D4: PCA of the SfM camera centres, centred on the first frame, walking direction +v. Not aligned to the twin. */
+export interface SfmPreview { points: { t_s: number; u: number; v: number }[]; note: string }
+
 /** api.py SessionSnapshot, field for field. */
 export interface Snapshot {
   id: string
@@ -152,6 +181,8 @@ export interface Snapshot {
   anchor: Anchor | null
   anchor_hint: string | null
   anchor_width_m: number | null
+  /** D2: the server-owned anchor (POST /anchor), applied at accept. Missing on old data. */
+  pending_anchor?: Anchor | null
   jobs: Record<string, JobState>
   sfm: SfmSummary | null
   alignment: Alignment | null
@@ -159,6 +190,7 @@ export interface Snapshot {
   /** why the loop ran without measured geometry (sfm/alignment failure, scale disagrees) */
   geometry_unavailable_reason: string | null
   ghost_path: GhostPoint[]
+  sfm_preview?: SfmPreview | null
   extraction: ExtractionResult | null
   draft_graph: VenueGraph | null
   // Revision fields are validated as optional so that a snapshot without them

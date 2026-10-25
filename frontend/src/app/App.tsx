@@ -7,6 +7,7 @@ import { Investigate } from './Investigate'
 import { Loop } from './Loop'
 import { ReportDrawer } from './ReportDrawer'
 import { Review } from './Review'
+import { savedRunBadge, sessionStarted } from './sessionView'
 import { Twin } from './Twin'
 import { errText, useSession } from './useSession'
 
@@ -34,6 +35,13 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null)
   const [drawer, setDrawer] = useState(false)
   const closeDrawer = useCallback(() => setDrawer(false), [])
+  // I8: the saved-run badge depends on the wall clock; re-read it every 30 s
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(t)
+  }, [])
+  const savedRun = snap ? savedRunBadge(snap.created_at, now) : null
   const videoRef = useRef<HTMLVideoElement>(null)
   const [videoTime, setVideoTime] = useState(0)
 
@@ -78,6 +86,11 @@ export default function App() {
     <div className="app">
       <header className="top">
         <a className="brand" href="#/" onClick={() => setChosen('capture')}>WalkTwin</a>
+        {snap && (
+          <span className="session-time">
+            {savedRun ? <span className="badge-saved">{savedRun}</span> : <span className="muted small">{sessionStarted(snap.created_at)}</span>}
+          </span>
+        )}
         <nav className="steps" aria-label="Steps">
           {STEPS.map((s, i) => (
             <button key={s.id} className={`step${step === s.id ? ' current' : ''}${done[s.id] ? ' done' : ''}`}

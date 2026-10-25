@@ -4,6 +4,7 @@ import type { Snapshot, VideoMode } from '../apiTypes'
 import { ghostPath } from '../twin/ghostWalker'
 import { Jobs, Tag, type Act } from './common'
 import { PlanView } from './PlanView'
+import { WalkInset } from './WalkInset'
 
 const MODES: { id: VideoMode; label: string }[] = [
   { id: 'static_hifps', label: 'Static, 3 fps high-res' },
@@ -32,6 +33,9 @@ export function Capture({ snap, act, pending, onCreated }: Props) {
   const path = snap ? ghostPath(snap) : []
   const sfmJob = snap?.jobs.sfm
   const ex = snap?.extraction
+  // I1: once a draft exists, a new extraction must name the revision it replaces
+  const rev = snap ? draftRevision(snap) : null
+  const revUnknown = !!snap?.draft_graph && !rev
   return (
     <section className="screen capture">
       <div className="panel">
@@ -62,6 +66,7 @@ export function Capture({ snap, act, pending, onCreated }: Props) {
           <p>{snap.video.duration_s.toFixed(0)} s video, {snap.video.width}×{snap.video.height}</p>
           <Jobs snap={snap} />
           {snap.sfm?.status === 'failed' && <p className="fail">SfM failed: {snap.sfm.error ?? 'no model'}. The loop will run on model-reported counts only.</p>}
+          <WalkInset snap={snap} />
           {path.length > 1 ? (
             <PlanView graph={snap.draft_graph} path={path} label={`Your walked path (SfM, ${path.length} camera positions${snap.sfm?.registered_fraction != null ? `, ${Math.round(snap.sfm.registered_fraction * 100)}% of frames registered` : ''})`} />
           ) : sfmJob && sfmJob.status !== 'done' && sfmJob.status !== 'failed' ? (
@@ -78,11 +83,13 @@ export function Capture({ snap, act, pending, onCreated }: Props) {
                 {MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
               </select>
             </label>
-            <button className="primary" disabled={!!pending || snap.jobs.extract?.status === 'running' || snap.jobs.extract?.status === 'queued'}
-              onClick={() => act('Extracting', () => api.extract(snap.id, mode))}>
+            <button className="primary" disabled={!!pending || revUnknown || snap.jobs.extract?.status === 'running' || snap.jobs.extract?.status === 'queued'}
+              onClick={() => act('Extracting', () => api.extract(snap.id, mode, rev))}>
               {snap.draft_graph ? 'Extract again with Argon' : 'Build the twin with Argon'}
             </button>
           </div>
+          {revUnknown && <p className="muted">Draft revision unknown: extracting again is off until a reload.</p>}
+          {snap.draft_graph && <p className="muted small">Extracting again replaces the draft and clears its loop rounds and approvals.</p>}
           {snap.draft_graph && <p><Tag kind="model">Argon proposed</Tag> {snap.draft_graph.zones.length} zones, {snap.draft_graph.doors.length} doors{draftRevision(snap) ? ` · ${draftRevision(snap)}` : ''}</p>}
         </div>
       )}

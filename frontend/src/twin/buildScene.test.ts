@@ -36,6 +36,12 @@ describe('buildScene', () => {
     expect(m('D2')).toBe(0x8a8a8a)
     expect(m('D3')).toBe(0xe0a020)
   })
+  it('marks doors opened by your approval (M4)', () => {
+    const s = buildScene(graph, { hazards: [], approved: ['D5', 'D99'] })
+    expect(named(s, 'approved:')).toHaveLength(1)
+    expect(s.getObjectByName('approved:D5')).toBeTruthy()
+    expect(named(buildScene(graph, { hazards: [] }), 'approved:')).toHaveLength(0)
+  })
   it('leaves gaps in walls at doors', () => {
     const s = buildScene(graph, { hazards: [] })
     // D1 at graph (3,4), mid width 1.7: Z1 west edge (index 2) splits at y 3.15 and 4.85
