@@ -223,6 +223,40 @@ async def test_clear_fault_keeps_gate_unknown_until_observed(client, manager):
     assert outcome.result == "arrived"
 
 
+async def test_door_plan_follows_the_fallback_after_a_jam(client, manager):
+    """The twin draws what is executed: after a jam the full plan (routes, lamps, doors) is the fallback's."""
+    assert (await client.get("/api/incident/door-plan")).json()["door_plan"] is None
+    state = await plan_with(client, LOBBY_FIRE)
+    primary = (await client.get("/api/incident/door-plan")).json()
+    assert primary["plan_revision"] == state["plan_revision"]
+    assert primary["door_plan"]["chosen"]["candidate_hash"] == state["plan"]["candidate_hash"]
+    await client.post("/api/incident/faults", json={"gate_id": "D9", "fault": "stall"})
+    await approve(client, manager, state)
+    after = (await client.get("/api/incident")).json()
+    view = (await client.get("/api/incident/door-plan")).json()
+    full = view["door_plan"]
+    assert view["plan_revision"] == after["plan_revision"] and after["plan"]["label"] == "fallback"
+    assert full["geometry_revision"] == after["geometry_revision"], "drawn on the real venue, not the stuck copy"
+    assert full["chosen"]["candidate_hash"] == after["plan"]["candidate_hash"]
+    assert full["chosen"]["completed_crossings"] == after["plan"]["completed_crossings"]
+    d9 = next(d for d in full["doors"] if d["id"] == "D9")
+    assert d9["state"] == "closed" and "stuck closed" in d9["reason"]
+    reset = await client.post("/api/incident/reset")
+    assert reset.status_code == 200 and (await client.get("/api/incident/door-plan")).json()["door_plan"] is None
+
+
+async def test_a_venue_rebind_is_published_as_a_reset(client, manager):
+    """Other screens must drop the old venue's gates and approvals when another client moves the incident."""
+    venue_registry().save_venue(VenueV2.model_validate(HOME), {"name": "Test flat"})
+    first = (await client.get("/api/incident")).json()
+    before = manager.hub.last_id
+    await client.post("/api/incident/hazards", json={"venue_id": "home-flat", "expected_plan_revision": first["plan_revision"], "hazards": []})
+    frames = [frame for _, frame in manager.hub.events_since(before)]
+    first_event = parse(frames[0])
+    assert first_event["event"] == "reset", frames[0]
+    assert json.loads(first_event["data"])["state"]["venue_id"] == "home-flat"
+
+
 async def test_second_venue_has_no_gates_and_signs_follow_the_plan(client, manager):
     venue_registry().save_venue(VenueV2.model_validate(HOME), {"name": "Test flat"})
     first = (await client.get("/api/incident")).json()

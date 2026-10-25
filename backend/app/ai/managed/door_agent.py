@@ -26,6 +26,7 @@ import asyncio
 import json
 import math
 import re
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -59,7 +60,7 @@ LANES: Tuple[str, ...] = ("strategist", "robustness")
 # ~12 s later, each continuation costs 9-11 s. The strategist needs one turn; the robustness lane several.
 STRATEGIST_DEADLINE_SECONDS = 45.0
 STRATEGIST_MAX_DEADLINE_SECONDS = 90.0
-ROBUSTNESS_DEADLINE_SECONDS = 150.0
+ROBUSTNESS_DEADLINE_SECONDS = 210.0  # live sandbox runs measured 86 s and >150 s on 26 Oct; Act 3 does not wait on it
 ROBUSTNESS_MAX_DEADLINE_SECONDS = 240.0
 FOLLOWUP_DEADLINE_SECONDS = 90.0
 FOLLOWUP_MAX_DEADLINE_SECONDS = 180.0
@@ -128,6 +129,8 @@ class Verification(BaseModel):
     checks: List[Dict[str, Any]] = []
     mismatches: List[Dict[str, Any]] = []
     source: Literal["agent", "sandbox", "local"] = "agent"
+    # Claims whose number appeared in a code_execution_result of this run (each check carries ``provenance``).
+    sandbox_matched: int = 0
     note: str = "Every claim was re-run by the local checker; a mismatch is shown, never hidden."
 
 
@@ -153,6 +156,7 @@ class DoorAgentResult(BaseModel):
     explanation: str = INCOMPLETE_TEXT
     tool_ledger: List[ToolCallLedgerEntry] = []
     token_usage: Dict[str, int] = {}
+    ack_token_usage: Optional[Dict[str, int]] = None  # added on read from the lane's acknowledgement; see _with_ack
     provider_interaction_id: Optional[str] = None
     provider_environment_id: Optional[str] = None
     provider_model: Optional[str] = None
@@ -526,8 +530,9 @@ def lane_input(lane: str, toolbox: DoorToolbox, checked_plan: Dict[str, Any], sc
                 "claims for that scenario. " + SCENARIO_HELP)
     return (f"Declared hazards: {hazards}. Horizon {plan.chosen.horizon_seconds} s. The checked best is "
             f"{format_states(toolbox.best.door_states)} with {plan.chosen.completed_crossings} of "
-            f"{plan.chosen.initial_population} modeled crossings. Sweep its single failures and the alternatives "
-            "that tie it, then submit.")
+            f"{plan.chosen.initial_population} modeled crossings. Sweep its single failures "
+            "(`cd /workspace/kit && python3 -m spatialtwin_kit.sweep --only-single`) and those of the alternatives "
+            "that tie it (add `--candidate D4=open,D9=open` style), then submit.")
 
 
 @dataclass
@@ -558,6 +563,28 @@ def lane_deadline(lane: str, requested: Any) -> float:
     return min(float(value), cap) if isinstance(value, (int, float)) and math.isfinite(value) and value > 0 else 0.0
 
 
+_NUMBER = re.compile(r"(?<![\w.])(\d+)(?:\.0+)?(?![\w])")
+
+
+def annotate_claim_provenance(verification: Verification, outputs: List[str], sandbox_ran: bool) -> Verification:
+    """Label each checked claim ``sandbox`` only when its claimed crossing count appears as a number in a
+    code_execution_result of this run; every other claim is the agent's own statement (``agent``). The local checker
+    re-verified all of them either way. ``source`` is ``sandbox`` only when sandbox code actually produced output."""
+    numbers = {int(n) for text in outputs for n in _NUMBER.findall(text)} if sandbox_ran else set()
+    matched = 0
+    for check in verification.checks:
+        claimed = check.get("claimed_completed_crossings")
+        sandboxed = isinstance(claimed, int) and not isinstance(claimed, bool) and claimed in numbers
+        check["provenance"] = "sandbox" if sandboxed else "agent"
+        matched += 1 if sandboxed and check.get("reproduced") else 0
+    for check in verification.mismatches:
+        claimed = check.get("claimed_completed_crossings")
+        check["provenance"] = "sandbox" if isinstance(claimed, int) and claimed in numbers else "agent"
+    verification.source = "sandbox" if sandbox_ran else "agent"
+    verification.sandbox_matched = matched
+    return verification
+
+
 class DoorAgentRunner:
     def __init__(self, adapter: ManagedAgentAdapter, *, trace: Optional[TraceHub] = None, stream: bool = True,
                  retry_base: float = RETRY_BASE_SECONDS, max_retries: int = MAX_PROVIDER_RETRIES,
@@ -581,9 +608,56 @@ class DoorAgentRunner:
     async def get_saved_result(self, investigation_id: str) -> DoorAgentResult | None:
         try:
             raw = await asyncio.to_thread(self.adapter.ledger.result, investigation_id)
-            return DoorAgentResult.model_validate_json(raw) if raw else None
+            if not raw:
+                return None
+            result = DoorAgentResult.model_validate_json(raw)
         except Exception:
             return None
+        try:
+            return await self._with_ack(result)
+        except Exception:
+            return result
+
+    async def _ack_usage(self, lane_investigation_id: str) -> Dict[str, int]:
+        events = await asyncio.to_thread(self.adapter.ledger.events, lane_investigation_id, 8,
+                                         phases=("ack_sent",), exclude_phases=())
+        total: Dict[str, int] = {}
+        for event in events:
+            for key, value in (event.get("usage") or {}).items():
+                if key in USAGE_FIELDS and type(value) is int and value >= 0:
+                    total[key] = total.get(key, 0) + value
+        return total
+
+    @staticmethod
+    def _add_usage(base: Dict[str, int], extra: Dict[str, int]) -> Dict[str, int]:
+        return {key: base.get(key, 0) + extra.get(key, 0) for key in base.keys() | extra.keys()}
+
+    async def _with_ack(self, result: DoorAgentResult) -> DoorAgentResult:
+        """The acknowledging continuation runs after the lane result is published (and the result is final), so its
+        tokens are added when the result is read: token_usage and cost_estimate include them, ``ack_token_usage``
+        shows them separately. A team result patches each lane view and the top-level (first lane) fields."""
+        def patched(usage: Dict[str, int], extra: Dict[str, int], model: Optional[str]) -> Dict[str, Any]:
+            merged = self._add_usage(usage, extra)
+            return {"token_usage": merged, "cost_estimate": estimate_cost(model, merged)}
+
+        update: Dict[str, Any] = {}
+        if result.lanes:
+            lanes = {}
+            for name, view in result.lanes.items():
+                view = dict(view)
+                extra = await self._ack_usage(view["investigation_id"]) if view.get("investigation_id") else {}
+                if extra and view.get("provenance") == "live":
+                    view.update(patched(view.get("token_usage") or {}, extra, view.get("provider_model")),
+                                ack_token_usage=extra)
+                    if name == result.lane:
+                        update.update(patched(result.token_usage, extra, result.provider_model), ack_token_usage=extra)
+                lanes[name] = view
+            update["lanes"] = lanes
+        elif result.provenance == "live":
+            extra = await self._ack_usage(result.investigation_id)
+            if extra:
+                update.update(patched(result.token_usage, extra, result.provider_model), ack_token_usage=extra)
+        return result.model_copy(update=update) if update else result
 
     async def wait_acknowledged(self, investigation_id: str, timeout: float) -> bool:
         """Wait (bounded) for a lane's pending acknowledgement. True when none is pending any more."""
@@ -648,6 +722,8 @@ class DoorAgentRunner:
         emitted_steps: dict[str, int] = {}
         streamed_ids: set = set()
         sweep_task: Optional[asyncio.Future] = None
+        cancel_sweep = threading.Event()  # set when the lane ends for any reason: the sweep thread then stops
+        sandbox_results: Dict[Tuple[str, int], Tuple[str, bool]] = {}  # (interaction, step index) -> (output, is_error)
         tool_names = DoorToolbox.lane_names(lane)
         tool_cap = LANE_TOOL_CAPS[lane]
 
@@ -733,11 +809,26 @@ class DoorAgentRunner:
                         record = accumulator.start(event)
                         if record:
                             await trace("delta", **record)
+                        started_step = accumulator.steps.get(field(event, "index"))
+                        if started_step and started_step.get("complete"):
+                            # A code result arrives whole in its start event: record it and close the step now.
+                            if started_step["step_type"] == "code_execution_result" and isinstance(interaction_id, str):
+                                sandbox_results[(interaction_id, field(event, "index"))] = (
+                                    started_step["text"], bool(started_step.get("is_error")))
+                            record = accumulator.stop(event)
+                            if record:
+                                stream_info["steps"] += 1
+                                await trace("step", **record)
                     elif kind == "step.delta":
                         record = accumulator.delta(event)
                         if record:
                             await trace("delta", **record)
                     elif kind == "step.stop":
+                        pending = accumulator.steps.get(field(event, "index"))
+                        if (pending and pending.get("step_type") == "code_execution_result"
+                                and isinstance(interaction_id, str)):
+                            sandbox_results[(interaction_id, field(event, "index"))] = (
+                                pending.get("text", ""), bool(pending.get("is_error")))
                         record = accumulator.stop(event)
                         if record:
                             stream_info["steps"] += 1
@@ -849,6 +940,11 @@ class DoorAgentRunner:
             await asyncio.to_thread(ledger.progress, investigation_id, provider_id, environment_id,
                                     provider_model, last_provider_status, usage_by_id)
             await trace("status", status=last_provider_status, interaction_ref=provider_id[-8:])
+            for index, step in enumerate(field(interaction, "steps", None) or []):
+                if field(step, "type") == "code_execution_result":
+                    output = field(step, "result")
+                    sandbox_results[(provider_id, index)] = (output if isinstance(output, str) else "",
+                                                             bool(field(step, "is_error")))
             if provider_id not in streamed_ids:
                 start = emitted_steps.get(provider_id, 0)
                 records = steps_from_interaction(interaction, start)
@@ -894,7 +990,8 @@ class DoorAgentRunner:
             # Its own evaluator: the sweep runs in a worker thread while tool calls use the lane's evaluator.
             assert toolbox is not None
             return robustness_sweep(venue, request, dict(toolbox.best.door_states),
-                                    max_solves=self.sweep_max_solves, deadline=work_deadline - 0.5)
+                                    max_solves=self.sweep_max_solves, deadline=work_deadline - 0.5,
+                                    cancel=cancel_sweep)
 
         def local_submission(states: Dict[str, str], scenarios: List[str]) -> Tuple[Submission, Verification]:
             """A local lane's 'submission': the checker's own numbers, labelled local and re-checked trivially."""
@@ -1076,8 +1173,11 @@ class DoorAgentRunner:
                                     raise InvestigationError("provider_model_unverified")
                                 submission = toolbox.parse_submission(submitted.arguments)
                                 lane_state.submission = submission
-                                lane_state.verification = toolbox.verify(
-                                    submission, "sandbox" if lane != "strategist" else "agent")
+                                ran_code = any(text.strip() and not failed for text, failed in sandbox_results.values())
+                                lane_state.verification = annotate_claim_provenance(
+                                    toolbox.verify(submission, "agent"),
+                                    [text for text, failed in sandbox_results.values() if not failed],
+                                    lane != "strategist" and ran_code)
                                 lane_state.recommendation_source = "submit_recommendation"
                                 lane_state.ack_payload = payload
                                 recommended = dict(submission.door_states)
@@ -1146,6 +1246,7 @@ class DoorAgentRunner:
             status = InvestigationStatus.FAILED
             errors.append("managed_execution_failed")
 
+        cancel_sweep.set()  # a no-op for a finished sweep; a cancelled, superseded or timed-out lane stops it
         if sweep_task is not None and lane_state.robustness is None and sweep_task.done() and not sweep_task.cancelled():
             # Numerical evidence survives a later provider failure; it never makes the lane completed.
             try:
@@ -1270,9 +1371,14 @@ class DoorAgentRunner:
                     agent=adapter.agent, previous_interaction_id=interaction_id, environment=environment_id,
                     **adapter._run_config(ACK_TOKEN_BUDGET), background=True, store=True, input=payload,
                     timeout=ACK_TIMEOUT_SECONDS)
+            try:
+                ack_usage = adapter._usage(ack)
+            except Exception:
+                ack_usage = {}
             await asyncio.to_thread(adapter.ledger.event, investigation_id, (time.monotonic() - started) * 1000,
                                     "ack_sent", {"interaction_id": field(ack, "id"),
-                                                 "status": safe_status(field(ack, "status"))})
+                                                 "status": safe_status(field(ack, "status")),
+                                                 **({"usage": ack_usage} if ack_usage else {})})
         except asyncio.CancelledError:
             raise
         except Exception as error:
@@ -1425,7 +1531,8 @@ LANE_VIEW_FIELDS = ("investigation_id", "lane", "status", "provenance", "label",
                     "fallback_if_jammed", "recommended_outcome", "recommended_ties_checked_best",
                     "agrees_with_checker", "agreement_note", "explanation", "recommendation_source",
                     "robustness_headline", "token_usage", "token_budget", "cost_estimate", "deadline_at",
-                    "deadline_at_ms", "latency_ms", "provider_model", "provider_retries", "errors", "scenario")
+                    "deadline_at_ms", "latency_ms", "provider_model", "provider_retries", "errors", "scenario",
+                    "ack_token_usage")
 
 
 def lane_view(result: DoorAgentResult) -> Dict[str, Any]:
@@ -1434,7 +1541,8 @@ def lane_view(result: DoorAgentResult) -> Dict[str, Any]:
     verification = result.verification
     data["verification"] = None if verification is None else {
         "verified": verification.verified, "total": verification.total, "source": verification.source,
-        "mismatches": verification.mismatches[:MAX_CLAIMS]}
+        "checks": verification.checks[:MAX_CLAIMS], "mismatches": verification.mismatches[:MAX_CLAIMS],
+        "sandbox_matched": verification.sandbox_matched}
     data["stream"] = result.stream
     data["sandbox"] = result.sandbox
     data["fallback_for"] = result.fallback_for

@@ -133,7 +133,8 @@ const crossings = (value: number | null | undefined) => typeof value === 'number
 export function claimRows(verification: LaneVerification | null | undefined): ClaimRow[] {
   if (!verification) return [];
   const checks: ClaimCheck[] = verification.checks && verification.checks.length ? verification.checks : verification.mismatches;
-  const sandbox = verification.source === 'sandbox';
+  // Per claim when the server says where the number came from; older results fall back to the lane's source.
+  const sandbox = (check: ClaimCheck) => check.provenance ? check.provenance === 'sandbox' : verification.source === 'sandbox';
   return checks.map((check, index) => ({
     key: `${check.index ?? index}:${check.scenario}:${check.applies_to}`,
     scenario: check.scenario,
@@ -142,7 +143,7 @@ export function claimRows(verification: LaneVerification | null | undefined): Cl
     verified: check.local_is_valid === false ? `${crossings(check.local_completed_crossings)} (invalid)` : crossings(check.local_completed_crossings),
     reproduced: check.reproduced,
     reason: check.reproduced ? '' : claimReasonCopy(check.reason),
-    sandboxEstimate: sandbox,
+    sandboxEstimate: sandbox(check),
   }));
 }
 
@@ -150,7 +151,9 @@ export function claimsLine(verification: LaneVerification | null | undefined): s
   if (!verification || verification.total === 0) return null;
   const { verified, total, source } = verification;
   if (source === 'local') return `Checker self-check: ${verified} of ${total}. Not agent evidence.`;
-  return `${verified} of ${total} ${source === 'sandbox' ? 'sandbox ' : ''}claims reproduced by the local checker`;
+  const fromSandbox = source === 'sandbox' && typeof verification.sandbox_matched === 'number'
+    ? ` (${verification.sandbox_matched} computed in the sandbox)` : '';
+  return `${verified} of ${total} ${source === 'sandbox' && fromSandbox === '' ? 'sandbox ' : ''}claims reproduced by the local checker${fromSandbox}`;
 }
 
 /** The footer: only claims an agent made (source agent or sandbox) count toward "reproduced"; the local solver's self-check is reported apart. */

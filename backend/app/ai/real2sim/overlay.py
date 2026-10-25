@@ -2,7 +2,8 @@
 
 ``render_overlay`` draws the *compiled* geometry back onto the source image, through the inverse of the compiler's
 transform (``venues/compiler.py``): translucent room outlines with names, door gaps as thick ticks labelled with
-venue ids, exits as green markers, the evidence points Argon pointed at as small circles joined to the element
+venue ids, exits as green markers (an interior exit stair as a small box at its point, since it is on no wall), the
+evidence points Argon pointed at as small circles joined to the element
 they became, and everything the compiler dropped in red. The operator checks this picture before pressing Accept:
 if a tick sits in the wrong wall, the compile (not the model) is what they are looking at.
 
@@ -69,6 +70,19 @@ def _axis_at(polygons: Sequence[Sequence[Tuple[float, float]]], position: Tuple[
 def _tick(position: Tuple[float, float], width: float, axis: str) -> Tuple[Tuple[float, float], Tuple[float, float]]:
     x, y = position
     return ((x - width / 2, y), (x + width / 2, y)) if axis == "h" else ((x, y - width / 2), (x, y + width / 2))
+
+
+def _stair_box(to_px, position: Tuple[float, float], width: float,
+               min_px: float) -> Tuple[List[float], Tuple[float, float]]:
+    """Pixel square (side = the stair's width, at least ``min_px``) centred on an interior exit stair, and its centre.
+
+    An interior stair (exit kind "stair") is the way down inside its room, not a gap in a wall, so it is drawn as a
+    small box at its point instead of a tick on the nearest wall."""
+    x, y = position
+    (ax, ay), (bx, by) = to_px(x - width / 2, y - width / 2), to_px(x + width / 2, y + width / 2)
+    cx, cy = (ax + bx) / 2, (ay + by) / 2
+    half = max(abs(bx - ax), min_px) / 2
+    return [cx - half, cy - half, cx + half, cy + half], (cx, cy)
 
 
 def _beside(mid: Tuple[float, float], axis: str, gap: float) -> Tuple[float, float]:
@@ -149,17 +163,23 @@ def render_overlay(image_bytes: bytes, draft: VenueDraftV1, result: CompileResul
                 draw.line([draft_px(ev), mid], fill=EVIDENCE + (200,), width=max(1, round(unit)))
             _label(draw, _beside(mid, axis, 14 * unit), door.id, small, colour + (255,))
         for exit_ in venue.exits:
-            zone_poly = polygons[exit_.zone]
-            axis = _axis_at([zone_poly], exit_.position)
-            a, b = (to_px(*p) for p in _tick(exit_.position, exit_.width, axis))
-            draw.line([a, b], fill=EXIT_C + (255,), width=max(6, round(9 * unit)))
-            mid = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
-            r = 7 * unit
-            draw.rectangle([mid[0] - r, mid[1] - r, mid[0] + r, mid[1] + r], fill=EXIT_C + (255,))
+            if exit_.kind == "stair":
+                box, mid = _stair_box(to_px, exit_.position, exit_.width, 16 * unit)
+                draw.rectangle(box, fill=EXIT_C + (110,), outline=EXIT_C + (255,), width=max(2, round(3 * unit)))
+                axis, gap = "v", (box[2] - box[0]) / 2 + 10 * unit      # label to the right of the box
+            else:
+                zone_poly = polygons[exit_.zone]
+                axis = _axis_at([zone_poly], exit_.position)
+                a, b = (to_px(*p) for p in _tick(exit_.position, exit_.width, axis))
+                draw.line([a, b], fill=EXIT_C + (255,), width=max(6, round(9 * unit)))
+                mid = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+                r = 7 * unit
+                draw.rectangle([mid[0] - r, mid[1] - r, mid[0] + r, mid[1] + r], fill=EXIT_C + (255,))
+                gap = 18 * unit
             ev = result.report.evidence_points.get(exit_.id)
             if ev:
                 draw.line([draft_px(ev), mid], fill=EVIDENCE + (200,), width=max(1, round(unit)))
-            _label(draw, _beside(mid, axis, 18 * unit), exit_.id, small, EXIT_C + (255,))
+            _label(draw, _beside(mid, axis, gap), exit_.id, small, EXIT_C + (255,))
         for element_id, at in sorted(result.report.evidence_points.items()):
             x, y = draft_px(at)
             r = 4 * unit
@@ -246,6 +266,11 @@ def render_topdown(venue: VenueV2, width_px: int = DEFAULT_TOPDOWN_PX) -> bytes:
         d.line([a, b], fill=colour, width=max(6, round(8 * unit)))
         _label(d, _beside(((a[0] + b[0]) / 2, (a[1] + b[1]) / 2), axis, 13 * unit), door.id, small, colour)
     for exit_ in venue.exits:
+        if exit_.kind == "stair":
+            box, mid = _stair_box(to_px, exit_.position, exit_.width, 14 * unit)
+            d.rectangle(box, fill=(196, 230, 208), outline=EXIT_C, width=max(3, round(4 * unit)))
+            _label(d, _beside(mid, "v", (box[2] - box[0]) / 2 + 12 * unit), exit_.id, small, EXIT_C)
+            continue
         axis = _axis_at([polygons[exit_.zone]], exit_.position)
         a, b = (to_px(*p) for p in _tick(exit_.position, exit_.width, axis))
         d.line([a, b], fill=EXIT_C, width=max(7, round(10 * unit)))

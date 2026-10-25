@@ -1,6 +1,6 @@
 import { ApiError, requestJson } from './client.ts';
-import { TWIN_ERRORS } from './twin.ts';
-import type { DoorStateMap, HazardInput } from '../twin/types.ts';
+import { TWIN_ERRORS, parseDoorPlan } from './twin.ts';
+import type { DoorPlanResponse, DoorStateMap, HazardInput } from '../twin/types.ts';
 
 /** Types of the virtual door controller API (docs/plans/contracts/incident.md). Everything is a simulated device. */
 export type GateState = 'CLOSED' | 'OPENING' | 'OPEN' | 'CLOSING' | 'UNKNOWN' | 'FAULT';
@@ -235,6 +235,14 @@ const describe = (status: number, _text: string, code: string) => incidentErrorM
 
 export const fetchIncident = async (signal?: AbortSignal): Promise<IncidentState> =>
   parseIncidentState(await requestJson<unknown>(base, { signal, timeoutMs: 8_000, fallback: 'The door controller could not be read' }));
+
+/** The full checked plan behind the incident's current plan (after a jam: the fallback the doors now follow). */
+export async function fetchIncidentDoorPlan(venueId: string, signal?: AbortSignal): Promise<{ plan_revision: number; door_plan: DoorPlanResponse | null }> {
+  const raw = await requestJson<unknown>(`${base}/door-plan`, { signal, timeoutMs: 8_000, fallback: 'The executed plan could not be read' });
+  if (typeof raw !== 'object' || raw === null || !Number.isInteger((raw as { plan_revision?: unknown }).plan_revision)) throw new ApiError('Unexpected executed plan', 0);
+  const { plan_revision, door_plan } = raw as { plan_revision: number; door_plan: unknown };
+  return { plan_revision, door_plan: door_plan == null ? null : parseDoorPlan(door_plan, venueId) };
+}
 
 export const postIncidentHazards = async (venueId: string, expectedPlanRevision: number, hazards: HazardInput[], signal?: AbortSignal): Promise<IncidentState> =>
   parseIncidentState(await requestJson<unknown>(`${base}/hazards`, {

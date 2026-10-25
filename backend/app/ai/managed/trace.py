@@ -198,8 +198,15 @@ class StepAccumulator:
             if isinstance(code, str):
                 entry["text"] = code
             entry["language"] = clean_text(str(field(arguments, "language") or ""), 16)
+        if step_type == "code_execution_result":
+            # The provider sends a code result whole in its step.start (no deltas, often no step.stop): keep it here
+            # and mark it complete so the caller closes the step at once.
+            result = field(step, "result")
+            entry["is_error"] = bool(field(step, "is_error"))
+            if isinstance(result, str) and result:
+                entry["text"], entry["chars"], entry["complete"] = result, len(result), True
         self.steps[index] = entry
-        return {"kind": "step_start", **{k: v for k, v in entry.items() if k != "text"}}
+        return {"kind": "step_start", **{k: v for k, v in entry.items() if k not in ("text", "complete")}}
 
     def delta(self, event: Any) -> Optional[dict]:
         index = field(event, "index")

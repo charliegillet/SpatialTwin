@@ -93,8 +93,8 @@ room keys. Never add a door to make the plan connected. width_m only when a widt
 drawn; confidence is how sure you are the opening exists.
 
 Exits (at most {MAX_EXITS}): only where an exit is marked: EXIT text, a running-man or green exit sign, arrows
-leading outside, or a door in an outside wall. point is on the outside wall of room; label is the printed text;
-kind is door, stair or window. A door to the outside is an exit, not a door. If no exit is marked, return an empty
+leading outside, or a door in an outside wall. point is on the outside wall of room; for an exit stair (kind stair,
+the way down inside the floor) point is inside that stair. label is the printed text; kind is door, stair or window. A door to the outside is an exit, not a door. If no exit is marked, return an empty
 exits list and say so in unreadable; never invent one.
 
 Scale: when a dimension label or a scale bar is legible, give its endpoints a and b and its length in metres with

@@ -36,7 +36,7 @@ export function Real2SimPanel({ onAccepted, onPreview }: { onAccepted?: (venueId
     </header>
     {state.stage === 'failed' && <div className="r2s-failed" role="alert">
       <p>{state.error}</p>
-      {r2s.saved && r2s.saved.length > 0 && <p className="twin-quiet">A saved run is below. It is labelled as saved and never stands in for a live reading.</p>}
+      {r2s.saved && r2s.saved.length > 0 && <p className="twin-quiet">Every reading here is a live Gemini 4 Argon call. If one fails, a labelled saved run is in the fallback list below; it never stands in for a live reading.</p>}
     </div>}
     {picking && <SourcePicker r2s={r2s} />}
     {state.provenanceLabel && !picking && <p className={`r2s-provenance is-${state.provenance ?? 'live'}`}>{state.provenanceLabel}</p>}
@@ -72,8 +72,9 @@ function SourcePicker({ r2s }: { r2s: Real2SimController }) {
 function SavedRuns({ r2s }: { r2s: Real2SimController }) {
   const { saved, savedEnabled, savedError } = r2s;
   if (saved === null) return <p className="twin-quiet" role="status">Loading saved runs…</p>;
-  return <div className="r2s-saved">
-    <h3 className="r2s-h3">Saved runs</h3>
+  // Live reading is the path; saved runs are a labelled fallback for when a live reading is slow or fails.
+  return <details className="r2s-saved">
+    <summary className="r2s-h3">Fallback: saved runs (recorded, not live)</summary>
     {savedError && <p className="door-advisory" role="alert">{savedError} <button type="button" className="btn btn-quiet" onClick={r2s.reloadSaved}>Retry</button></p>}
     {!savedEnabled && <p className="twin-quiet">Saved runs are switched off on this server.</p>}
     {savedEnabled && saved.length === 0 && !savedError && <p className="twin-quiet">No saved runs are available.</p>}
@@ -86,7 +87,7 @@ function SavedRuns({ r2s }: { r2s: Real2SimController }) {
         </button>
       </li>)}
     </ul>
-  </div>;
+  </details>;
 }
 
 function useElapsed(state: Real2SimState): number {

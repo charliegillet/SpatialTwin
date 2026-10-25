@@ -1,124 +1,131 @@
-# Judge experience and stage runbook
+# Judge experience and stage runbook (demo v2, no hardware)
 
-Prepared 24 October 2026 after a devil's-advocate review of the first draft. Numbers below come from the local solver (120 synthetic occupants, 40 s horizon) and from the live runs recorded in `runtime/`.
+Rewritten 26 October 2026 for the software-only demo. The tabletop runbook (servo gate, endpoint switches, overhead
+camera) lives with the frozen `demo-v1` tag. Numbers below come from the local solver and from live Gemini 4 Argon runs
+recorded under `runtime/` on 25–26 October; every count is modeled crossings, never survival.
 
-## What the judge does
+## The promise in one line
 
-1. Places the red token on a pad of the physical table, or drops **Fire** on P1, P2 or B2 in the 3D twin.
-2. Watches the twin re-solve: the exit routes, exit arrows and the hero number change ("60 of 120 reach an exit in 40 s").
-3. Watches a Gemini managed agent investigate in Google's cloud, pausing for checked numbers only this laptop can compute.
-4. Presses **Approve** and watches the miniature gate move, the endpoint switch confirm it and the twin re-solve to 117.
-5. Optionally drops **Smoke** on a passage with an arrival time to see a forecast (dashed, never approvable).
+"Show us any building's evacuation map. Gemini 4 Argon turns it into a live twin, our checker plans the doors, a team of
+managed agents stress-tests the plan, and you approve. AI proposes, the checker decides, a human approves."
 
-## Hazards (what they mean, honestly)
+## Before the judges arrive (venue preparation)
 
-| Hazard | Meaning in the model | Approvable |
-| --- | --- | --- |
-| Fire / red token | Closed from 0 s; the scenario re-solves | Yes, after a checked comparison (live agent result on the physical board) |
-| Smoke at T s | Closed from T s, known in advance (even seconds 0–38) | No, forecast only |
-| Clear | Removes a hazard | — |
+- The posted evacuation maps of the venue are read and accepted ahead of time on the presenter laptop
+  (Build → photo → Accept). They stay in the gitignored `runtime/`: the venue's maps are under the owner's terms and are
+  never committed or shared. Accepted venues so far: `ferry-building-level-3` (8 areas, 7 doors, 2 stair exits) and
+  `ferry-building-level-2` (12 areas, 11 doors, D9 marked motorized).
+- The same readings are exported as labelled **saved runs** of the venue's own maps ("a recorded Gemini 4 Argon
+  reading from …; not a live call") by `runtime/live/export_saved_runs.py` into the gitignored `runtime/saved-runs/`,
+  next to our synthetic sketch and office map. Start the server with them so Act 1 always has a fallback, and on the
+  LAN so phones can reach it:
+  `SPATIALTWIN_REAL2SIM_FIXTURES_DIR=runtime/saved-runs SPATIALTWIN_SIGN_SECRET=<32+ chars> .venv/bin/python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000`
+- Presenter menu → choose the venue to start on. **Next judge** returns to the built-in building; the venue picker in
+  the presenter menu switches back.
+- Phones: Simulation → **Phone exit signs** → **Show QR codes** (one per exit, one to propose hazards). Turn on
+  **Judge mode** so judges' hazards join the twin at once; doors still need your Approve. If phones cannot reach the
+  laptop (the panel warns), open **Signs on this laptop** on a second screen instead.
+- Preflight: the capabilities chip shows a fresh live receipt; one live team run has completed in the last hour.
+- One app tab only on the presenter laptop: every tab is the operator.
 
-Hazards attach only to P1, P2 and B2: those are the only elements the planner can close. Free placement would need routing we do not compute, so we do not offer it. Neither fire nor smoke spreads: each just closes a passage or exit, now or at T s.
+## Act 1 · "Your building in a minute" (Build mode)
 
-## Facts the presenter must know
+1. The judge picks **Photo of a posted map**, **Sketch** or **PDF** and takes or uploads it.
+2. Argon reads it live. Thought summaries stream (first one after about 11 s); the overlay draws every room, door and
+   exit Argon found back onto the photo, so each element has visible evidence. Anything it could not read is listed.
+3. The local compiler builds the venue, graph checks run in under a second, and if they find errors one critique round
+   sends Argon the photo plus the overlay to fix them. The 3D stage shows the draft as **Draft preview · not accepted**.
+4. The judge marks up to three doors as motorized and presses **Accept**. The twin switches to it.
 
-- Only **P2** blocked makes the reserve gate useful: 60 → 117 (+57). With **P1** or **B2** blocked, opening P3 gives **+0** because P3 adds no exit capacity. Direct the scripted judge to the P2 pad; offer P1/B2 afterwards as "find a blockage where the gate does nothing".
-- Smoke on P2 at T s: 60 + 3T reach an exit; T ≥ 20 s changes nothing (everyone has passed P2 by then). Smoke on P1 at 12 s gives 96; smoke on B2 at 12 s gives 75 (travel time to the exit).
-- The managed agent run takes 40–57 s (hard cap 60 s). It currently makes one client-executed tool call (`get_checked_comparison`, about 14 ms locally). Say "the agent investigated, our checker decided" — never "the agent recommends".
-- Direct Argon grounding has taken 3–22 s on the synthetic board (22 s in the 25 October live check; one 20 s timeout seen earlier). Narrate through it; do not promise a number.
-- Keep exactly one app tab open on the presenter laptop. Every tab on the laptop counts as the operator: a second tab can send commands, stops or start its own live investigation (seen in the 25 October live check).
+Measured (live, `gemini-4-argon`, thinking medium):
 
-## Two-minute script (N = Nihal, C = Charlie, J = judge)
-
-| Time | Who | Screen |
-| --- | --- | --- |
-| 0:00 | N hands J the token: "This table is a building: 120 modeled people, two exits, a reserve gate. Block the east passage — this pad." | Twin, hero 120 of 120, live camera |
-| 0:10 | J places the token; N: "Hands up." J presses **Read the board**. | Frozen still that was sent, "Gemini 4 Argon" |
-| 0:20 | Box and "P2 · Live Gemini" appear. J taps **Confirm**. | Hero 120 → 60, east route fades, plume on P2, agent starts by itself |
-| 0:30 | N: "A Gemini managed agent in Google's cloud is investigating. It cannot touch this table. It can only ask this laptop for checked numbers." | Agent phases with elapsed time |
-| 0:40 | N taps **Why**: "The gate helps only here: +57. With P1 or B2 blocked it does nothing — it adds no exit." | Four local cases |
-| 1:20 | Agent finishes: "Open P3: 60 → 117 · checked". | Approve enabled |
-| 1:25 | N: "The AI can't move anything. You can." J presses **Approve**. | Ladder: Approved → Acknowledged (not arrival) → Gate moving → Open switch → Re-solved |
-| 1:40 | — | Hero 117 of 120 (+57), "Done · re-solved 117" |
-| 1:50 | N: "Gemini read it, the agent investigated, our checker decided, you approved, a switch confirmed. A model, not a survival figure. Tap Why? to see where the gate does nothing, or try Smoke." | — |
-| 2:00 | C presses **Next judge** during Q&A (the challenge "find a blockage where the gate does nothing" only after this, with P3 closed again). | Checklist turns green; measured 9 s in the simulator |
-
-## After the climax: Simulation and Camera twin (building-v2)
-
-The presenter menu has a **Twin** toggle: Tabletop (default, everything above) · Simulation · Camera twin. It is locked while an analysis runs, and **Next judge** always returns to Tabletop. building-v2 is a separate, illustrative eight-zone building (125 synthetic people, 40 s, four exits E1–E4, doors D1–D10). Every building-v2 door is simulated; the only physical gate is P3 on the tabletop. D4 is labelled "simulated servo".
-
-**1:40 hand-off.** N: "That's the table. Now break a full building yourself." Switch to Simulation. The judge picks a hazard and drops it in any room; the local planner re-solves in about 50 ms and shows closed doors, opened doors, red X or green exits and routes. For the agent question, press **Ask the agent** in the door plan panel (it follows the presenter menu's Analysis mode): progress phases with elapsed time, then the agent's explanation attributed to it, the checker's decision and whether they agree. The hero reads "N of 125 reach an exit in 40 s · building-v2 model".
-
-What each hazard does (declared model assumptions, not measured behaviour):
-
-| Hazard | Room | Doors | Exits and signs |
+| Input | Read | Critique round | Result |
 | --- | --- | --- | --- |
-| Fire | no entry; people inside leave until 6 s | fire doors around it close to entry (egress still allowed) | exits in the room red X |
-| Smoke | half speed; untenable at T s (default 12) | smoke doors close to entry | exits in the room unsafe |
-| Gas | no entry; people inside leave until 10 s | nothing near it is switched or moved; D4/D9 locked if they border it; responders vent to the outside | signs at the room set static red once |
-| Chemical | no entry; people inside leave until 10 s | doors around it close to entry (confine) | exits in the room red X |
-| Water | passable at half speed | no change | route shown as slowed |
+| Ferry Building Level 3 map (photo) | 23–25 s | 35 s, 12 → 0 errors (an earlier attempt: 16 → 2) | accepted |
+| Ferry Building Level 2 map (photo) | 37 s | 74 s, 16 → 0 errors | accepted |
+| Ferry Building Floor 2, whole sheet (photo) | 41 s | 73 s, 20 → 4 errors | blocked by the checks, not accepted |
+| Synthetic office map | 36–50 s | not needed | ready |
+| Synthetic home sketch | 19 s | not needed | accepted |
 
-Real numbers (generated by `tools/gen_twin_fixtures.py`; full table in `docs/demo/building-v2-matrix.md`):
+Say while it reads: "Argon proposes the geometry. Nothing becomes the venue until the checks pass and you accept."
+If the reading is slow or fails, say so and open a **saved run** (labelled as such, never passed off as live).
 
-- **Fire in the Lobby** → E1 red X, D1/D5/D6 closed to entry, the planner opens the dock door D9: **125** vs 96 with doors at default (**+29**). It does not open D4: the north stair exit is already full, so D4 adds no exit capacity — the same lesson as P3 on the tabletop.
-- **Fire in the West corridor** → the planner opens D4: 125 vs 104 (+21).
-- **Smoke in the Hall** (untenable at 12 s) → D4 opened for egress only: 99 vs 87 (+12).
-- **Gas in the Hall** → D4 locked closed, nothing switched near the gas, routes avoid the hall: 125.
-- **Water** never changes a count; it slows routes.
-- **Fire in Room A** leaves 8 people in the room at 6 s; **fire, smoke, gas or chemical in the East corridor** leaves the 5 kitchen staff without a route (its only door opens into the corridor). The screen says why. These are modeled outcomes caused by the hazard, not by a door policy.
+## Act 2 · "Break it" (Simulation)
 
-**Camera twin (only if its rehearsal passed).** Print `venue/print/building_v2_sheet.svg` at 100 % on matte A3 and `venue/print/hazard_cards.svg` on A4 (cut out the cards). Lay the sheet flat under the overhead camera. Presenter menu → Calibrate: click the four corner markers TL, TR, BR, BL in order. A judge places a red card in a room → **Read the board** → one chip per card ("FIRE · Lobby · Live Gemini") → **Confirm** → the door plan updates. Say: "Card positions are mapped onto the reviewed floor plan; the 3D model is authored, not reconstructed." A camera read is perception only: unconfirmed or edited camera hazards are refused by the planner, and nothing physical moves.
+1. The judge arms **Fire** (or Smoke, Gas, Chemical, Water) and drops it in a room of the new venue.
+2. The local planner tries every state of the motorized doors, solves and checks each, and picks the best checked one
+   in well under a second. The hero number changes ("78 of 80 reach an exit in 116 s · +10 by opening D9"), routes and
+   exit signs redraw, fire doors close to entry.
+3. The announcement says a door "is to be opened": it only says "is open" once that door's endpoint switch reports it.
 
-Sources the hazard rules are inspired by (say "inspired by", never "the same system"): dynamic exit signage with green arrows and red crosses and a human controller (SFPE article on the EU GETAWAY Intelligent Active Dynamic Signage System); hold-open fire doors releasing on alarm (GEZE); gas-leak guidance to eliminate ignition sources and ventilate (EMC Insurance); chemical-spill guidance to confine and deny entry (Weill Cornell EHS).
+## Act 3 · "Agents investigate, the checker decides, you approve"
 
-## Live checks (25 October, Gemini 4 Argon)
+1. **Ask the agent team · Live Gemini**. Two managed agents (Antigravity agent on `gemini-4-argon`) run in parallel in
+   Google's cloud; their steps stream into two lanes:
+   - **Strategist** submits a recommendation through a typed `submit_recommendation` function.
+   - **Robustness** runs code in a network-disabled sandbox holding a copy of our solver kit, sweeping single-door and
+     single-exit failures, then submits a recommendation with numeric claims.
+2. Every claim is re-run by the local checker: the panel shows "agent claimed | checker verified" per claim and
+   "N of N claims reproduced by the local checker". A mismatch is shown, never hidden.
+3. The judge presses **Approve plan**. The simulated door controller acknowledges ("ACK · heard, not arrived"), the
+   door travels about 1.75 s, and only the endpoint switch makes it read "Endpoint confirmed · open".
+4. **Jam the gate**, then approve again: the door is never observed open, it is marked stuck, the server re-plans with
+   it closed and the whole twin switches to that **fallback** (hero "fallback · D9 stuck · −10 vs the plan", routes,
+   lamps and door list). The fallback needs a fresh human approval.
 
-- **Simulation agent** (fire in the Lobby, Live Gemini): completed in 50 s with one `plan_doors` call; recommended D4 closed, D9 open; agreed with the checker (125 of 125 vs 96). The first attempt hit the 60 s cap because the agent was invited to check extra states one turn at a time; `plan_doors` now returns every checked state in one call. Narrate through ~50 s as on the tabletop.
-- **Camera twin** on a synthetic tilted still of the printed sheet (not a real camera): FIRE → Lobby, GAS → Hall, WATER → West corridor, all high confidence, within 8 cm; 24 s with clicked corners, 13 s with Gemini finding the corner markers. Confirmed cards gave a checked plan (78 of 125 vs 36; D9 opened, D4 gas-locked).
-- **Static video** (probe P3): passes; the still-video path is enabled by its receipt.
-- Still to rehearse on site: the real overhead camera, venue light and the printed sheet; the flashed firmware.
+Live team runs on 26 October (building-v2, fire in the lobby, four runs):
+
+- Strategist: 27–38 s every time, 2/2 claims reproduced, about $0.02.
+- Robustness: 86 s, about 150 s and 172 s when it completed (12/12 claims reproduced, about $0.10; in the last run all
+  12 numbers appeared in the sandbox's own code output). Once it missed its then 150 s deadline and the panel showed
+  the labelled local fallback instead. The deadline is now 210 s, and nothing in Act 3 waits on this lane: approve and
+  jam the doors while it streams.
+- After the sandbox sweep was narrowed to single failures (the scenarios the claims are about), a run started by
+  itself from a judge's phone hazard on Ferry Building Level 2 finished in 24 s (strategist, 2/2) and 57 s
+  (robustness, 12/12, all computed in the sandbox), about $0.07 together: "D9 open holds 18 of 18 single failures".
+- The team now starts by itself 2.5 s after a hazard is placed (live by default); "Ask the agent team" re-runs it.
+- The strategist chose D4 closed + D9 open (125 of 125). The robustness lane chose D4 open + D9 open, also 125, which
+  held under 18 of 18 single failures against 8 of 16 for the strategist's choice. The checker's own best is D4 closed
+  + D9 open; the panel states both, and they tie.
+
+## Close (15 s)
+
+"Gemini read the map, the agents stress-tested the plan, our checker decided, you approved, and the door only counted
+as open when its switch said so. A model of declared rates, not a survival figure."
 
 ## Questions judges will ask
 
-1. **What does the agent decide?** It investigates through client-executed tools. Our checker decides. No model output moves hardware.
-2. **Why an agent then?** It runs in Google's managed environment, pauses for tools only this laptop can run, and resumes — orchestration across a trust boundary.
-3. **Why about 50 s?** First status around 15 s, tool pause around 32 s, done around 51 s; hard cap 60 s.
-4. **Why not give the agent the servo?** The cloud cannot reach this laptop, a human approves movement, and an acknowledgement is not arrival.
-5. **Is it hardcoded?** Move the token: P1 +0, B2 +0, P2 +57. Each solve takes milliseconds and has a run id.
-6. **What does Gemini see?** One still. It returns a validated pad id and a box; a human confirms. It is not 3D reconstruction.
-7. **Why only three targets?** A closed set keeps every proposal checkable; free placement would need invented routing.
-8. **Do 117 people survive?** 117 of 120 synthetic occupants reach a modeled exit within 40 s. Not survival, not a real venue.
-9. **Why no gain with B2 or P1 blocked?** P3 adds no exit; it only feeds B2, which is then full or closed.
-10. **Did it really open?** An independent endpoint switch confirms it before we re-solve.
-11. **What about people moving while the gate moves?** Not modeled. Closures are known in advance, not reactive replanning.
-12. **Is the exit just a rate?** Yes — declared rates and capacities, not measured.
-13. **Where is the agent in Simulation?** The plan itself is the local planner: it tries every state of the two controllable doors (D4, D9), solves and checks each, and picks the best checked one. **Ask the agent** (door plan panel) then runs the same pattern as the tabletop: in Live Gemini mode the managed agent investigates in Google's cloud (network-disabled environment where configured) and can only ask this laptop two read-only questions, `plan_doors` and `compare_door_states`; the local checker answers from its own numbers and decides. The panel always shows "Checker decided: <doors> · N of 125", and if the agent's recommendation differs it says "Agent suggested X; the checker's best is Y". In Local solver mode no Gemini call is made and the result is labelled "Local solver · no Gemini call". The run is capped at 6 tool calls and 60 s, can be cancelled, and is dropped by a new hazard, a mode switch or Next judge. Nothing physical moves and counts are modeled crossings. The live path is exercised offline against the pinned SDK with mocked HTTP; a real Gemini run needs a key and spend approval.
-14. **Why does a fire in one corner close the whole room?** Hazards apply per room in this model; finer placement would need geometry we do not compute.
-15. **Why doesn't gas open doors to vent?** Venting through internal doors pushes gas into escape routes and moving a motorised door is an ignition risk; the screen tells responders to vent to the outside.
-16. **Does the camera build the 3D model?** No. It reads card type and position; positions are mapped onto the authored floor plan through the four corner markers.
+1. **Did Argon really build this?** Yes: the overlay is drawn from the same numbers as the 3D venue. Every element has
+   a point on the photo. Unreadable parts are listed, and Accept is blocked while graph checks report errors.
+2. **Is it hardcoded?** Upload any map or sketch. Move the fire: each solve is a fresh run with its own id.
+3. **What do the agents decide?** Nothing. They propose and make claims; the local checker re-runs every claim and
+   decides; a human approves anything that changes state.
+4. **Why two agents?** Different jobs: the fastest good plan, and the plan that survives failures. Their disagreement
+   is shown, with the checker's numbers for both.
+5. **What runs in the sandbox?** Our solver kit with the network disabled. networkx is not installed there, so the kit
+   uses a pure-Python estimator and its claims are labelled "sandbox estimate"; the exact local checker then reproduces
+   them. Do not claim the sandbox ran the exact solver.
+6. **Are there guardrails on the agent?** Code runs in a network-disabled environment and only client functions reach
+   the laptop. A hook that denies writes is configured but our probe did not observe a denial, so **do not claim the
+   hook guardrail works**.
+7. **Did the door really open?** The controller is simulated (no hardware at this event), but it keeps the hardware
+   protocol: an ACK is not arrival, only the endpoint switch counts, and a stall, dropped ACK, disagreeing switches or a
+   lost heartbeat all become faults that trigger a re-plan.
+8. **Do 78 people survive?** 78 of 80 synthetic occupants reach a modeled exit within the horizon. Declared rates and
+   capacities, not measured behaviour, not survival.
+9. **What does it cost?** Reading a map is a few thousand tokens. A two-lane team run is about $0.12 at list prices,
+   and the panel shows its estimate.
 
-## Failure plan (most likely and damaging first)
+## Failure plan
 
-1. **Firmware or servo not ready** — go/no-go three hours before; otherwise run the simulator and say so (the chip reads "Simulator").
-2. **Agent slow or times out** — narrate the four-case strip while it runs. In the simulator a local check ("Local solver · no Gemini call") can still be approved. On the physical board it cannot: moving the gate needs a live agent result, so press Retry agent; without a working Gemini connection the gate cannot be approved, by design.
-3. **Token off-pad or on P1/B2** — the screen says "Move the token onto a pad"; direct the judge to the recessed P2 pad.
-4. **Venue Wi-Fi** — run Gemini over a phone hotspot; everything else is local.
-5. **Glare or angle** — fixed mount, lamp, matte print; after one failed read use the manual hazard on the twin.
-6. **A new mode misbehaves on stage** — hide it (Twin → Tabletop) and carry on; if the whole app is unstable, open the frozen tabletop build: `git worktree` at `../SpatialTwin-demo-v1` (tag `demo-v1`) served with `env -u GEMINI_API_KEY ../SpatialTwin/.venv/bin/python -m uvicorn backend.app.main:app --port 8766` from that folder (its `frontend/dist` is already built) (add the key back for live Gemini).
-7. **Operator token** (physical mode) — enter it once in the presenter menu; it survives Clear and reset, not a page reload.
+1. **Argon slow or fails on a judge's photo**: show the failure honestly, then open a saved run (labelled).
+2. **Agent lane slow or fails**: the lane shows the failure next to a labelled local fallback; the checker's plan is
+   approvable without the agents.
+3. **Venue Wi-Fi**: Gemini over a phone hotspot; everything else is local.
+4. **A second tab or phone changes the hazards**: Approve waits ("Syncing this screen's hazards…") until this screen
+   and the server agree.
 
-## Reset for next judge (target ≤ 20 s)
+## Reset for the next judge
 
-Lift the token, press **Next judge**, wait for the checklist: scenario clear, P3 closed (switch observed), no run active, and a live camera (physical board) or a ready board view (simulator).
-
-## Decisions taken
-
-- Judges use the presenter's laptop, not their own phones (the network guard admits only this laptop; the live event stream cannot carry a token).
-- Motion only when state changes (routes, hero number, gate); nothing loops.
-- The hero number reads "N of 120 reach an exit in 40 s"; avoid "still inside", which reads as casualties.
-
-## Go / no-go (24 October review)
-
-- **Simulator stage:** go once the stale "Done" state, the top-bar Clear and the disabled-button styling are fixed (in progress).
-- **Physical board:** no-go until all three hold — the approval path refuses local results in the UI as well as the backend; the overhead camera is selected in the presenter menu and the synthetic-board fallback is off in physical mode; and one full live run succeeds on the real board over the stage network (live agent → Approve → switch → 117).
+Presenter menu → **Reset devices** (clears hazards, faults and stuck doors), or **Next judge** for a full reset to the
+built-in building.

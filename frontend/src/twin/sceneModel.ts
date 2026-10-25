@@ -23,9 +23,14 @@ function key(n: number): string {
   return n.toFixed(4);
 }
 
+/** An exit stair inside its room (an upper floor's stair core): the way down, not a gap in any wall. */
+export function isInteriorStair(exit: VenueV2['exits'][number]): boolean {
+  return exit.kind === 'stair';
+}
+
 /** Axis-aligned edges are split at every vertex on their line, deduped, and cut at openings. */
 export function buildWalls(venue: VenueV2): WallSegment[] {
-  const openings: Opening[] = [...venue.doors, ...venue.exits];
+  const openings: Opening[] = [...venue.doors, ...venue.exits.filter((exit) => !isInteriorStair(exit))];
   // line id -> breakpoints and interval usage counts
   const lines = new Map<string, { axis: 'x' | 'y'; at: number; stops: Set<number>; edges: [number, number][] }>();
   const slanted = new Map<string, WallSegment>();
@@ -160,8 +165,13 @@ export interface ExitRender {
   position: Point2;
   width: number;
   axis: 'x' | 'y';
-  /** Unit vector pointing out of the building. */
+  /** Unit vector pointing out of the building. An interior stair has no outside wall: it faces the way people walk
+   * onto it, from the side of its room with the most floor (+y on a tie). */
   outward: Point2;
+  /** An exit stair inside its room: drawn as a floor marker at its position, with no wall gap. */
+  interior: boolean;
+  /** Free floor (m) behind an interior stair along -outward, for its lead-in chevrons; Infinity for a wall exit. */
+  approach: number;
   kind: 'safe' | 'unsafe' | 'idle';
   lamp: ExitLamp | null;
   color: string;
@@ -169,13 +179,49 @@ export interface ExitRender {
   flashes: boolean;
 }
 
+/** Distance from `p` along the axis direction `d` to the first wall of a rectilinear polygon (Infinity if none). */
+export function rayToWall(polygon: Point2[], p: Point2, d: Point2): number {
+  let best = Infinity;
+  for (let i = 0; i < polygon.length; i++) {
+    const a = polygon[i];
+    const b = polygon[(i + 1) % polygon.length];
+    if (d[0] !== 0 && Math.abs(a[0] - b[0]) < EPS
+      && p[1] >= Math.min(a[1], b[1]) - EPS && p[1] <= Math.max(a[1], b[1]) + EPS) {
+      const t = (a[0] - p[0]) * d[0];
+      if (t > EPS) best = Math.min(best, t);
+    } else if (d[1] !== 0 && Math.abs(a[1] - b[1]) < EPS
+      && p[0] >= Math.min(a[0], b[0]) - EPS && p[0] <= Math.max(a[0], b[0]) + EPS) {
+      const t = (a[1] - p[1]) * d[1];
+      if (t > EPS) best = Math.min(best, t);
+    }
+  }
+  return best;
+}
+
+const FACINGS: Point2[] = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+
 export function exitRenders(venue: VenueV2, plan: DoorPlanResponse | null): ExitRender[] {
   return venue.exits.map((exit) => {
-    const axis = wallAxisAt(venue, exit.position);
+    const interior = isInteriorStair(exit);
     const zone = venue.zones.find((z) => z.id === exit.zone);
-    const centre = zone ? polygonCentroid(zone.polygon) : exit.position;
-    const sign = (axis === 'x' ? exit.position[1] - centre[1] : exit.position[0] - centre[0]) >= 0 ? 1 : -1;
-    const outward: Point2 = axis === 'x' ? [0, sign] : [sign, 0];
+    let outward: Point2;
+    let axis: 'x' | 'y';
+    let approach = Infinity;
+    if (interior) {
+      // On no wall (wallAxisAt would only find a nearby edge): face the way in with the longest run of floor.
+      outward = [0, 1];
+      approach = zone ? rayToWall(zone.polygon, exit.position, [0, -1]) : Infinity;
+      for (const d of FACINGS.slice(1)) {
+        const behind = zone ? rayToWall(zone.polygon, exit.position, [-d[0], -d[1]]) : -Infinity;
+        if (behind > approach + EPS) [outward, approach] = [d, behind];
+      }
+      axis = outward[0] === 0 ? 'x' : 'y';
+    } else {
+      axis = wallAxisAt(venue, exit.position);
+      const centre = zone ? polygonCentroid(zone.polygon) : exit.position;
+      const sign = (axis === 'x' ? exit.position[1] - centre[1] : exit.position[0] - centre[0]) >= 0 ? 1 : -1;
+      outward = axis === 'x' ? [0, sign] : [sign, 0];
+    }
     const decided = plan?.exits.find((e) => e.id === exit.id);
     const lamp = decided?.lamp ?? null;
     const kind: ExitRender['kind'] = !decided ? 'idle' : decided.safe ? 'safe' : 'unsafe';
@@ -186,6 +232,8 @@ export function exitRenders(venue: VenueV2, plan: DoorPlanResponse | null): Exit
       width: exit.width,
       axis,
       outward,
+      interior,
+      approach,
       kind,
       lamp,
       color: kind === 'safe' ? PALETTE.safe : kind === 'unsafe' ? PALETTE.hazard : PALETTE.lampOff,

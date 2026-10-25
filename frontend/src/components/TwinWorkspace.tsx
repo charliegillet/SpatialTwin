@@ -12,6 +12,7 @@ import { DoorPlanBar } from './DoorPlanBar';
 import { HazardToolbar } from './HazardToolbar';
 import { IncidentPanel } from './IncidentPanel';
 import { Real2SimPanel } from './Real2SimPanel';
+import { SignsPanel } from './SignsPanel';
 import { LightsPanel } from './LightsPanel';
 import { TwinHeroView } from './TwinHero';
 import { TwinStage } from './TwinStage';
@@ -28,7 +29,8 @@ export function TwinWorkspace({ twin, notice, mode, calibrateTick, imageFile, an
   const pending = flow.status === 'pending';
   const building = mode === 'build';
   const hazardInputs = toHazardInputs(twin.hazards);
-  const team = useAgentTeam({ hazards: hazardInputs, plan, pending, mode, analysisMode, venueId: twin.venueId });
+  // Live by default: the team starts by itself once the planner has a checked plan for the judge's hazards.
+  const team = useAgentTeam({ hazards: hazardInputs, plan, pending, mode, analysisMode, venueId: twin.venueId, auto: !building });
   // One incident mirror per mount (one EventSource, one hazard sync); idle while a floor plan is being read.
   const incident = useIncident(twin.venueId, hazardInputs, { enabled: !building });
   const [seed, setSeed] = useState<'live' | 'fixture' | null>(null);
@@ -39,9 +41,13 @@ export function TwinWorkspace({ twin, notice, mode, calibrateTick, imageFile, an
   const listed = twin.venues.find(item => item.venue_id === twin.venueId);
   const hero = twinHero({ plan, pending, error: flow.status === 'error' ? flow.error : null, venueId: twin.venueId,
     venueName: listed && !listed.builtin ? listed.name : null });
-  const fallbackPlan = incident.state.plan?.label === 'fallback' && incident.state.incident?.venue_id === twin.venueId ? incident.state.plan : null;
-  const shown = withFallback(hero, fallbackPlan && { valid: fallbackPlan.valid, completed: fallbackPlan.completed_crossings,
-    population: fallbackPlan.initial_population, stuck: fallbackPlan.stuck_doors }, plan);
+  // After a jam the doors follow the incident's fallback: the twin draws that plan (routes, lamps, door list) and the hero
+  // says so. Before any jam the stateless plan is what the doors would follow, so it is drawn as is.
+  const executed = incident.fallbackPlan && incident.state.incident?.venue_id === twin.venueId ? incident.fallbackPlan : null;
+  const summary = executed ? incident.state.plan : null;
+  const drawn = executed ?? plan;
+  const shown = withFallback(hero, summary && { valid: summary.valid, completed: summary.completed_crossings,
+    population: summary.initial_population, stuck: summary.stuck_doors }, plan);
   const accepted = (venueId: string) => { twin.refreshVenues(); onBuilt?.(venueId); };
   if (building) return <>
     <div className="twin-side twin-build"><Real2SimPanel onAccepted={accepted} onPreview={setPreview} /></div>
@@ -58,13 +64,15 @@ export function TwinWorkspace({ twin, notice, mode, calibrateTick, imageFile, an
       {mode === 'camera' && <CameraPanel venue={venue} onConfirmed={twin.addCamera} calibrateTick={calibrateTick} imageFile={imageFile} onProvenance={setSeed} />}
       <HazardToolbar armed={twin.armed} onArm={twin.setArmed} smokeSeconds={twin.smokeSeconds} onSmokeStep={twin.stepSmoke} hazards={twin.hazards} zoneNames={zoneNames}
         selectedId={twin.selectedId} onSelect={twin.setSelectedId} onRemove={twin.remove} canUndo={twin.canUndo} onUndo={twin.undo} onClear={twin.clear} notice={notice} />
-      <DoorPlanBar plan={plan} pending={pending} team={team} />
+      <DoorPlanBar plan={drawn} pending={pending} team={team} gates={incident.state.gates}
+        executing={summary ? `Fallback plan r${summary.plan_revision}: the doors now follow it (${summary.stuck_doors.join(', ')} stuck closed).` : null} />
       <IncidentPanel incident={incident} />
-      <LightsPanel venue={venue} plan={plan} reducedMotion={reducedMotion} />
+      <SignsPanel venue={venue} onConfirmed={hazard => twin.addCamera([hazard])} />
+      <LightsPanel venue={venue} plan={drawn} reducedMotion={reducedMotion} />
       <ZoneList venue={venue} hazards={twin.hazards} armed={twin.armed} onPlaceInZone={twin.placeInZone} />
     </div>
-    <TwinStage venue={venue} plan={plan} hazards={twin.hazards} armedType={twin.armed} selectedHazardId={twin.selectedId} lowGraphics={false}
+    <TwinStage venue={venue} plan={drawn} hazards={twin.hazards} armedType={twin.armed} selectedHazardId={twin.selectedId} lowGraphics={false}
       reducedMotion={reducedMotion} onPlace={point => twin.place(point)} onSelectHazard={twin.setSelectedId} gates={incident.doors} />
-    <div className="stage-chips twin-hero"><TwinHeroView hero={shown} chips={[...twinChips(plan, twin.fixtureVenue), ...(cameraCardsLabel(twin.hazards, plan, seed) ?? [])]} title={reference} /></div>
+    <div className="stage-chips twin-hero"><TwinHeroView hero={shown} chips={[...twinChips(plan, twin.fixtureVenue), ...(executed ? ['Fallback in force'] : []), ...(cameraCardsLabel(twin.hazards, plan, seed) ?? [])]} title={reference} /></div>
   </>;
 }

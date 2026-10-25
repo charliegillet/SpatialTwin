@@ -46,7 +46,7 @@ def build_announcement(zone_names: Dict[str, str], exit_names: Dict[str, str], h
     for d in doors:
         if d["decided_by"] == "door_planner" and d["state"] == "open":
             a, b = (_place(zone_names[z]) for z in d["zones"])
-            sentences.append(f"Door {d['id']} between {a} and {b} is open.")
+            sentences.append(f"Door {d['id']} between {a} and {b} is to be opened.")
     gas_rooms = [_place(zone_names[h["zone_id"]]) for h in hazards if h["type"] == "GAS"]
     if gas_rooms:
         sentences.append(f"Do not operate switches near {_join(sorted(set(gas_rooms)))}.")

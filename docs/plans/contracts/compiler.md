@@ -18,7 +18,9 @@ metres   X = (x_px - minx_px) * metres_per_px
 ```
 
 The south-west-most grid line is pinned to 0 when snapping, so the map stays exactly affine and the overlay inverts
-it with `x_px = minx_px + X / metres_per_px`, `y_px = maxy_px - Y / metres_per_px`.
+it with `x_px = minx_px + X / metres_per_px`, `y_px = maxy_px - Y / metres_per_px`. The bbox includes void boxes
+(the drawn building), so when a void lies along the west or south edge the rooms start east or north of 0: the
+lowest cluster is pinned only when it holds the frame origin, and nothing is shifted.
 
 ## Scale priority
 
@@ -36,12 +38,32 @@ An implausible reference (building outside 3-300 m) is ignored and listed in `re
   shared grid lines, rounded to 0.1 m. Snapping is monotone, so it cannot turn touching rooms into overlapping
   rooms. Every cluster that merged distinct values is listed in `report.edits`.
 - `extra_boxes` are unioned with the main box into one rectilinear outline (counter-clockwise, collinear points
-  removed). An extra box that does not touch the room is dropped and listed.
+  removed). An extra box that does not touch the room is dropped and listed (its outline still blocks exits, below).
 - Doors: the shared collinear wall of the two rooms is found; the door point is projected on it and clamped so the
   full width fits (width shrinks only if the wall is shorter). No wall >= 0.6 m shared: the door is dropped with a
   reason. Parallel doors between one room pair merge (widths add, capped by the wall length) because the venue model
   allows one door per pair.
-- Exits: projected on the nearest exterior part of the room's boundary (the part no other room covers).
+- Voids (room kind `void`: OPEN TO BELOW, atria, light wells, shafts) frame the drawing but never become zones;
+  doors and exits into a void are dropped and listed.
+- Door and window exits: projected on the nearest outside part of the room's boundary, the part that no other room
+  covers and that faces no void and no extra box the compiler could not attach (both are drawn but not outside;
+  void edges snap to the room grid lines within the same tolerance). When that moves an exit off the wall nearest
+  its point, `report.edits` says which outline the wall faces. No outside wall >= 0.6 m: the exit is dropped.
+- Interior exit stairs (venue exit `kind: "stair"`): a draft exit of kind `stair` never becomes a wall opening (on
+  an upper floor a stair drawn as a facade door is an exit into the air; on a shared wall it cuts into the next
+  room). It skips the outside-wall search and is placed strictly inside its room. A door or window exit of a room of
+  kind `stair` with no outside wall is placed the same way.
+  - Allowed rooms: kinds `stair`, `lobby` and `corridor`. A stair exit in any other room (office, bedroom, hall,
+    ...) is dropped: `exit KEY: an exit stair in ROOM (kind); an interior exit stair must be in a stair, lobby or
+    corridor; dropped`.
+  - Point, first that qualifies, rounded to 0.01 m: the drawn point if it is at least 0.5 m from every wall of the
+    room; else the room's label point under the same 0.5 m rule; else the centre of the room's bounding box if it
+    is strictly inside. None qualifies: dropped (`no point inside ROOM clear of its walls ...`).
+  - Width is the drawn width or the 0.9 m default (service rate as for a door exit). Each placement is listed in
+    `report.edits` (`placed inside ROOM at (x, y) m (drawn point|room label point|room centre), not in a wall`).
+  - `graph_checks` requires a `stair` exit to be strictly inside its zone (`stair_exit_not_inside_its_room`) and
+    refuses a wall exit whose gap overlaps a door's gap on the same wall line (`exit_overlaps_door`). The 3D scene
+    cuts no wall gap for it and draws a floor marker; the overlay draws a small box at its point.
 - Not handled: slanted or curved walls, rooms drawn as non-rectangles beyond three boxes, stacked floors, doors
   between a room and a courtyard.
 

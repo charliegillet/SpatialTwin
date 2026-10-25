@@ -36,7 +36,10 @@ def test_voids_frame_the_plan_but_are_not_floor():
 
 
 def test_an_interior_exit_stair_core_is_kept():
-    """Upper floors exit through stair cores inside the floor plate (live Ferry Building reading, 26 Oct 2026)."""
+    """Upper floors exit through stair cores inside the floor plate (live Ferry Building reading, 26 Oct 2026).
+
+    The stair is the way down inside the core, not a gap in a wall: it is placed inside the room, and the whole venue
+    is clean (no error of any kind, not only the stair and exit codes)."""
     raw = home_raw()
     # Carve a stair core out of the middle of the hall's north side: it touches no outside wall.
     raw["rooms"][2]["box"] = [500, 100, 600, 900]
@@ -48,14 +51,20 @@ def test_an_interior_exit_stair_core_is_kept():
                          "label_point": [260, 500]})
     raw["doors"] = [d for d in raw["doors"] if d["key"] != "DLK"] + [
         {"key": "DSH", "between": ["STAIR_CORE", "HALL"], "point": [500, 500], "width_m": None, "symbol": "swing",
+         "confidence": 0.9},
+        {"key": "DML", "between": ["MID", "LIVING"], "point": [260, 450], "width_m": None, "symbol": "swing",
          "confidence": 0.9}]
+    # Drawn on the wall the core shares with MID: as a wall opening it would cut into MID.
     raw["exits"].append({"key": "STAIRX", "room": "STAIR_CORE", "point": [420, 500], "width_m": None, "kind": "stair",
                          "confidence": 0.9})
     result = compile_raw(raw, building_width_m=12)
     stair_exit = next(e for e in result.venue.exits if e.zone == "STAIR_CORE")
     assert stair_exit.kind == "stair"
-    assert any("stair core inside the floor" in edit for edit in result.report.edits)
-    assert [i for i in errors_in(check_venue(result.venue)) if "STAIR" in str(i.element_ids) or i.code.startswith("exit")] == []
+    # The drawn point is on the wall (no clearance), so the core's label point (6.0, 6.6) m is used.
+    assert stair_exit.position == (6.0, 6.6)
+    assert "exit STAIRX: exit stair; placed inside STAIR_CORE at (6, 6.6) m (room label point), not in a wall" in \
+        result.report.edits
+    assert check_venue(result.venue) == []
 
 
 def test_explicit_zero_hints_keep_the_building_empty():

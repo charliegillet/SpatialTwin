@@ -102,6 +102,19 @@ def test_accumulator_never_carries_thought_content():
                                       "name": "submit_recommendation"}
 
 
+def test_a_code_result_that_arrives_whole_in_its_start_event_keeps_its_text():
+    """Live stream shape (probe P9): step.start:code_execution_result carries the result, with no delta or stop."""
+    acc = StepAccumulator()
+    started = acc.start({"index": 3, "step": {"type": "code_execution_result", "result": "suggested_claims [[\"baseline\", 125]]\n",
+                                              "is_error": False}})
+    assert "text" not in started and "complete" not in started
+    assert acc.steps[3]["complete"] is True
+    record = acc.stop({"index": 3})
+    assert record["step_type"] == "code_execution_result" and "125" in record["text"] and record["is_error"] is False
+    acc.start({"index": 4, "step": {"type": "code_execution_result"}})
+    assert "complete" not in acc.steps[4], "an empty start still accumulates deltas as before"
+
+
 def test_polled_steps_and_text_cleaning():
     interaction = response("requires_action", [
         {"type": "thought", "signature": "abc"},

@@ -982,7 +982,7 @@
     "D4 is a simulated servo door, driven by the virtual door controller.",
     "26 modeled occupants remain in Hall at 40 s: smoke made the zone untenable at 12 s and the doors and exits out of it could not take everyone in that window. This is a modeled outcome of the declared assumptions, not an intended one."
   ],
-  "announcement": "Attention. Smoke in the hall. Use the south exit, north stair exit or west exit. Door D4 between the hall and the north stair is open.",
+  "announcement": "Attention. Smoke in the hall. Use the south exit, north stair exit or west exit. Door D4 between the hall and the north stair is to be opened.",
   "model_assumptions": [
     "building-v2 model: illustrative eight-zone building, synthetic population and declared rates; not a surveyed plan.",
     "A hazard applies to the whole zone that contains its point.",

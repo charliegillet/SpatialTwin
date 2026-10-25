@@ -4,13 +4,18 @@ description: Run the N-1 robustness sweep of a door-state candidate with the san
 ---
 # Robustness sweep
 
-1. Run the default sweep (checked best candidate, single failures, untenable sensitivity, second hazards):
+1. Sweep the checked best candidate's single failures (each door stuck closed, each exit blocked), which is what
+   the claims are about:
 
    ```bash
-   cd /workspace/kit && python3 -m spatialtwin_kit.sweep
+   cd /workspace/kit && python3 -m spatialtwin_kit.sweep --only-single
    ```
 
-   It prints a one-line summary and writes `/workspace/out/sweep.json`. `engine_label` says whether the exact copy
+   (Without `--only-single` it also sweeps untenable-time sensitivity and second hazards: several times slower, and
+   only worth it when you have time left after submitting is ruled out.)
+
+   It prints a one-line summary and the suggested claims (`[scenario, completed_crossings]` pairs), and writes
+   `/workspace/out/sweep.json`. `engine_label` says whether the exact copy
    of the local solver ran or the pure-Python "sandbox estimate" (networkx missing).
 2. If the summary shows breaks, sweep a more robust candidate, for example
    `python3 -m spatialtwin_kit.sweep --candidate D4=open,D9=open --only-single`.

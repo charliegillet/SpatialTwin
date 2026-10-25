@@ -1,58 +1,53 @@
 # SpatialTwin — Gemini 4 Argon Hackathon Demonstrator
 
-An evacuation digital twin you can touch. A judge blocks a passage on a physical tabletop, **Gemini 4 Argon** reads the board, a **Gemini managed agent** investigates in Google's cloud using numbers only this laptop can compute, a local checker decides, and the judge approves a miniature servo gate whose endpoint switch confirms it moved. Then the judge breaks a larger building on screen, dropping fire, smoke, gas, chemical or water anywhere, and watches doors close to entry, exits turn red or green and routes re-plan.
+Show it any building's evacuation map. **Gemini 4 Argon** reads the photo, sketch or PDF into a live 3D twin, a local planner and checker decide which doors to open, a team of **Gemini managed agents** stress-tests that plan in Google's cloud, and a person approves before any door moves. Judges join in from their own phones: each phone becomes a live exit sign, and they can drop hazards into the building.
 
-AI proposes; the local checker decides; a human approves anything physical. Every count is a modeled crossing of synthetic occupants, never a survival figure.
+AI proposes; the local checker decides; a human approves anything that changes state. Every count is a modeled crossing of synthetic occupants, never a survival figure. There is no hardware at this event: the doors are a simulated controller that keeps the hardware protocol (an acknowledgement is not arrival; only an endpoint switch counts).
 
-**Repository:** <https://github.com/charliegillet/SpatialTwin> · **Contributors:** Nihal, Charlie, Codex, Claude
+**Repository:** <https://github.com/charliegillet/SpatialTwin> · **Contributors:** Nihal, Charlie, Codex, Claude · SpatialTwin began before the event (the tabletop version is tagged `demo-v1`); this demo adds Real2Sim, the agent team, the virtual door controller and phone signs.
 
 ---
 
-## Three modes (presenter menu → Twin)
+## The demo in three acts
 
-| Mode | What the judge does | What decides |
+| Act | What the judge does | What decides |
 | --- | --- | --- |
-| **Tabletop** (default) | Places a red token on the 4-zone board (or drops Fire/Smoke on the model). Gemini reads the still, the managed agent investigates, the judge approves the servo gate P3. | Two-phase min-cost flow planner + independent checker: 120 → 60 with P2 blocked → 117 with P3 open. |
-| **Simulation** | Drops typed hazards anywhere in a 3D eight-room building (`building-v2`, 125 people, 40 s). | Local door planner: tries every state of the controllable doors, solves and checks each, picks the best checked plan. |
-| **Camera twin** | Places red cards (FIRE, SMOKE, GAS, CHEMICAL, WATER) on a printed floor sheet; Gemini reads them; the operator confirms. | Card positions are mapped onto the authored plan through four corner markers; the same local door planner decides. |
+| **1 · Build** | Photographs the posted evacuation map (or a sketch or PDF). Argon's reading streams with thought summaries; the overlay draws every room, door and exit back onto the photo; graph checks run and one critique round fixes errors; the judge marks up to three motorized doors and presses **Accept**. | A deterministic compiler and graph checks; Accept is blocked while any check fails. |
+| **2 · Break it** | Drops Fire, Smoke, Gas, Chemical or Water anywhere, on the laptop or from a phone (Judge mode). Doors close to entry, exits turn red or green, routes re-plan, phone signs flip. | The local door planner tries every state of the motorized doors, solves and checks each, and picks the best checked plan. |
+| **3 · Agents, checker, approval** | **Ask the agent team**: a strategist and a robustness lane run in parallel on `gemini-4-argon`, the robustness lane running our solver kit in a network-disabled sandbox. Every claimed number is re-run by the local checker. The judge approves; the virtual door travels and its endpoint confirms it; **Jam the gate** forces a re-plan to the checked fallback. | The checker decides; the human approves; only an endpoint observation counts as open. |
 
-Hazard rules in building-v2 (declared model assumptions, inspired by dynamic exit signage and fire/gas/chemical guidance):
-
-- **Fire / Chemical** — no entry; doors around the room close to entry (egress still allowed); people inside leave until it becomes untenable; exits in the room show a red X.
-- **Smoke** — half speed, then untenable at T s; smoke doors close to entry.
-- **Gas** — no entry; nothing near it is switched or moved (motorised doors next to it lock, signs set static red once); responders are told to vent to the outside.
-- **Water** — passable at half speed; no door changes.
-
-Real outcomes are generated from the planner, never typed in: see [building-v2 matrix](docs/demo/building-v2-matrix.md). Example: fire in the Lobby closes D1/D5/D6 to entry, marks E1 unsafe and opens the dock door D9 → 125 of 125 vs 96 with doors at default.
+Stage runbook with measured live timings: [docs/demo/judge-experience.md](docs/demo/judge-experience.md) · backup video script: [docs/demo/backup-video.md](docs/demo/backup-video.md).
 
 ---
 
 ## Architecture
 
 ```
- Physical tabletop                      Browser (React 19 + Vite; three.js loaded only for Simulation/Camera twin)
- overhead camera, red token,            ├─ Tabletop stage: isometric SVG twin, hazard palette, approval ladder
- UNO R4 + PCA9685 servo gate,           ├─ Simulation: React Three Fiber scene, door plan, exit signs, playback
- 2 endpoint switches, 24 NeoPixels      └─ Camera twin: calibration, card chips, confirm
-        │ USB serial, NDJSON v1                 │ HTTP + server-sent events
-        ▼                                       ▼
- ┌────────────────────────────── Local authoritative backend (FastAPI + SQLite) ─────────────────────────────┐
- │ HardwareBridge / simulator (ACK ≠ arrival) · StateManager · network guard · operator tokens · STOP       │
- │ tabletop-v1: flow_solver + checker + schedule checker        building-v2: flow_solver_v2 + checker_v2     │
- │ hazard forecasts + exposure                                  hazard effects + door planner + announcer   │
- │ grounding (still / video)                                    camera calibration + card reader + confirm  │
- └───────────────▲─────────────────────────────────────────────────────────────────▲─────────────────────────┘
-                 │ structured perception (proposals only)                          │ client-executed local tools
-        gemini-4-argon (Interactions API)                    antigravity-preview-09-2026 managed agent (gemini-4-argon,
-                                                             network-disabled environment)
+ Phones (judges)                           Browser (React 19 + Vite; React Three Fiber for the 3D twin)
+ sign.html: live exit sign or              ├─ Build: Real2Sim panel, overlay, checks, Accept, 3D draft preview
+ hazard proposer (scoped cookie)           ├─ Simulation: hazards, door plan, agent-team lanes, approval and doors
+        │ HTTP + SSE (allowlist only)      └─ Presenter: venue picker, phone QR codes, Judge mode
+        ▼                                              │ HTTP + server-sent events
+ ┌─────────────────────────── Local authoritative backend (FastAPI + SQLite) ───────────────────────────────┐
+ │ NetworkGuard (loopback, or a scoped phone cookie for the sign allowlist) · venue registry (revisions)     │
+ │ Real2Sim: extract → salvage → compiler → graph checks → critique → Accept                                 │
+ │ flow_solver_v2 + checker_v2 + hazard effects + door planner + announcer                                  │
+ │ incident mirror + virtual door controller (ACK ≠ arrival, faults, fallback re-plan) · phone signs         │
+ └──────────────▲───────────────────────────────────────────────────────────────▲──────────────────────────┘
+                │ structured readings (proposals only)                          │ client functions + verified claims
+        gemini-4-argon (Interactions API,                      antigravity-preview-09-2026 managed agents on
+        streamed thought summaries)                            gemini-4-argon: strategist + robustness (sandbox kit,
+                                                               network disabled)
 ```
+
+The tabletop (servo gate, endpoint switches, NeoPixels, overhead camera) is still in the code and in the presenter menu, but it is not part of this demo.
 
 ## Invariants
 
 1. **AI proposes, the checker decides.** Gemini returns schema-validated proposals (a pad id and box, or typed cards); nothing changes until an operator confirms. The managed agent can only call local tools that return checked numbers.
-2. **No cloud tool reaches hardware.** Only the operator-approve route moves the servo, with an operator token on physical hardware and a live result as evidence.
+2. **No cloud tool reaches the doors.** Agents call only client functions that return checked numbers; only the operator's Approve commands a door, keyed to the exact plan revision and candidate hash.
 3. **ACK is not arrival.** The gate counts as open only after the independent endpoint switch reports it.
-4. **Honest provenance.** Live Gemini, Fixture, Local solver, Uploaded image and Simulated are always labelled; live errors never become fixtures. building-v2 doors are simulated; the physical gate is on the tabletop.
+4. **Honest provenance.** Live Gemini, Fixture, Local solver, Uploaded image and Simulated are always labelled; live errors never become fixtures. Every door at this event is simulated by the virtual door controller.
 5. **Every occupant accounted for.** N_initial = N_completed + N_remaining in every frame of every plan; the checker rebuilds the allowed network on its own and rejects any witness that breaks it.
 
 ---
@@ -66,9 +61,11 @@ cd frontend && npm ci && npm run build && cd ..
 .venv/bin/python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Open <http://127.0.0.1:8000>. Without `GEMINI_API_KEY` everything local works (planner, Simulation, simulator hardware, fixtures); Gemini paths report "not configured". Keep `SERIAL_PORT` empty to use the hardware simulator.
+Open <http://127.0.0.1:8000>. `GEMINI_API_KEY` in `.env` (never committed) enables live Argon readings and the agent team; without it everything local works (planner, Simulation, saved runs, local agent lanes, virtual doors) and Gemini paths report "not configured".
 
-**Stage runbook:** [docs/demo/judge-experience.md](docs/demo/judge-experience.md) — the two-minute script, judge questions, failure plan and reset. A frozen copy of the tabletop demo is tagged `demo-v1`.
+**Phones as exit signs.** Phones must reach the laptop, so serve the built frontend on the LAN: `.venv/bin/python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000` (optionally `SPATIALTWIN_SIGN_SECRET` of 32+ characters so phone links survive a restart). The network guard still admits only loopback and scoped phone cookies. Never point phones at `vite --host`. Details: [docs/plans/contracts/signs.md](docs/plans/contracts/signs.md).
+
+**Stage runbook:** [docs/demo/judge-experience.md](docs/demo/judge-experience.md) — the three acts, measured timings, judge questions, failure plan and reset. The tabletop demo is tagged `demo-v1`.
 
 **Printables for the Camera twin:** `.venv/bin/python -m tools.print_assets` writes `venue/print/building_v2_sheet.svg` (A3, four corner markers) and `venue/print/hazard_cards.svg` (A4).
 
@@ -82,9 +79,16 @@ cd frontend && npm test && npx tsc --noEmit && npm run build
 
 The offline harness blocks provider, network and device access and isolates SQLite. Ten recorded tabletop envelopes guard the original planner byte for byte.
 
-## Verification status (25 October 2026)
+## Verification status (26 October 2026, demo v2)
 
-- Verified live (24–25 October, Gemini 4 Argon, receipts in `runtime/probes` and `runtime/live-checks-2026-10-25`):
+- Verified live on 25–26 October (Gemini 4 Argon; receipts in `runtime/`):
+  - Real2Sim on synthetic maps and sketches, and on photos of the venue's own posted evacuation maps (critique rounds 12 → 0 and 16 → 0 errors before Accept; one larger sheet stayed blocked at 4 errors);
+  - the two-lane agent team on building-v2 (four runs): the strategist completed every time in 27–38 s with 2/2 claims reproduced; the robustness lane completed in 86–172 s with 12/12 claims reproduced (all 12 computed in the sandbox in the last run) and once missed its deadline, when the labelled local fallback took over;
+  - capability probes: sandbox code execution with the network disabled (networkx absent, so the kit's estimator runs; an uploaded zip makes the exact solver importable), stream shape, environment reuse. The hook guardrail probe did **not** observe a denial, so no hook guardrail is claimed.
+- Verified in the browser: Build → Accept → Simulation, fire → re-plan, approve → transit → endpoint open, jam → fault → the whole twin follows the fallback, phone sign pages.
+- Not verified here: phones on the venue Wi-Fi (client isolation can block them; the runbook has the fallback).
+
+Earlier tabletop verification (24–25 October):
   - direct grounding of the synthetic tabletop board and a full tabletop managed-agent run (P2 → 117);
   - the building-v2 managed agent: fire in the Lobby, 50 s, one `plan_doors` call, recommended D4 closed / D9 open, agreeing with the checker (125 of 125 vs 96 at defaults);
   - Camera twin card reads on a **synthetic** tilted still of the printed sheet: FIRE, GAS and WATER read with the right type and room, positions within 8 cm, both with clicked corners (24 s) and with Gemini locating the corner markers (13 s); confirmed cards produced a checked plan;

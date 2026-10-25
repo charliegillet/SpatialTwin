@@ -79,6 +79,8 @@ def build_door_agent_router(adapter: ManagedAgentAdapter, slots: asyncio.Semapho
     team_task: Dict[str, Optional[str]] = {"id": None}
     unsaved: Dict[str, Any] = {}  # terminal results the ledger could not persist (bounded, in memory)
     metas: "OrderedDict[str, dict]" = OrderedDict()
+    # Live follow-ups share one sandbox (environment + interaction chain): one at a time per environment.
+    busy_sandboxes: Dict[str, str] = {}
 
     def venue_or_404(venue_id: str):
         venue = get_venue(venue_id)
@@ -160,7 +162,7 @@ def build_door_agent_router(adapter: ManagedAgentAdapter, slots: asyncio.Semapho
                             "deadline_at": stamp[0], "deadline_at_ms": stamp[1]}
                      for lane, (value, stamp) in deadlines.items()}
         team_deadline_ms = max(v["deadline_at_ms"] for v in lane_meta.values())
-        meta = {"venue_id": venue.venue_id, "mode": mode, "lanes": list(lanes), "lane_deadlines": lane_meta,
+        meta = {"venue_id": venue.venue_id, "geometry_revision": venue.geometry_revision, "mode": mode, "lanes": list(lanes), "lane_deadlines": lane_meta,
                 "deadline_at_ms": team_deadline_ms, "deadline_at": max(v["deadline_at"] for v in lane_meta.values()),
                 "request": plan_request.model_dump(mode="json"),
                 **{k: v for k, v in meta_extra.items() if k != "supersede"}}
@@ -316,6 +318,13 @@ def build_door_agent_router(adapter: ManagedAgentAdapter, slots: asyncio.Semapho
             raise HTTPException(422, detail={"code": str(error)}) from None
         plan_request = DoorPlanRequest.model_validate(meta["request"])
         parent: Dict[str, Any] = {}
+        # The sandbox (and the parent's numbers) belong to the geometry the parent ran against.
+        parent_revision = meta.get("geometry_revision")
+        if parent_revision is None:  # a team recorded before the revision was stored: take it from a lane result
+            first = await runner.get_saved_result(lane_id(investigation_id, meta["lanes"][0]))
+            parent_revision = first.geometry_revision if first is not None and first.geometry_revision else None
+        if parent_revision is not None and parent_revision != venue.geometry_revision:
+            raise HTTPException(409, detail={"code": "parent_geometry_changed"})
         # Continue the sandbox lane of the parent: its robustness lane, or the follow-up a follow-up came from.
         source = next((lane for lane in ("followup", "robustness") if lane in meta.get("lanes", [])), None)
         sandbox_run = await runner.get_saved_result(lane_id(investigation_id, source)) if source else None
@@ -328,10 +337,26 @@ def build_door_agent_router(adapter: ManagedAgentAdapter, slots: asyncio.Semapho
             parent = {"environment_id": sandbox_run.provider_environment_id,
                       "interaction_id": acks[-1].get("interaction_id") if acks else None}
         seconds = {"followup": lane_deadline("followup", body.deadline_seconds)}
-        return {**await start(venue, plan_request, body.mode, ["followup"], seconds, team=False,
-                              extra={"scenario": scenario.label, "parent": parent,
-                                     "parent_investigation_id": investigation_id},
-                              meta_extra={"parent_investigation_id": investigation_id, "scenario": scenario.label}),
-                "parent_investigation_id": investigation_id, "scenario": scenario.label}
+        # Serialise live follow-ups that would chain onto the same sandbox: a second one is refused, not queued.
+        sandbox_key = None
+        if body.mode == "live" and parent.get("environment_id"):
+            sandbox_key = str(parent["environment_id"])
+            holder = busy_sandboxes.get(sandbox_key)
+            if holder is not None and (holder == "pending" or holder in active):
+                raise HTTPException(409, detail={"code": "followup_in_progress", "retry_after_seconds": 5})
+            busy_sandboxes[sandbox_key] = "pending"
+        try:
+            started = await start(venue, plan_request, body.mode, ["followup"], seconds, team=False,
+                                  extra={"scenario": scenario.label, "parent": parent,
+                                         "parent_investigation_id": investigation_id},
+                                  meta_extra={"parent_investigation_id": investigation_id,
+                                              "scenario": scenario.label})
+        except BaseException:
+            if sandbox_key is not None:
+                busy_sandboxes.pop(sandbox_key, None)
+            raise
+        if sandbox_key is not None:
+            busy_sandboxes[sandbox_key] = started["investigation_id"]
+        return {**started, "parent_investigation_id": investigation_id, "scenario": scenario.label}
 
     return router

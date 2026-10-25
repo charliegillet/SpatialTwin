@@ -178,6 +178,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         json.dump(report, handle, indent=1, sort_keys=True)
     print(json.dumps({k: report[k] for k in ("engine_label", "candidate", "single_failures_held",
                                               "single_failures_total", "breaks")}))
+    # The claimed numbers appear in the code output itself, so the trace shows them and the laptop can tell a sandbox
+    # number from one the agent typed.
+    print("suggested_claims " + json.dumps([[c["scenario"], c["completed_crossings"]] for c in report["suggested_claims"]]))
     print(f"wrote {args.out}; suggested_claims has {len(report['suggested_claims'])} entries")
     return 0
 

@@ -23,7 +23,7 @@ Every number shown is a **modeled crossing** checked by the local checker; an ag
 {"hazards": [...], "horizon_seconds": null, "mode": "live" | "local",
  "lanes": ["strategist", "robustness"],          // optional; default ["strategist"]; order ignored
  "deadline_seconds": 45,                         // strategist, 0 < s <= 90
- "robustness_deadline_seconds": 150,             // robustness, 0 < s <= 240
+ "robustness_deadline_seconds": 210,             // robustness, 0 < s <= 240
  "supersede": true}                              // a new live team cancels the running one (else 429)
 ```
 
@@ -75,7 +75,11 @@ team with one lane, `followup`. Live: continues the parent's robustness (or foll
 sandbox** (`environment=<environment_id>`, `previous_interaction_id=<acknowledgement interaction>`). Local: the
 checker evaluates the scenario. Errors: 404; 409 `parent_running` (parent team still running); 409
 `{"code": "parent_finishing", "retry_after_seconds": 2}` (the parent's acknowledgement is still in flight after a
-15 s wait: retry); 422 `{code}` for a bad scenario (`scenario_unrecognized`, ...). A live follow-up whose parent
+15 s wait: retry); 409 `{"code": "parent_geometry_changed"}` (the venue's `geometry_revision` is no longer the one
+the parent ran against, which the team record stores: re-investigate instead; applies to live and local);
+409 `{"code": "followup_in_progress", "retry_after_seconds": 5}` (a live follow-up already holds this parent's
+sandbox; follow-ups are serialised per sandbox environment and a second one is refused, never queued, because chained
+interactions in one environment would interleave); 422 `{code}` for a bad scenario (`scenario_unrecognized`, ...). A live follow-up whose parent
 was not live fails with `followup_parent_unavailable` and falls back to the labelled local lane.
 
 ## Scenario grammar (one string; also what agents write)
@@ -117,6 +121,23 @@ mismatches} | null, stream, sandbox, fallback_for, fallback: LaneView | null, ef
 its local fallback is nested, never substituted silently. On screen: "N/N sandbox claims reproduced by local
 checker" only when `verification.source == "sandbox"`; local verifications are not agent evidence.
 
+**Provenance semantics.** `verification.source` is `"sandbox"` only when this lane's run produced a non-error
+`code_execution_result` step (seen on the stream or in a polled interaction); a robustness/follow-up lane that
+submitted without running code is `"agent"` (its numbers may be copied from `verify_candidates` or the input plan).
+Each check carries `provenance`: `"sandbox"` when the claimed crossing count appears as a number in a
+`code_execution_result` of the run (best-effort text match), else `"agent"`; `verification.sandbox_matched` counts
+reproduced `sandbox` claims. A claim about a checker-rejected (invalid) door state is never reproduced
+(`reason: "local_plan_invalid"`).
+
+**Tokens.** The acknowledging continuation runs after the lane result is published, so its usage is added when the
+result is read: `token_usage` and `cost_estimate` (lane view, team result top level and saved lane result) include
+it and `ack_token_usage` shows it separately (the usage the provider reported when the acknowledgement was created).
+It does not count against `token_budget`.
+
+**Cancellation.** The local robustness sweep runs in a worker thread and is stopped (between scenarios) when its lane
+ends for any reason: cancel, supersede, deadline or failure; `robustness.cancelled` is true for a sweep that was
+stopped (it is also `truncated`).
+
 `Sweep` (`robustness`): `{provenance: "local_checker", candidate, candidate_is_checked_best, baseline,
 single_failures[{scenario, door_states, completed_crossings, initial_population, modeled_exposure_people_seconds,
 is_valid, candidate_hash, best_door_states, best_completed_crossings, best_is_valid, holds, delta_vs_baseline}],
@@ -126,7 +147,7 @@ candidate_completed_crossings} | null, tied_best_states[{door_states, completed_
 single_failures_held, is_candidate}], most_robust_tied_state, untenable_sensitivity[{hazard_id, type, zone_id,
 declared_untenable_s, curve[{untenable_s, completed_crossings, best_completed_crossings, holds}]}],
 worst_second_hazard[{zone_id, type, completed_crossings, best_completed_crossings, best_door_states, holds,
-is_valid}], solves, truncated, elapsed_ms, note}`. "Holds" = no other door state does better under that failure.
+is_valid}], solves, truncated, cancelled, elapsed_ms, note}`. "Holds" = no other door state does better under that failure.
 
 ## Trace SSE (`text/event-stream`)
 

@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
-  approveIncidentPlan, clearIncidentFault, fetchIncident, INCIDENT_EVENTS_URL, injectIncidentFault, postIncidentHazards, resetIncident,
+  approveIncidentPlan, clearIncidentFault, fetchIncident, fetchIncidentDoorPlan, INCIDENT_EVENTS_URL, injectIncidentFault, postIncidentHazards, resetIncident,
   type GateFault, type IncidentApproval, type IncidentEvent, type IncidentState,
 } from '../api/incident.ts';
 import {
-  addApprovalIfNew, applyIncidentState, approveAvailability, createHazardSync, createIncidentConnection, createStaleGuard, doorVisuals, fallbackBanner, gateViews,
+  addApprovalIfNew, applyIncidentState, approveAvailability, createHazardSync, createIncidentConnection, createStaleGuard, doorVisuals, fallbackBanner, gateViews, hazardsInSync,
   initialIncidentState, latestApproval, reduceIncidentEvent, type ConnectionStatus, type EventSourceLike, type IncidentFlowState,
 } from './incidentFlow.ts';
-import type { HazardInput } from './types.ts';
+import type { DoorPlanResponse, HazardInput } from './types.ts';
 
 type Action =
   | { kind: 'event'; event: IncidentEvent; now: number }
@@ -36,6 +36,9 @@ export function useIncident(venueId: string, hazards: HazardInput[], options: { 
   flowRef.current = flow;
   const guard = useRef(createStaleGuard()).current;
   const syncRef = useRef<ReturnType<typeof createHazardSync> | null>(null);
+  const hazardsRef = useRef(hazards);
+  hazardsRef.current = hazards;
+  const [executed, setExecuted] = useState<{ revision: number; plan: DoorPlanResponse } | null>(null);
 
   const accept = useCallback((incident: IncidentState, token: number) => {
     if (guard.isCurrent(token)) dispatch({ kind: 'state', incident, now: Date.now() });
@@ -97,9 +100,25 @@ export function useIncident(venueId: string, hazards: HazardInput[], options: { 
   }, [accept, guard]);
 
   const plan = flow.incident?.plan ?? null;
+
+  // After a jam the doors follow a fallback the stateless planner never saw: fetch its full plan (routes, lamps, door
+  // reasons) so the twin draws what is executed. Keyed by plan revision; a newer revision drops an older answer.
+  const fallbackRevision = plan?.label === 'fallback' ? plan.plan_revision : null;
+  const incidentVenue = flow.incident?.venue_id ?? null;
+  useEffect(() => {
+    if (!enabled || fallbackRevision === null || !incidentVenue) return;
+    const controller = new AbortController();
+    fetchIncidentDoorPlan(incidentVenue, controller.signal).then(answer => {
+      if (answer.plan_revision === fallbackRevision && answer.door_plan) setExecuted({ revision: answer.plan_revision, plan: answer.door_plan });
+    }).catch(() => { /* the panel still shows the fallback summary; the twin keeps the proposed plan, labelled */ });
+    return () => controller.abort();
+  }, [enabled, fallbackRevision, incidentVenue]);
+  const inSync = flow.incident ? hazardsInSync(flow.incident.hazards, hazards) : false;
+  const fallbackPlan = executed && fallbackRevision === executed.revision && inSync ? executed.plan : null;
+
   const approve = useCallback(() => {
     const current = flowRef.current.incident;
-    if (!current?.plan || !approveAvailability(current).allowed) return Promise.resolve();
+    if (!current?.plan || !approveAvailability(current, hazardsRef.current).allowed) return Promise.resolve();
     const quoted = current.plan;
     return act('approve', async () => {
       const approval = await approveIncidentPlan(quoted);
@@ -117,13 +136,13 @@ export function useIncident(venueId: string, hazards: HazardInput[], options: { 
   }), [accept, act, guard]);
 
   const view = useMemo(() => ({
-    incident: flow.incident, plan, gates: gateViews(flow.incident, flow.movingSince, now), availability: approveAvailability(flow.incident),
+    incident: flow.incident, plan, gates: gateViews(flow.incident, flow.movingSince, now), availability: approveAvailability(flow.incident, hazards),
     banner: fallbackBanner(flow.incident), approval: latestApproval(flow.incident), connection: flow.connection,
     heartbeat: flow.incident?.controller.heartbeat ?? 'ok', label: flow.incident?.controller.label ?? 'Simulated device: no hardware is connected',
-  }), [flow.incident, flow.movingSince, flow.connection, plan, now]);
+  }), [flow.incident, flow.movingSince, flow.connection, plan, now, hazards]);
   const doors = useMemo(() => doorVisuals(flow.incident, flow.movingSince), [flow.incident, flow.movingSince]);
 
-  return { state: view, doors, console: flow.log, approve, jam, clearFault, reset, busy, error, dismissError: () => setError(null) };
+  return { state: view, doors, fallbackPlan, console: flow.log, approve, jam, clearFault, reset, busy, error, dismissError: () => setError(null) };
 }
 
 export type IncidentController = ReturnType<typeof useIncident>;

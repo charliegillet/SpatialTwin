@@ -17,6 +17,8 @@ export interface ClaimCheck {
   local_is_valid?: boolean | null;
   reproduced: boolean;
   reason: string | null;
+  /** `sandbox` when the claimed number appeared in this run's code output; otherwise the agent's own statement. */
+  provenance?: 'sandbox' | 'agent';
 }
 
 export interface LaneVerification {
@@ -26,6 +28,8 @@ export interface LaneVerification {
   source: 'agent' | 'sandbox' | 'local';
   mismatches: ClaimCheck[];
   checks?: ClaimCheck[];
+  /** Reproduced claims whose number came from sandbox output. */
+  sandbox_matched?: number;
 }
 
 export interface CostEstimate { usd: number; input_tokens: number; cached_tokens?: number; output_tokens: number; basis?: string }

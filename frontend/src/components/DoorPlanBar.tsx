@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { ChevronDown, DoorClosed, DoorOpen, LockKeyhole, TriangleAlert, Volume2 } from 'lucide-react';
-import { ANNOUNCE_LABEL, SPEECH_UNAVAILABLE, announcementText, speak, speechAvailable, stopSpeaking } from '../twin/announce';
+import { ANNOUNCE_LABEL, SPEECH_UNAVAILABLE, announcementText, confirmedAnnouncement, speak, speechAvailable, stopSpeaking } from '../twin/announce';
 import { FAILED_CHECK, NO_CHECKED_PLAN, alternativeRows, doorRows, gainFrom, groupDoorRows, planChecked, unsafeExits } from '../twin/twinHero';
 import type { DoorPlanResponse } from '../twin/types';
 import type { AgentTeamController } from '../twin/useAgentTeam';
@@ -9,8 +9,11 @@ import { AgentTeamPanel } from './AgentTeamPanel';
 const SIMULATED = 'Simulated doors · a virtual door controller, no hardware';
 
 /** The door decisions that changed, unsafe exits, advisories and the alternatives the planner compared. No approval: nothing physical moves. */
-export function DoorPlanBar({ plan, pending, team }: { plan: DoorPlanResponse | null; pending: boolean; team?: AgentTeamController }) {
+export function DoorPlanBar({ plan, pending, team, gates = [], executing = null }: { plan: DoorPlanResponse | null; pending: boolean; team?: AgentTeamController;
+  gates?: ReadonlyArray<{ id: string; observed: string | null; moving: boolean; warn: boolean }>; executing?: string | null }) {
   const text = announcementText(plan);
+  // A planned door is announced open only once its endpoint switch says so (and "opening" while it moves).
+  const spoken = confirmedAnnouncement(text, gates);
   const synth = typeof window !== 'undefined' ? window.speechSynthesis : undefined;
   const Utterance = typeof window !== 'undefined' ? window.SpeechSynthesisUtterance : undefined;
   const canSpeak = speechAvailable(synth, Utterance);
@@ -35,12 +38,13 @@ export function DoorPlanBar({ plan, pending, team }: { plan: DoorPlanResponse | 
         <p>{exit.reason}</p>
       </details></li>)}
     </ul>}
+    {executing && <p className="door-advisory" role="status">{executing}</p>}
     {!checked && <p className="door-advisory" role="alert">{NO_CHECKED_PLAN}</p>}
     {plan.hazards.some(item => item.source === 'camera') && <p className="twin-quiet">Includes confirmed camera cards. The plan is still local and hypothetical.</p>}
     {plan.advisories.map(text => <p key={text} className="door-advisory">{text}</p>)}
     {text && <div className="door-announce">
-      <button type="button" className="btn" disabled={!canSpeak} title={canSpeak ? ANNOUNCE_LABEL : SPEECH_UNAVAILABLE} onClick={() => speak(synth, Utterance, text)}><Volume2 size={14} aria-hidden="true" />Announce<small>{ANNOUNCE_LABEL}</small></button>
-      <p className="twin-quiet">{text}</p>
+      <button type="button" className="btn" disabled={!canSpeak} title={canSpeak ? ANNOUNCE_LABEL : SPEECH_UNAVAILABLE} onClick={() => speak(synth, Utterance, spoken)}><Volume2 size={14} aria-hidden="true" />Announce<small>{ANNOUNCE_LABEL}</small></button>
+      <p className="twin-quiet">{spoken}</p>
     </div>}
     <details className="door-alt">
       <summary>Alternatives<ChevronDown size={13} aria-hidden="true" /></summary>

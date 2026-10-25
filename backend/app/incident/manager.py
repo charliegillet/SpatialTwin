@@ -13,7 +13,7 @@ by planning on a copy of the venue where the door is closed and not openable.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Awaitable, Dict, List, Optional, Set
+from typing import Any, Awaitable, Dict, List, Optional, Set, Tuple
 from uuid import uuid4
 
 from backend.app.hazard.door_planner import DoorPlanError, plan_doors
@@ -61,6 +61,8 @@ class IncidentManager:
         self.controller: Optional[VirtualDoorController] = None
         self.hazards: List[HazardInput] = []
         self.plan: Optional[IncidentPlan] = None
+        # The full checked door plan behind ``plan`` (routes, lamps, timeline), for the twin to draw what is executed.
+        self.door_plan: Optional[DoorPlanResponse] = None
         self.plan_error: Optional[str] = None
         self.plan_revision = 0
         self.stuck: Set[str] = set()
@@ -80,10 +82,22 @@ class IncidentManager:
         self.venue = venue
         gates = {d.id: d.default_state for d in venue.doors if d.actuation in CONTROLLABLE}
         self.controller = VirtualDoorController(gates, self.config, emit=self._on_device, on_stale=self._on_stale)
-        self.hazards, self.plan, self.plan_error = [], None, None
+        self.hazards, self.plan, self.plan_error, self.door_plan = [], None, None, None
         self.stuck.clear()
         self.approvals.clear()
         self.plan_revision += 1
+        # Every other client still shows the old venue's gates and approvals: a rebind is a reset with the new state.
+        self.hub.publish("reset", {"plan_revision": self.plan_revision, "venue_id": venue.venue_id,
+                                   "line": f"BIND incident moved to {venue.venue_id}; gates at default endpoints",
+                                   "state": self._state_unbound_safe().model_dump(mode="json")})
+
+    def _state_unbound_safe(self) -> IncidentState:
+        assert self.venue is not None and self.controller is not None
+        return IncidentState(
+            venue_id=self.venue.venue_id, geometry_revision=self.venue.geometry_revision, plan_revision=self.plan_revision,
+            hazards=[h.model_dump(mode="json") for h in self.hazards], plan=self._render_plan(), plan_error=self.plan_error,
+            controller=self.controller.view(), stuck_doors=sorted(self.stuck), approvals=list(self.approvals),
+            approval_in_progress=any(a.status == "actuating" for a in self.approvals), last_event_id=self.hub.last_id)
 
     def _ensure_bound(self, allow_rebind: bool = True) -> VenueV2:
         untouched = self.plan is None and not self.hazards and not self.approvals
@@ -126,20 +140,21 @@ class IncidentManager:
     def state(self) -> IncidentState:
         # A read never rebinds while a mutation holds the lock: set_hazards binds a venue, then awaits the planner
         # with the incident still "untouched", and a poll in that window must not swap the venue and controller.
-        venue = self._ensure_bound(allow_rebind=not self._lock.locked())
-        assert self.controller is not None
-        return IncidentState(
-            venue_id=venue.venue_id, geometry_revision=venue.geometry_revision, plan_revision=self.plan_revision,
-            hazards=[h.model_dump(mode="json") for h in self.hazards], plan=self._render_plan(), plan_error=self.plan_error,
-            controller=self.controller.view(), stuck_doors=sorted(self.stuck), approvals=list(self.approvals),
-            approval_in_progress=any(a.status == "actuating" for a in self.approvals), last_event_id=self.hub.last_id)
+        self._ensure_bound(allow_rebind=not self._lock.locked())
+        return self._state_unbound_safe()
+
+    def door_plan_view(self) -> Dict[str, Any]:
+        """The full checked plan for the current revision, or null when there is none (no hazards, withdrawn)."""
+        self._ensure_bound(allow_rebind=not self._lock.locked())
+        door_plan = self.door_plan if self.plan is not None else None
+        return {"plan_revision": self.plan_revision, "door_plan": door_plan.model_dump(mode="json") if door_plan else None}
 
     def snapshot(self) -> Dict[str, Any]:
         return {"state": self.state().model_dump(mode="json")}
 
     # -- planning ------------------------------------------------------------------------------------------------
 
-    async def _plan(self, hazards: List[HazardInput], stuck: Set[str], reason: str) -> IncidentPlan:
+    async def _plan(self, hazards: List[HazardInput], stuck: Set[str], reason: str) -> Tuple[IncidentPlan, DoorPlanResponse]:
         venue = self.venue
         assert venue is not None  # bound by the caller; re-binding here could swap the venue mid-request
         planning = with_stuck_closed(venue, stuck)
@@ -147,7 +162,11 @@ class IncidentManager:
             response: DoorPlanResponse = await asyncio.to_thread(plan_doors, planning, DoorPlanRequest(hazards=hazards))
         except DoorPlanError as error:
             raise IncidentError(error.code, 422) from None
-        return self._summarize(venue, response, stuck, reason)
+        # The planner saw a copy with the stuck doors closed; the twin draws the real venue, so the plan names it.
+        doors = [d.model_copy(update={"reason": f"{d.id} stuck closed: never observed at its endpoint; not commanded"})
+                 if d.id in stuck else d for d in response.doors]
+        full = response.model_copy(update={"geometry_revision": venue.geometry_revision, "doors": doors})
+        return self._summarize(venue, response, stuck, reason), full
 
     def _summarize(self, venue: VenueV2, resp: DoorPlanResponse, stuck: Set[str], reason: str) -> IncidentPlan:
         assert self.controller is not None
@@ -174,9 +193,10 @@ class IncidentManager:
             lights_px=resp.lights.px, stuck_doors=sorted(stuck), advisories=list(resp.advisories),
             announcement=resp.announcement, created_at=now_iso())
 
-    def _commit_plan(self, plan: IncidentPlan, hazards: List[HazardInput]) -> IncidentPlan:
+    def _commit_plan(self, plan: IncidentPlan, hazards: List[HazardInput], door_plan: DoorPlanResponse) -> IncidentPlan:
         self.plan_revision += 1
         self.hazards = hazards
+        self.door_plan = door_plan
         self.plan = plan.model_copy(update={"plan_revision": self.plan_revision})
         self.plan_error = None
         self.hub.publish("plan", {"plan_revision": self.plan_revision, "plan": self._render_plan().model_dump(mode="json"),
@@ -186,14 +206,14 @@ class IncidentManager:
     async def _replan_locked(self, reason: str) -> Optional[IncidentPlan]:
         """Re-plans the current hazards with the current stuck set. On a planner error the plan is withdrawn, not kept."""
         try:
-            plan = await self._plan(self.hazards, set(self.stuck), reason)
+            plan, door_plan = await self._plan(self.hazards, set(self.stuck), reason)
         except IncidentError as error:
             self.plan_revision += 1
-            self.plan, self.plan_error = None, error.code
+            self.plan, self.plan_error, self.door_plan = None, error.code, None
             self.hub.publish("plan", {"plan_revision": self.plan_revision, "plan": None, "plan_error": error.code,
                                       "stuck_doors": sorted(self.stuck)})
             return None
-        return self._commit_plan(plan, self.hazards)
+        return self._commit_plan(plan, self.hazards, door_plan)
 
     # -- hazards -------------------------------------------------------------------------------------------------
 
@@ -216,8 +236,8 @@ class IncidentManager:
                     code = CAMERA_STORE.verify_camera_hazard(venue_id, hazard)
                     if code is not None:
                         raise IncidentError(code, 422)
-            plan = await self._plan(list(hazards), set(self.stuck), "hazards updated")
-            self._commit_plan(plan, list(hazards))
+            plan, door_plan = await self._plan(list(hazards), set(self.stuck), "hazards updated")
+            self._commit_plan(plan, list(hazards), door_plan)
         return self.state()
 
     # -- approval ------------------------------------------------------------------------------------------------
@@ -324,7 +344,7 @@ class IncidentManager:
             assert self.controller is not None
             self._epoch += 1
             self.controller.reset(quiet=True)
-            self.hazards, self.plan, self.plan_error = [], None, None
+            self.hazards, self.plan, self.plan_error, self.door_plan = [], None, None, None
             self.stuck.clear()
             self.approvals.clear()
             self.plan_revision += 1

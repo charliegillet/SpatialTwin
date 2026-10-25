@@ -10,6 +10,7 @@ sensitivity and the worst second hazard per zone. ``verify_claims`` re-runs ever
 """
 from __future__ import annotations
 
+import threading
 import time
 from typing import Any, Dict, FrozenSet, List, Mapping, Optional
 
@@ -29,6 +30,10 @@ SECOND_HAZARD_TYPES = HAZARD_TYPES
 SWEEP_PROVENANCE = "local_checker"
 SWEEP_NOTE = ("Local checker sweep: modeled crossings of a synthetic population under declared faults; "
               "not a survival prediction. Doors in the twin are simulated.")
+
+
+class SweepCancelled(Exception):
+    """The sweep was cancelled before it had anything to report."""
 
 
 class ScenarioEvaluator:
@@ -123,13 +128,16 @@ def single_failure_scenarios(evaluator: ScenarioEvaluator, door_states: Mapping[
 def robustness_sweep(venue: VenueV2, request: DoorPlanRequest, door_states: Optional[Mapping[str, str]] = None, *,
                      evaluator: Optional[ScenarioEvaluator] = None, max_solves: int = MAX_SWEEP_SOLVES,
                      deadline: Optional[float] = None, include_sensitivity: bool = True,
-                     include_second_hazards: bool = True) -> Dict[str, Any]:
+                     include_second_hazards: bool = True, cancel: Optional[threading.Event] = None) -> Dict[str, Any]:
     """The local robustness lane. ``door_states`` defaults to the checker's best state.
 
-    Stops early (``truncated``) when ``max_solves`` solves or the monotonic ``deadline`` is reached; everything
-    reported up to then is checked. JSON-serialisable.
+    Stops early (``truncated``) when ``max_solves`` solves, the monotonic ``deadline`` or a set ``cancel`` event is
+    reached (checked between scenarios; ``cancelled`` is then true); everything reported up to then is checked.
+    JSON-serialisable.
     """
     started = time.perf_counter()
+    if cancel is not None and cancel.is_set():
+        raise SweepCancelled()
     evaluator = evaluator or ScenarioEvaluator(venue, request)
     ctx = evaluator.base
     ranked = evaluate_states(ctx)
@@ -140,7 +148,8 @@ def robustness_sweep(venue: VenueV2, request: DoorPlanRequest, door_states: Opti
 
     def budget_left() -> bool:
         nonlocal truncated
-        if evaluator.solves() >= max_solves or (deadline is not None and time.monotonic() >= deadline):
+        if (evaluator.solves() >= max_solves or (deadline is not None and time.monotonic() >= deadline)
+                or (cancel is not None and cancel.is_set())):
             truncated = True
             return False
         return True
@@ -247,6 +256,7 @@ def robustness_sweep(venue: VenueV2, request: DoorPlanRequest, door_states: Opti
         "worst_second_hazard": second,
         "solves": evaluator.solves(),
         "truncated": truncated,
+        "cancelled": bool(cancel is not None and cancel.is_set()),
         "elapsed_ms": round((time.perf_counter() - started) * 1000, 1),
         "note": SWEEP_NOTE,
     }
@@ -296,7 +306,9 @@ def verify_claims(evaluator: ScenarioEvaluator, door_states: Mapping[str, str],
             continue
         entry.update(scenario=local["scenario"], local_completed_crossings=local["completed_crossings"],
                      local_candidate_hash=local["candidate_hash"], local_is_valid=local["is_valid"])
-        if local["completed_crossings"] != claim.get("completed_crossings"):
+        if not local["is_valid"]:
+            entry["reason"] = "local_plan_invalid"  # a checker-rejected door state is never "reproduced"
+        elif local["completed_crossings"] != claim.get("completed_crossings"):
             entry["reason"] = "crossings_mismatch"
         elif claim.get("candidate_hash") not in (None, local["candidate_hash"]):
             entry["reason"] = "candidate_hash_mismatch"

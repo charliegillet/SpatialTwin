@@ -56,6 +56,14 @@ def build_incident_router(manager: Optional[IncidentManager] = None) -> APIRoute
         except IncidentError as error:
             raise _http(error) from None
 
+    @router.get("/door-plan")
+    async def get_door_plan() -> Dict[str, Any]:
+        """The full checked plan behind the current incident plan: after a jam, the fallback the doors now follow."""
+        try:
+            return mgr().door_plan_view()
+        except IncidentError as error:
+            raise _http(error) from None
+
     @router.post("/hazards", response_model=IncidentState)
     async def post_hazards(request: HazardsRequest) -> IncidentState:
         try:
