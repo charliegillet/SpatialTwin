@@ -422,3 +422,12 @@ Adaptive extraction verification (2026-10-25, side conversation):
 - Final automated checks:85 backend tests passed (one dependency deprecation warning),
   13 frontend tests passed. TypeScript/Vite production build passed; existing large
   bundle warning remains. No physical measurements were fabricated for demo2.
+- Final unified live run job-8eaf007a6f064f0aab94b25920e9d8a9 completed276.98s,
+  scene-d79a60646de84a52bcfd7c41235079f2,120 evidence frames. Automatic COLMAP
+  aligned96/96 views in1 component with9469 filtered points and0.73px mean error.
+  Automatic geometry was indexed into the same inspector/fitting workflow, restored
+  after the final guarded restart, and verified through browser landmark selection.
+  The model's stair/atrium conflict sets topology_review_required; it is not hidden.
+- Final browser screenshot: runtime/roomlab/fidelity-final.png. Source views and
+  baseline scenes remain intact. Unrelated concurrent SpatialTwin branding edits
+  were preserved in the working tree and excluded from these fidelity commits.
