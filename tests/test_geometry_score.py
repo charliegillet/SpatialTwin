@@ -558,3 +558,33 @@ def test_junction_door_cuts_both_collinear_edges():
     assert sorted(gs._jambs(graph)) == [(3.4, 4.0), (4.6, 4.0)]
     # the perpendicular shared wall x = 4 stays solid up to the corner
     assert _cs(graph, [(0, 2, 3.8), (1, 6, 3.8)]) == [("Z1.east", 0.5)]
+
+
+# ------------------------------------------------------------- fix round 3
+
+
+def test_band_split_outside_runs_merge_into_one_legal_exit():
+    # J: out the door, doorstep jitter across the 0.15 m band
+    assert _cs(EXIT_GRAPH, [(0, 2, 3), (1, 2, 3.9), (2, 2, 4.2), (3, 2, 4.1), (4, 2, 4.5), (5, 2, 6)]) == []
+    # K: out the door, back onto the doorstep band, away again
+    assert _cs(EXIT_GRAPH, [(0, 2, 3), (1, 2, 5), (2, 2.1, 4.1), (3, 2, 5.5)]) == []
+    # L: as K, then back in through the door
+    assert _cs(EXIT_GRAPH, [(0, 2, 3), (1, 2, 5), (2, 2.1, 4.1), (3, 2, 5.5), (4, 2, 3)]) == []
+    # M: out the door, along the facade within the band, then away
+    assert len(_cs(EXIT_GRAPH, [(0, 2, 3), (1, 2, 4.5), (2, 3, 4.1), (3, 3.5, 4.12), (4, 3.5, 5)])) <= 1
+    # a band-split run that came out through a wall is still one crossing
+    assert _cs(EXIT_GRAPH, [(0, 0.5, 3), (1, 0.5, 4.5), (2, 0.6, 4.1), (3, 0.5, 5)]) == [("outside", 0.5)]
+
+
+def test_exit_door_prefers_exterior_edge_over_interior_partition():
+    # exit door 5 cm below the NE corner of Z1, right on the Z1/Z3 partition line
+    graph = _graph([_zone("Z1", (0, 0, 4, 4)), _zone("Z3", (4, 0, 4, 4))],
+                   [_door("D1", "Z1", "OUTSIDE", (4.0, 3.95), width=1.2)])
+    edges = gs._rect_edges(graph)
+    assert [edges[k].name for k in gs._door_edges(edges, (4.0, 3.95), exit_door=True)] == ["Z1.north", "Z3.north"]
+    # the interior wall stays solid; walking out north through the door is legal
+    assert _cs(graph, [(0, 2, 3.6), (1, 6, 3.6)]) == [("Z1.east", 0.5)]
+    assert _cs(graph, [(0, 4.0, 2), (1, 4.0, 5)]) == []
+    # a non-exit door at the same spot still goes to its nearest edge, the partition
+    inner = _graph(graph.zones, [_door("D1", "Z1", "Z3", (4.0, 3.95), width=1.2)])
+    assert _cs(inner, [(0, 2, 3.6), (1, 6, 3.6)]) == []

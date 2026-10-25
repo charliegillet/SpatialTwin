@@ -13,7 +13,15 @@ reconstruction, through the alignment frozen on iteration 0:
   door with an "OUTSIDE" side, of any kind (Ruling R26). The test point is
   where the path actually leaves (enters) the zone rects: on the segment from
   the last frame strictly inside a rect to the next frame, which is outside
-  every rect.
+  every rect. Outside stretches split only by band frames (within OUTSIDE_M of
+  a rect) are one run, so doorstep jitter is not a second exit.
+
+  Known hysteresis limitation: a flip of confident side is located at the
+  path's last sign change. A path that crosses the solid part of a wall into
+  the depth band, slides along the band into a (padded) door gap and only then
+  becomes confident on the far side is placed in the gap and not counted.
+  Counting any sign change on the piece instead would flag legal wall-hugging
+  walks through a door, which is worse, so the last-sign-change rule stays.
 - Wall support / unexplained points. Of the SfM points in the wall-height band,
   the share near a modelled wall, and the share outside every zone.
 - Edge alignment, held-out frames only: frames held out from the critique's
@@ -145,19 +153,40 @@ def _edge_dist(e: _Edge, p: tuple[float, float]) -> float:
     return math.hypot(max(e.lo - along, 0.0, along - e.hi), across - e.c)
 
 
-def _door_edges(edges: list[_Edge], pos: tuple[float, float]) -> list[int]:
+_OPPOSITE = {"north": "south", "south": "north", "east": "west", "west": "east"}
+
+
+def _is_exterior_at(edges: list[_Edge], k: int, pos: tuple[float, float]) -> bool:
+    """True if edge k is not shared at the door's along position: no other zone's
+    collinear edge on the opposite side (a zone beyond the wall) covers it there.
+    Same-side collinear edges (adjacent facade) do not make it interior."""
+    e = edges[k]
+    zone, side = e.name.split(".", 1)
+    along = _along_across(e, pos)[0]
+    return not any(o.name.split(".", 1)[1] == _OPPOSITE[side] and o.name.split(".", 1)[0] != zone
+                   and abs(o.c - e.c) <= _COLLINEAR_EPS and o.lo <= along <= o.hi
+                   for o in edges)
+
+
+def _door_edges(edges: list[_Edge], pos: tuple[float, float], exit_door: bool = False) -> list[int]:
     """Indices of the edges a door at `pos` cuts: its nearest edge(s) within
-    DOOR_ON_EDGE_M. Ties (within DOOR_TIE_M) are grouped by line; a line is kept
-    when the joint span of its tied edges contains the door strictly, so a door
-    at the junction of two collinear edges cuts both but not the perpendicular
-    wall ending there. If no tied line contains it, every tied edge is kept."""
+    DOOR_ON_EDGE_M. An exit door (an "OUTSIDE" side) considers only exterior edges
+    (not shared with another zone at the door) when any is within range, so it
+    never cuts an interior partition. Ties (within DOOR_TIE_M) are grouped by
+    line; a line is kept when the joint span of its tied edges contains the door
+    strictly, so a door at the junction of two collinear edges cuts both but not
+    the perpendicular wall ending there. If no tied line contains it, every tied
+    edge is kept."""
     if not edges:
         return []
     dist = [_edge_dist(e, pos) for e in edges]
-    best = min(dist)
-    if best > DOOR_ON_EDGE_M:
+    pool = [k for k in range(len(edges)) if dist[k] <= DOOR_ON_EDGE_M]
+    if exit_door:
+        pool = [k for k in pool if _is_exterior_at(edges, k, pos)] or pool
+    if not pool:
         return []
-    tied = [k for k, dk in enumerate(dist) if dk <= best + DOOR_TIE_M]
+    best = min(dist[k] for k in pool)
+    tied = [k for k in pool if dist[k] <= best + DOOR_TIE_M]
     lines: dict[tuple[bool, int], list[int]] = {}
     for k in tied:
         lines.setdefault((edges[k].horizontal, round(edges[k].c / _COLLINEAR_EPS)), []).append(k)
@@ -175,7 +204,7 @@ def _gaps_by_edge(graph: VenueGraph, edges: list[_Edge], pad: float,
     gaps: list[list[tuple[float, float]]] = [[] for _ in edges]
     for d in graph.doors if doors is None else doors:
         half = (d.clear_width.low_m + d.clear_width.high_m) / 4 + pad
-        for k in _door_edges(edges, d.position):
+        for k in _door_edges(edges, d.position, exit_door="OUTSIDE" in (d.a, d.b)):
             along = _along_across(edges[k], d.position)[0]
             gaps[k].append((along - half, along + half))
     return gaps
@@ -287,43 +316,41 @@ def _boundary_point(graph: VenueGraph, inside: np.ndarray, out: np.ndarray, leav
 
 
 def _outside_crossings(graph: VenueGraph, t: np.ndarray, xy: np.ndarray, outside: np.ndarray) -> list[Crossing]:
-    """One crossing per maximal run of outside frames, unless the path leaves and
-    (if it comes back) re-enters through an exit door gap. The test point is on
-    the boundary of the zone rects, on the segment between the last frame strictly
-    inside a rect and the next frame (re-entry: the frame before the first frame
-    strictly inside), and must lie within DOOR_TOLERANCE_M of an exit gap."""
+    """One crossing per run: a maximal stretch of frames not strictly inside any
+    rect that contains at least one outside frame (so outside stretches split only
+    by band frames are one run). Excused when the path leaves, and re-enters if it
+    comes back, through an exit door gap: the point where the segment from the last
+    strict frame before the run to the run's first frame leaves the zone rects
+    (re-entry: last run frame to the first strict frame after it, where it enters)
+    must lie within DOOR_TOLERANCE_M of an exit gap. Reported at the run's first
+    outside frame, with the midpoint time of the segment into it."""
     gaps = _exit_gaps(graph)
     strict = _dist_outside_rects(xy, graph) == 0.0
     n, out, i = len(t), [], 0
 
-    def through_exit(a: int, b: int, leaving: bool) -> bool:
-        q = _boundary_point(graph, xy[a] if leaving else xy[b], xy[b] if leaving else xy[a], leaving)
+    def through_exit(inside: int, other: int, leaving: bool) -> bool:
+        q = _boundary_point(graph, xy[inside], xy[other], leaving)
         return any(_point_seg_dist(q, g0, g1) <= DOOR_TOLERANCE_M for g0, g1 in gaps)
 
     while i < n:
-        if not outside[i]:
+        if strict[i]:
             i += 1
             continue
         j = i
-        while j + 1 < n and outside[j + 1]:
+        while j + 1 < n and not strict[j + 1]:
             j += 1
-        checks = []
-        if i > 0:  # leaving: last strictly-inside frame before the run, band frames between
-            k = i - 1
-            while k >= 0 and not strict[k] and not outside[k]:
-                k -= 1
-            checks.append(k >= 0 and strict[k] and through_exit(k, k + 1, True))
-        if j + 1 < n:  # re-entry: first strictly-inside frame after the run
-            m = j + 1
-            while m < n and not strict[m] and not outside[m]:
-                m += 1
-            if m < n and strict[m]:
-                checks.append(through_exit(m - 1, m, False))
-            elif m < n:
-                checks.append(False)  # back outside without ever being strictly inside
-        if not (checks and all(checks)):
-            t_s = (t[i - 1] + t[i]) / 2 if i > 0 else t[i]
-            out.append(Crossing(t_s=float(t_s), x=float(xy[i, 0]), y=float(xy[i, 1]), edge="outside"))
+        run = range(i, j + 1)
+        first_out = next((k for k in run if outside[k]), None)
+        if first_out is not None:
+            checks = []
+            if i > 0:
+                checks.append(through_exit(i - 1, i, True))
+            if j + 1 < n:
+                checks.append(through_exit(j + 1, j, False))
+            if not (checks and all(checks)):
+                k = first_out
+                t_s = (t[k - 1] + t[k]) / 2 if k > 0 else t[k]
+                out.append(Crossing(t_s=float(t_s), x=float(xy[k, 0]), y=float(xy[k, 1]), edge="outside"))
         i = j + 1
     return out
 
