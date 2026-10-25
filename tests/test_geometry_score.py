@@ -483,11 +483,11 @@ def _edge_score(within, projected=None, kept=None) -> GeometryScore:
                          edge_samples_projected=projected, edge_samples_kept=kept)
 
 
-def test_is_regression_on_lost_or_culled_edges():
+def test_is_regression_on_lost_edges_not_on_culling():
     base = _edge_score(0.8, 300, 300)
     assert is_regression(base, _edge_score(None, 0, 0))          # metrics lost
-    assert is_regression(base, _edge_score(0.8, 300, 230))       # kept 0.77, drop > 0.2
-    assert not is_regression(base, _edge_score(0.8, 300, 250))   # kept 0.83
+    # culling alone is not a regression (R32): within already counts culled as misses
+    assert not is_regression(base, _edge_score(0.8, 300, 150))
     assert not is_regression(_edge_score(None), _edge_score(0.5, 300, 300))
 
 
@@ -504,3 +504,57 @@ def test_heldout_frames_capped_and_spread(fake_frames):
     assert len(calls) == gs.MAX_HELDOUT_FRAMES == 24
     assert calls[0] == 2.0 and calls[-1] == 101.0 and calls == sorted(set(calls))
     assert s.heldout_t_s == calls
+
+
+# ------------------------------------------------------------- fix round 2
+
+
+def _cs(graph, path):
+    return [(c.edge, round(c.t_s, 2)) for c in score_geometry(graph, _sfm(path), ALIGN).illegal_crossings]
+
+
+EXIT_GRAPH = _graph(EXIT_ROOM, [EXIT_DOOR])
+
+
+def test_exit_excusal_uses_the_boundary_point():
+    # B: out through the wall at x ~ 0.58 via a band frame, then an outside step toward the gap
+    assert _cs(EXIT_GRAPH, [(0, 0.5, 3.5), (1, 0.6, 4.1), (2, 1.3, 4.3), (3, 2, 5), (4, 2, 3)]) == [("outside", 1.5)]
+    # C: a shallow leaving segment crossing y = 4 at x ~ 0.46, 0.94 m from the gap
+    assert _cs(EXIT_GRAPH, [(0, 0.2, 3.95), (1, 2.0, 4.3), (2, 2, 5), (3, 2, 3)]) == [("outside", 0.5)]
+    assert _cs(EXIT_GRAPH, [(0, 0.2, 3.95), (1, 2.0, 4.3), (2, 2, 5)]) == [("outside", 0.5)]
+    # D: out at x = 0.3 (1.1 m from the gap) via a band frame, then outside near the gap
+    assert _cs(EXIT_GRAPH, [(0, 0.3, 3.5), (1, 0.3, 4.12), (2, 1.2, 4.35), (3, 2, 5), (4, 2, 3)]) == [("outside", 1.5)]
+    # through the door, lingering in the doorway band, is still legal both ways
+    assert _cs(EXIT_GRAPH, [(0, 2, 3.5), (1, 2.1, 4.1), (2, 2, 5), (3, 1.9, 4.1), (4, 2, 3)]) == []
+    # out through the door, back in through the east wall
+    assert _cs(EXIT_GRAPH, [(0, 2, 3), (1, 2, 5), (2, 4.6, 2), (3, 3, 2)]) == [("outside", 0.5)]
+
+
+def test_correct_partition_is_not_a_regression(monkeypatch):
+    truth = _render_room(rect=(0, 0, 8, 5), gap=(3.4, 4.6))  # the room really ends at y = 5
+    monkeypatch.setattr(gs, "extract_frame", lambda v, t, o: (cv2.imwrite(str(o), truth), o)[1])
+    before = _room_graph()  # model misses the partition
+    after = _graph([_zone("Z1", (0, 0, 8, 5)), _zone("Z2", (0, 5, 8, 5))],
+                   [_door("D1", "Z1", "Z2", (4.0, 5.0), width=1.2),
+                    _door("D2", "Z2", "OUTSIDE", (4.0, 10.0), width=1.2)], before.keyframes)
+    sb = score_geometry(before, _room_sfm(), ALIGN, video=VIDEO, heldout_t_s=[5.0])
+    sa = score_geometry(after, _room_sfm(), ALIGN, video=VIDEO, heldout_t_s=[5.0])
+    assert sa.edge_samples_kept < sa.edge_samples_projected  # the new wall hides the old one
+    assert sa.edge_within_5px > sb.edge_within_5px + 0.3
+    assert is_regression(sb, sa) is False
+
+
+def test_door_just_inside_near_corner_does_not_cut_perpendicular_wall():
+    for pos in ((3.8, 3.95), (3.8, 4.0), (3.8, 4.05)):
+        graph = _graph(TWO_ROOMS, [_door("D1", "Z1", "OUTSIDE", pos, width=0.9)])
+        assert _cs(graph, [(0, 2, 3.6), (1, 6, 3.6)]) == [("Z1.east", 0.5)], pos
+
+
+def test_junction_door_cuts_both_collinear_edges():
+    graph = _graph([_zone("Z1", (0, 0, 4, 4)), _zone("Z3", (4, 0, 4, 4))],
+                   [_door("D1", "Z1", "OUTSIDE", (4.0, 4.0), width=1.2)])
+    for x in (3.6, 4.0, 4.4):  # out through either half of the door
+        assert _cs(graph, [(0, x, 2), (1, x, 5)]) == [], x
+    assert sorted(gs._jambs(graph)) == [(3.4, 4.0), (4.6, 4.0)]
+    # the perpendicular shared wall x = 4 stays solid up to the corner
+    assert _cs(graph, [(0, 2, 3.8), (1, 6, 3.8)]) == [("Z1.east", 0.5)]
