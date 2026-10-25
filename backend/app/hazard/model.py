@@ -76,8 +76,10 @@ class HazardSchedule(BaseModel):
         for e in self.events:
             if e.element_id not in ctx.venue.portals and e.element_id not in ctx.venue.boundaries:
                 raise ValueError("unknown_element_id")
-            if e.close_at_s % dt or e.close_at_s >= horizon:
+            if e.close_at_s % dt:
                 raise ValueError("invalid_close_time")
+            if e.close_at_s >= horizon:
+                raise ValueError("close_time_beyond_horizon")
             if any(z not in ctx.venue.zones for z in e.hazard_zone_ids):
                 raise ValueError("unknown_zone_id")
 

@@ -42,6 +42,7 @@ from backend.app.contracts import (
     Capture,
     ClearBlockageCommand,
     EntityType,
+    GateObservedState,
     GateTarget,
     GroundingResult,
     HazardResult,
@@ -296,6 +297,8 @@ def simulate_hazard(body: Any = Body(...)) -> Dict[str, Any]:
         result = execute_hazard_tool("simulate_hazard_schedule", arguments, ctx)
         exposure = execute_hazard_tool("score_exposure", arguments, ctx)
     except HazardToolError as error:
+        if error.code == "invalid_close_time":
+            raise HTTPException(422, detail={"code": "invalid_close_time"}) from None
         if error.code == "invalid_arguments":
             raise invalid from None
         raise HTTPException(500, detail={"code": "evaluation_failed"}) from None
@@ -311,6 +314,7 @@ def simulate_hazard(body: Any = Body(...)) -> Dict[str, Any]:
 def health() -> Dict[str, Any]:
     return {
         "status": "healthy",
+        "investigation_running": any(not task.done() for task, _ in active_investigations.values()),
         "live_api_configured": grounding_adapter.is_live_configured(),
         "hardware_mode": "simulator" if hardware_bridge.is_simulator else "physical_serial",
         # The device path is not disclosed; only whether a serial device is configured.
@@ -674,6 +678,26 @@ async def operator_approve_gate(payload: GateApprovalRequest,
         "operator": operator,
         "notice": "Device acknowledged the command. Movement is not confirmed until the endpoint switches report it.",
     }
+
+
+@app.post("/api/hardware/reset-gate")
+async def reset_gate(x_operator_token: Optional[str] = Header(default=None)) -> Dict[str, Any]:
+    """Reset for the next judge: close the reserve gate P3. Arrival is confirmed only by the endpoint observation."""
+    physical = not hardware_bridge.is_simulator
+    operator = _authorize_physical_operator(x_operator_token) if physical else "simulator-local"
+    if any(not task.done() for task, _ in active_investigations.values()):
+        raise HTTPException(409, "investigation_running")
+    async with _approval_lock:
+        if state_manager.physical_gate_state == GateObservedState.CLOSED:
+            return {"status": "ALREADY_CLOSED"}
+        success, cmd_id = await hardware_bridge.request_gate_target(GateTarget.CLOSED)
+        if not success:
+            raise HTTPException(status_code=502, detail=f"device_not_acknowledged:{cmd_id}")
+        ctx = state_manager.get_current_context()
+        await asyncio.to_thread(
+            state_manager.store.save_event, "facility-demo", ctx.scenario_revision, "PHYSICAL_RESET",
+            {"operator": operator, "command_id": cmd_id}, f"reset-{uuid4().hex}", state_manager._now_iso())
+    return {"status": "CLOSE_ACKNOWLEDGED", "command_id": cmd_id}
 
 
 @app.post("/api/hardware/stop")

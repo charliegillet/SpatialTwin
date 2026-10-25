@@ -56,7 +56,9 @@ def _parse(args: Any, ctx: ToolContext) -> tuple[AlternativeId, HazardSchedule]:
     try:
         schedule = HazardSchedule.model_validate_json(
             json.dumps({"events": args["events"]}), strict=True, context={"ctx": ctx})
-    except (ValidationError, ValueError, TypeError):
+    except (ValidationError, ValueError, TypeError) as error:
+        if "invalid_close_time" in str(error):
+            raise HazardToolError("invalid_close_time") from None
         raise HazardToolError("invalid_arguments") from None
     return AlternativeId(alt), schedule
 
@@ -89,6 +91,7 @@ def execute_hazard_tool(name: str, args: Any, ctx: ToolContext) -> Dict[str, Any
         "status": env.status.value,
         "completed_crossings": env.completed_crossings,
         "remaining_population": env.remaining_population,
+        "boundary_breakdown": {k: int(v) for k, v in env.boundary_breakdown.items()},
         "baseline_completed_crossings": baseline.completed_crossings if baseline is not None else None,
         "modeled_exposure_people_seconds": exposure,
         "exposure_label": label,

@@ -170,6 +170,7 @@ export interface ScenarioSnapshot {
 
 export interface HealthStatus {
   status: string;
+  investigation_running?: boolean;
   live_api_configured: boolean;
   hardware_mode: string;
   serial_port: string;
@@ -216,6 +217,9 @@ export interface AiCapabilities {
   managed_model: string | null;
   managed_model_fallback: boolean;
   receipts_source: string;
+  /** Optional: age of the newest completed live receipt, when the server reports it. */
+  last_live_receipt_age_seconds?: number | null;
+  last_live_receipt_at?: string | null;
 }
 
 export type HazardAlternativeId = 'KEEP_CURRENT' | 'OPEN_P3';
@@ -232,6 +236,8 @@ export interface HazardSimulateResponse {
   baseline_completed_crossings: number;
   modeled_exposure_people_seconds: number;
   exposure_label: string;
+  /** Per-boundary crossings of this forecast (B1, B2). Older servers omit it. */
+  boundary_breakdown?: Record<string, number>;
 }
 
 export interface CommandResponse { snapshot: ScenarioSnapshot; [key: string]: unknown; }
@@ -243,4 +249,5 @@ export interface OperatorApproveResponse {
   operator?: string;
   notice?: string;
 }
+export interface ResetGateResponse { status: 'ALREADY_CLOSED' | 'CLOSE_ACKNOWLEDGED'; command_id?: string; }
 export interface StopResponse { status: 'STOP_ACKNOWLEDGED'; command_id: string; }

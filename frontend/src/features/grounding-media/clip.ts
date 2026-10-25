@@ -53,3 +53,27 @@ export function readVideoDuration(file: Blob, timeoutMs = 5000): Promise<number 
     video.src = url;
   });
 }
+
+/** Reads the real frame size from a hidden video element; resolves undefined when it cannot be read. */
+export function readVideoSize(file: Blob, timeoutMs = 5000): Promise<[number, number] | undefined> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    let settled = false;
+    const finish = (value: [number, number] | undefined) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      video.removeAttribute('src');
+      video.load();
+      URL.revokeObjectURL(url);
+      resolve(value);
+    };
+    const timer = window.setTimeout(() => finish(undefined), timeoutMs);
+    video.preload = 'metadata';
+    video.muted = true;
+    video.onloadedmetadata = () => finish(video.videoWidth > 0 && video.videoHeight > 0 ? [video.videoWidth, video.videoHeight] : undefined);
+    video.onerror = () => finish(undefined);
+    video.src = url;
+  });
+}

@@ -17,37 +17,37 @@ function reasonText(raw: string): string {
 /** Plain-words outcome for a failed operator call. `detail` is the backend's string detail, if any. */
 export function operatorErrorMessage(action: OperatorAction, status: number, detail: string): string {
   if (status === 403) {
-    if (detail === 'operator_token_not_configured') return 'This server has no operator token configured, so commands to physical hardware are disabled.';
-    if (detail === 'operator_token_rejected') return 'The operator token was rejected. Check it and try again.';
-    if (detail === 'operator_config_invalid') return 'The server operator configuration is invalid. Ask the administrator to fix it before sending commands.';
-    return 'The operator token was not accepted.';
+    if (detail === 'operator_token_not_configured') return 'No operator token is configured on the server.';
+    if (detail === 'operator_token_rejected') return 'Operator token rejected.';
+    if (detail === 'operator_config_invalid') return 'Server operator configuration is invalid.';
+    return 'Operator token not accepted.';
   }
   if (status === 502) {
     const [, rest = ''] = detail.split(/:(.*)/s);
     const reason = reasonText(rest);
     const suffix = reason ? ` (${reason})` : '';
-    if (detail.startsWith('stop_not_acknowledged')) return `The device did not acknowledge the stop${suffix}. Treat outputs as still active and try again.`;
-    if (detail.startsWith('device_not_acknowledged')) return `Device did not acknowledge${suffix}. Nothing was recorded; you can retry.`;
-    return 'The device could not be reached. Nothing was recorded; you can retry.';
+    if (detail.startsWith('stop_not_acknowledged')) return `Stop not acknowledged${suffix}. Outputs may still be active.`;
+    if (detail.startsWith('device_not_acknowledged')) return `Device did not acknowledge${suffix}. Nothing recorded; retry.`;
+    return 'Device unreachable. Nothing recorded; retry.';
   }
   if (status === 409) return action === 'approve'
-    ? 'This approval was already recorded or its evidence is no longer valid. Run a fresh comparison.'
-    : 'The stop request conflicts with the current device state.';
+    ? 'Approval already recorded or stale. Compare again.'
+    : 'Stop conflicts with the device state.';
   return '';
 }
 
 /** Rate limit and similar investigation failures; empty means "use the generic message". */
 export function investigationErrorMessage(status: number): string {
-  if (status === 429) return 'Too many analyses are already running. Wait for one to finish, then try again.';
+  if (status === 429) return 'Too many analyses running. Retry shortly.';
   return '';
 }
 
 export function approvalSuccessMessage(acknowledged: boolean): string {
   return acknowledged
-    ? 'Device acknowledged the P3 opening request. Acknowledgement is not arrival; wait for endpoint evidence.'
-    : 'Backend accepted the P3 opening request. Waiting for endpoint evidence.';
+    ? 'Acknowledged — not arrival. Waiting for endpoint evidence.'
+    : 'Accepted. Waiting for endpoint evidence.';
 }
 
 export function stopSuccessMessage(): string {
-  return 'Device acknowledged the stop command. Acknowledgement is not proof the gate stopped; check the reported position.';
+  return 'Stop acknowledged — not proof the gate stopped.';
 }

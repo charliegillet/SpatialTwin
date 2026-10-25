@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from backend.app import main
 
 KEYS = {"tool", "alternative_id", "is_valid", "reasons", "status", "completed_crossings",
-        "remaining_population", "baseline_completed_crossings", "modeled_exposure_people_seconds",
+        "remaining_population", "boundary_breakdown", "baseline_completed_crossings", "modeled_exposure_people_seconds",
         "exposure_label"}
 BODY = {"alternative_id": "KEEP_CURRENT", "events": [{"element_id": "P1", "close_at_s": 0}]}
 
@@ -66,3 +66,17 @@ def test_default_zones_make_closure_exposure_nonzero(client):
     body = {"alternative_id": "KEEP_CURRENT", "events": [{"element_id": "P1", "close_at_s": 12}]}
     payload = client.post("/api/hazard/simulate", json=body).json()
     assert payload["modeled_exposure_people_seconds"] > 0
+
+
+def test_boundary_breakdown_sums_to_completed_crossings(client):
+    payload = client.post("/api/hazard/simulate", json=BODY).json()
+    breakdown = payload["boundary_breakdown"]
+    assert set(breakdown) == {"B1", "B2"}
+    assert all(type(v) is int and v >= 0 for v in breakdown.values())
+    assert sum(breakdown.values()) == payload["completed_crossings"]
+
+
+def test_odd_close_time_has_distinct_code(client):
+    response = client.post("/api/hazard/simulate", json={**BODY, "events": [{"element_id": "P1", "close_at_s": 7}]})
+    assert response.status_code == 422
+    assert response.json() == {"detail": {"code": "invalid_close_time"}}

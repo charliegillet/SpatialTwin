@@ -1,5 +1,6 @@
 import type { InvestigationResult, ProviderProgress } from '../types';
 import { allowlistedTools, progressDescription } from '../ai/evidence';
+import './InvestigationEvidence.css';
 
 function compactResult(result: Record<string, unknown> | null | undefined): string {
   if (!result) return 'No completed tool result';

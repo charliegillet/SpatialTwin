@@ -1,31 +1,47 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Activity, ArrowRight, Box, Check, CircleHelp, ClipboardCheck, Cpu, Expand, FileJson, FlaskConical, Layers2, LayoutDashboard, LoaderCircle, Radio, RotateCcw, X } from 'lucide-react';
+import { RotateCcw, X } from 'lucide-react';
 import type { AiCapabilities, CaptureEvidence, CaptureRequest, GroundingResult, HazardSimulateResponse, HealthStatus, InvestigationMode, InvestigationProgress, InvestigationResult, RunContext, ScenarioSnapshot } from './types';
-import { cancelInvestigation, clearBlockage, fetchHealth, fetchInvestigationProgress, fetchScenario, getCapabilities, interpretGrounding, investigateScenario, operatorApproveGate, sendCommand, simulateHazard, stopOutputs } from './api/client';
-import { ObservationPanel } from './components/ObservationPanel';
+import { cancelInvestigation, clearBlockage, fetchHealth, fetchInvestigationProgress, fetchScenario, getCapabilities, interpretGrounding, investigateScenario, operatorApproveGate, resetGate, sendCommand, simulateHazard, stopOutputs } from './api/client';
+import { ObservationPanel, type BoardView } from './components/ObservationPanel';
 import { SpatialViewport } from './components/SpatialViewport';
-import { InvestigationPanel } from './components/InvestigationPanel';
-import { WorkspaceDetails } from './components/WorkspaceDetails';
+import { DecisionBar } from './components/DecisionBar';
+import { EvidenceDetails } from './components/WorkspaceDetails';
 import { EventConsole, type WorkspaceEvent } from './components/EventConsole';
+import { AgentPane } from './components/AgentPane';
+import { TopBar } from './components/TopBar';
+import { StageChips } from './components/StageChips';
+import { HeroNumber } from './components/HeroNumber';
+import { HazardPalette } from './components/HazardPalette';
+import { PresenterMenu } from './components/PresenterMenu';
+import { ResetChecklist } from './components/ResetChecklist';
+import { WhyStrip } from './components/WhyStrip';
+import { heroView, nextResultMemory, type ResultMemory } from './ai/heroView';
+import { ANALYSIS_RUNNING, HAZARD_REJECT, forecastBreakdown, forecastLine, heroForecastLine, placementOutcome, SMOKE_DEFAULT, smokeEvents, type HazardTargetId, type HazardTool } from './ai/hazardTools';
+import { preflightItems, resetComplete, type ResetFacts, pendingMessage } from './ai/resetFlow';
+import './components/JudgeStage.css';
+import { TargetReview } from './components/TargetReview';
+import { DetailsSheet, type SheetTab } from './components/DetailsSheet';
 import { canApplyGrounding, canApproveInvestigation, groundingLabel, investigationLabel, sameContext } from './ai/policy';
 import { captureEvidence } from './ai/evidence';
 import { createRequestGate } from './ai/requestGate';
 import { approvalSuccessMessage, needsOperatorToken, stopSuccessMessage, type OperatorOutcome } from './ai/operator';
 import { createWorkflowEpoch, nextNotFoundCount, shouldKeepPolling } from './ai/workflowEpoch';
+import { checkedChip, effectiveVideoMode, gateChip, hardwareChip, provenanceChip, uploadLogLine, uploadSourceLabel, videoModeOptions, VIDEO_DEADLINE_SECONDS, type UploadKind, type VideoMode } from './ai/stageView';
 import { ScheduleExplorer } from './features/schedule/ScheduleExplorer';
 import { ScenarioLab } from './features/scenario-lab/ScenarioLab';
 import { HazardPanel } from './features/hazard-exposure/HazardPanel';
+import { HazardRunner } from './features/hazard-exposure/HazardRunner';
 import type { HazardResultView } from './features/hazard-exposure/hazard';
 import { ClipPicker, type GroundingSelection } from './features/grounding-media/ClipPicker';
+import { readVideoSize } from './features/grounding-media/clip';
 import { ReviewPanel } from './features/proposal-evidence/ReviewPanel';
-import { cleanHazardEvents, hazardElements, toHazardView } from './ai/hazardView';
+import { cleanHazardEvents, toHazardView } from './ai/hazardView';
 
 type Target = 'portal:P1' | 'portal:P2' | 'boundary:B2';
-type Details = 'evidence' | 'devices' | 'guide' | null;
-const targets: { id: Target; title: string; description: string }[] = [
-  { id: 'portal:P1', title: 'P1 · West passage', description: 'Connects the event hall to the west corridor.' },
-  { id: 'portal:P2', title: 'P2 · East passage', description: 'Connects the event hall to the east corridor.' },
-  { id: 'boundary:B2', title: 'B2 · East boundary', description: 'The finite-capacity boundary beyond the east corridor.' },
+const targets: { id: Target; title: string }[] = [
+  { id: 'portal:P1', title: 'P1 · West passage' },
+  { id: 'portal:P2', title: 'P2 · East passage' },
+  { id: 'boundary:B2', title: 'B2 · East boundary' },
 ];
 
 export { sameContext } from './ai/policy';
@@ -38,9 +54,8 @@ async function fileBase64(file: File): Promise<string> {
   return btoa(binary);
 }
 
-function BrandMark({ small = false }: { small?: boolean }) {
-  return <svg width={small ? 24 : 30} height={small ? 26 : 32} viewBox="0 0 30 32" fill="none" aria-hidden="true"><path d="m15 2 12 7v14l-12 7L3 23V9L15 2Z" stroke="currentColor" strokeWidth="1.2" /><path d="m3 9 12 7 12-7M15 16v14M9 5.5l12 7V26.5M3 16l12 7 12-7" stroke="currentColor" strokeWidth="1.2" /></svg>;
-}
+/** Longest side of an uploaded image sent for analysis; larger photos are scaled down. */
+const MAX_UPLOAD_SIDE = 1920;
 
 export function App() {
   const [snapshot, setSnapshot] = useState<ScenarioSnapshot | null>(null);
@@ -49,9 +64,9 @@ export function App() {
   const [connection, setConnection] = useState<'connecting' | 'connected' | 'reconnecting'>('connecting');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedTarget, setSelectedTarget] = useState<Target | null>(null);
-  const [details, setDetails] = useState<Details>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [sheetTab, setSheetTab] = useState<SheetTab>('forecast');
   const [presenting, setPresenting] = useState(false);
-  const [interventionView, setInterventionView] = useState<'analysis' | 'device'>('analysis');
   const [isEditing, setIsEditing] = useState(false);
   const [isMutating, setIsMutating] = useState(false);
   const [mutationError, setMutationError] = useState<string | null>(null);
@@ -69,12 +84,34 @@ export function App() {
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancellationRequested, setCancellationRequested] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
+  // The token lives only in memory: no storage; a page reload clears it, Clear and reset keep it.
+  const [operatorToken, setOperatorToken] = useState('');
+  const [selectedMode, setSelectedMode] = useState<InvestigationMode | null>(null);
+  const [lastAi, setLastAi] = useState<'grounding' | 'investigation' | null>(null);
+  const [captureOrigin, setCaptureOrigin] = useState<string | null>(null);
+  const [videoMode, setVideoMode] = useState<VideoMode>('static');
   const [capabilities, setCapabilities] = useState<AiCapabilities | null>(null);
   const [hazard, setHazard] = useState<{ view: HazardResultView; context: RunContext } | null>(null);
   const [hazardRows, setHazardRows] = useState<{ element_id: string; close_at_s: string }[]>([{ element_id: 'portal:P1', close_at_s: '12' }]);
   const [isSimulating, setIsSimulating] = useState(false);
   const [hazardError, setHazardError] = useState<string | null>(null);
   const [events, setEvents] = useState<WorkspaceEvent[]>([]);
+  const [tool, setTool] = useState<HazardTool | null>(null);
+  const [smokeSeconds, setSmokeSeconds] = useState(SMOKE_DEFAULT);
+  const [smoke, setSmoke] = useState<Partial<Record<HazardTargetId, number>>>({});
+  const [smokeForecast, setSmokeForecast] = useState<{ events: { element_id: string; close_at_s: number }[]; count: number; population: number; breakdown: Record<string, number> | null; context: RunContext } | null>(null);
+  const [smokePending, setSmokePending] = useState(false);
+  const [smokeError, setSmokeError] = useState<string | null>(null);
+  const [stageNotice, setStageNotice] = useState<string | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuSlot, setMenuSlot] = useState<HTMLDivElement | null>(null);
+  const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const [cameraLive, setCameraLive] = useState(false);
+  const [boardView, setBoardView] = useState<BoardView>('none');
+  const [readSeconds, setReadSeconds] = useState<number | null>(null);
+  const [resultMemory, setResultMemory] = useState<ResultMemory>({ current: null, previous: null });
+  const [reset, setReset] = useState<{ phase: 'idle' | 'running' | 'waiting' | 'done' | 'error'; message: string | null }>({ phase: 'idle', message: null });
   const eventId = useRef(0);
   // Bumped on every reset. A response that began in an earlier epoch is dropped before it touches state.
   const epoch = useRef(createWorkflowEpoch());
@@ -87,9 +124,7 @@ export function App() {
   const hazardGate = useRef(createRequestGate());
   const hazardRequest = useRef(0);
   const hazardAbort = useRef<AbortController | null>(null);
-  const clipMode = useRef<'static' | 'agentic'>('static');
   const telemetryRef = useRef<string | null>(null);
-  const spatialRef = useRef<HTMLDivElement>(null);
   const reviewRef = useRef<HTMLElement>(null);
   const reviewTriggerRef = useRef<HTMLElement | null>(null);
   const presenterTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -190,7 +225,6 @@ export function App() {
 
   useEffect(() => {
     if (isEditing) {
-      reviewRef.current?.scrollIntoView({ block: 'nearest', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
       reviewRef.current?.querySelector<HTMLSelectElement>('select')?.focus({ preventScroll: true });
     }
   }, [isEditing, selectedTarget]);
@@ -202,7 +236,7 @@ export function App() {
   const hazardCurrent = Boolean(hazard && connection === 'connected' && sameContext(hazard.context, snapshot?.context));
   const investigationCurrent = Boolean(connection === 'connected' && sameContext(investigation?.base_context, snapshot?.context) && !physicalUncertain);
   const blocked = [...(snapshot?.blocked_portals ?? []), ...(snapshot?.blocked_boundaries ?? [])];
-  const targetSpec = targets.find(target => target.id === selectedTarget);
+  const physical = needsOperatorToken(health?.hardware_mode);
   const targetBlocked = selectedTarget ? blocked.includes(selectedTarget.split(':')[1]) : false;
   const canChange = Boolean(snapshot && connection === 'connected' && !isMutating);
   // Anything that shows plan numbers receives displaySnapshot, which hides a plan that is not current.
@@ -222,7 +256,9 @@ export function App() {
     setGrounding(null); setHeldCapture(null); setAppliedCaptureId(null); setInvestigation(null);
     setGroundingError(null); setInvestigationError(null); setIsGrounding(false); setIsInvestigating(false);
     setActiveInvestigation(null); setInvestigationProgress(null); setCancellationRequested(false); setIsCancelling(false);
-    setIsApproving(false);
+    // The operator token stays in memory across Clear and reset; only a page reload drops it.
+    setIsApproving(false); setLastAi(null); setCaptureOrigin(null);
+    setTool(null); setSmoke({}); setSmokeForecast(null); setSmokeError(null); setSmokePending(false); setReadSeconds(null);
   };
 
   const mutate = async (target?: Target, reset = false, source: 'manual_override' | 'grounding_proposal' = 'manual_override') => {
@@ -246,18 +282,21 @@ export function App() {
     finally { setIsMutating(false); }
   };
 
-  const capture = async (captureRequest: CaptureRequest) => {
+  const capture = async (captureRequest: CaptureRequest, upload?: UploadKind) => {
     if (isGrounding || !snapshotRef.current || connection !== 'connected') return;
     const token = groundingGate.current.start();
     if (token === null) return;
     const request = ++groundingRequest.current;
     const started = epoch.current.current();
+    const readStart = performance.now();
+    setReadSeconds(null);
     setIsGrounding(true); setGroundingError(null); setGrounding(null); setHeldCapture(captureRequest); setAppliedCaptureId(null);
-    addEvent('vision', captureRequest.mode === 'fixture' ? `Reviewing ${captureRequest.fixture_target} fixture. No Gemini call requested.` : `${captureRequest.source_kind === 'annotated_plan' ? 'Synthetic demo board image' : 'Captured camera still'} sent to Gemini · ${captureRequest.thinking_level} thinking.`);
+    setCaptureOrigin(upload ? uploadSourceLabel(upload) : captureRequest.mode === 'fixture' ? 'Fixture' : captureRequest.source_kind === 'annotated_plan' ? 'Demo board image' : 'Camera still');
+    addEvent('vision', captureRequest.mode === 'fixture' ? `Reviewing ${captureRequest.fixture_target} fixture. No Gemini call requested.` : upload ? uploadLogLine(upload, captureRequest.thinking_level) : `${captureRequest.source_kind === 'annotated_plan' ? 'Synthetic demo board image' : 'Captured camera still'} sent to Gemini · ${captureRequest.thinking_level} thinking.`);
     try {
       const response = await interpretGrounding('facility-demo', captureRequest);
       if (request !== groundingRequest.current || !epoch.current.isCurrent(started)) return;
-      setGrounding(response);
+      setGrounding(response); setLastAi('grounding'); setReadSeconds((performance.now() - readStart) / 1000);
       if (response.status !== 'completed') setGroundingError(response.errors.join(' ') || `Gemini grounding ${response.status.replace(/_/g, ' ')}. No proposal was accepted.`);
       addEvent('vision', `${groundingLabel(response, { mediaKind: captureRequest.media_kind })} · ${response.proposal?.status ?? response.status} · ${response.proposal?.selected_entity_id ?? 'no target'}.`, response.status === 'completed' && response.proposal?.status === 'matched' ? 'success' : 'warning');
     } catch (error) { if (request === groundingRequest.current && epoch.current.isCurrent(started)) { setGroundingError(failureMessage(error)); addEvent('vision', failureMessage(error), 'warning'); } }
@@ -290,16 +329,24 @@ export function App() {
     const started = epoch.current.current();
     try {
       const base = { capture_id: crypto.randomUUID(), timestamp_iso: new Date().toISOString(), source_context: { ...current.context }, thinking_level: 'low' as const, source_kind: 'tabletop_camera' as const, mode: 'live' as const };
-      const bytes = await fileBase64(selection.file);
-      if (!epoch.current.isCurrent(started)) return;
       if (selection.kind === 'video') {
-        await capture(await captureEvidence({ ...base, dimensions: [1920, 1080], video_base64: bytes, media_kind: 'video', video_mode: clipMode.current, video_mime: selection.file.type, deadline_seconds: 100 }));
+        const [bytes, size] = await Promise.all([fileBase64(selection.file), readVideoSize(selection.file)]);
+        if (!epoch.current.isCurrent(started)) return;
+        // The real frame size when the browser can read it; the contract default only as a last resort.
+        await capture(await captureEvidence({ ...base, dimensions: size ?? [1920, 1080], video_base64: bytes, media_kind: 'video', video_mode: effectiveVideoMode(videoModeOptions(capabilities), videoMode), video_mime: selection.file.type, deadline_seconds: VIDEO_DEADLINE_SECONDS }), 'video');
       } else {
+        // Re-encode as JPEG at a bounded size so the declared dimensions always match the pixels sent.
         const bitmap = await createImageBitmap(selection.file);
         if (!epoch.current.isCurrent(started)) { bitmap.close(); return; }
-        const dimensions: [number, number] = [bitmap.width, bitmap.height];
+        const scale = Math.min(1, MAX_UPLOAD_SIDE / Math.max(bitmap.width, bitmap.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(bitmap.width * scale)); canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+        const drawing = canvas.getContext('2d');
+        if (!drawing) { bitmap.close(); throw new Error('This browser could not read the image.'); }
+        drawing.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
         bitmap.close();
-        await capture(await captureEvidence({ ...base, dimensions, image_base64: bytes, media_kind: 'image', deadline_seconds: 45 }));
+        const data = canvas.toDataURL('image/jpeg', .92);
+        await capture(await captureEvidence({ ...base, dimensions: [canvas.width, canvas.height], image_base64: data.slice(data.indexOf(',') + 1), media_kind: 'image', deadline_seconds: 45 }), 'image');
       }
     } catch (error) { if (epoch.current.isCurrent(started)) setGroundingError(failureMessage(error)); }
   };
@@ -311,7 +358,7 @@ export function App() {
     const request = groundingRequest.current;
     const applied = await mutate(target as Target, false, 'grounding_proposal');
     // A reset or a cleared/replaced proposal while the command was in flight must not repopulate the workspace.
-    if (applied && epoch.current.isCurrent(started) && request === groundingRequest.current) setAppliedCaptureId(proposal.capture_id);
+    if (applied && epoch.current.isCurrent(started) && request === groundingRequest.current) { setAppliedCaptureId(proposal.capture_id); startAutoInvestigation(); }
   };
   const investigate = async (mode: InvestigationMode) => {
     if (isInvestigating || !snapshotRef.current || connection !== 'connected') return;
@@ -326,7 +373,7 @@ export function App() {
     try {
       const response = await investigateScenario('facility-demo', expectedContext, mode, investigationId);
       if (investigationRequest.current !== investigationId || !epoch.current.isCurrent(started)) return;
-      setInvestigation(response.investigation);
+      setInvestigation(response.investigation); setLastAi('investigation');
       const checkedCount = response.investigation.candidate_envelopes.filter(candidate => candidate.validator_report.is_valid).length;
       if (response.investigation.status !== 'completed') setInvestigationError(response.investigation.errors?.join(' ') || `Analysis ${response.investigation.status.replace(/_/g, ' ')}. No winning option is available.`);
       addEvent('analysis', `${investigationLabel(response.investigation, { managedModelFallback: capabilities?.managed_model_fallback })} · ${checkedCount} checked alternatives.`, response.investigation.status === 'completed' ? 'success' : 'warning');
@@ -347,7 +394,7 @@ export function App() {
     } catch (error) { if (investigationRequest.current === activeId && epoch.current.isCurrent(started)) { setInvestigationError(failureMessage(error)); addEvent('analysis', failureMessage(error), 'warning'); } }
     finally { if (investigationRequest.current === activeId && epoch.current.isCurrent(started)) setIsCancelling(false); }
   };
-  const approve = async (operatorToken?: string): Promise<OperatorOutcome> => {
+  const approve = async (): Promise<OperatorOutcome> => {
     const current = snapshotRef.current;
     const candidate = investigation?.candidate_envelopes.find(item => item.alternative_id === 'OPEN_P3');
     if (!current || !investigationCurrent || !canApproveInvestigation(investigation, current.context) || !candidate || isApproving) {
@@ -356,7 +403,7 @@ export function App() {
     const started = epoch.current.current();
     setIsApproving(true);
     try {
-      const response = await operatorApproveGate(current.context, investigation!.investigation_id, candidate.run_id, operatorToken);
+      const response = await operatorApproveGate(current.context, investigation!.investigation_id, candidate.run_id, physical ? operatorToken.trim() : undefined);
       const message = approvalSuccessMessage(Boolean(response.acknowledged));
       if (epoch.current.isCurrent(started)) addEvent('device', message);
       return { ok: true, message, acknowledged: Boolean(response.acknowledged) };
@@ -365,9 +412,10 @@ export function App() {
       return { ok: false, message: failureMessage(error) };
     } finally { if (epoch.current.isCurrent(started)) setIsApproving(false); }
   };
-  const stop = async (operatorToken?: string): Promise<OperatorOutcome> => {
+  const stop = async (): Promise<OperatorOutcome> => {
+    if (physical && !operatorToken.trim()) return { ok: false, message: 'Enter the operator token to stop.' };
     try {
-      await stopOutputs(operatorToken);
+      await stopOutputs(physical ? operatorToken.trim() : undefined);
       addEvent('device', stopSuccessMessage(), 'success');
       return { ok: true, message: stopSuccessMessage() };
     } catch (error) {
@@ -376,103 +424,179 @@ export function App() {
     }
   };
   const selectTarget = (target: Target) => { reviewTriggerRef.current = document.activeElement as HTMLElement | null; setSelectedTarget(target); setIsEditing(true); setMutationError(null); };
-  const inspectModel = () => spatialRef.current?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'center' });
-
   const availabilityMessage = connection !== 'connected'
     ? 'Reconnect to the local backend before using this result.'
     : physicalUncertain ? `P3 is ${snapshot?.physical_gate_state.toLowerCase()}. Wait for a confirmed endpoint.` : undefined;
-  const focusSection = (id: string) => requestAnimationFrame(() => {
-    const element = document.getElementById(id);
-    element?.scrollIntoView({ block: 'start', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
-    element?.focus({ preventScroll: true });
-  });
   const closeEditor = () => {
     setIsEditing(false); setSelectedTarget(null);
     reviewTriggerRef.current?.focus({ preventScroll: true });
   };
 
-  return <div className={`workspace-app${presenting ? ' workspace-presenting' : ''}`}>
+
+  const videoOptions = videoModeOptions(capabilities);
+  const apiConfigured = health?.ai?.managed.configured ?? health?.live_api_configured ?? false;
+  const mode: InvestigationMode = selectedMode ?? (apiConfigured ? 'live' : 'local');
+  const aiResult = lastAi === 'investigation' ? investigation : lastAi === 'grounding' ? grounding : investigation ?? grounding;
+  const endpointReported = Boolean(snapshot?.last_hardware_boot_id);
+  const stagePlan = planCurrent ? plan : null;
+  const localEnabled = health?.ai?.fixtures_enabled ?? false;
+  const stageCount = stagePlan ? stagePlan.completed_crossings : null;
+  // The delta chip compares with the last different checked count. Derived during render so the chip and digits change together.
+  if (stageCount !== null && stageCount !== resultMemory.current) setResultMemory(nextResultMemory(resultMemory, stageCount));
+  const hero = heroView({ connected: connection === 'connected', physicalUncertain, planCurrent, completed: plan?.completed_crossings, population: plan?.initial_population, horizon: plan?.horizon_seconds, previous: resultMemory.previous });
+
+  const showNotice = (message: string) => {
+    clearTimeout(noticeTimer.current);
+    setStageNotice(message);
+    noticeTimer.current = setTimeout(() => setStageNotice(null), 4000);
+  };
+  useEffect(() => () => clearTimeout(noticeTimer.current), []);
+
+  /** Live Gemini when configured, otherwise the local solver; the presenter menu choice wins when it is available. */
+  const startAutoInvestigation = () => {
+    const live = apiConfigured, local = localEnabled;
+    const chosen: InvestigationMode | null = mode === 'live' ? (live ? 'live' : local ? 'local' : null) : (local ? 'local' : live ? 'live' : null);
+    if (chosen) void investigate(chosen);
+  };
+
+  const placeHazard = async (targetId: Target) => {
+    if (isInvestigating) { showNotice(ANALYSIS_RUNNING); return; }
+    const placement = placementOutcome(targetId);
+    if (!placement.ok) { showNotice(placement.message); return; }
+    const id = targetId.split(':')[1];
+    const closed = blocked.includes(id);
+    if (tool === 'fire') {
+      if (closed) { showNotice(`${id} is already closed.`); return; }
+      if (await mutate(targetId)) { setTool(null); startAutoInvestigation(); }
+    } else if (tool === 'smoke') {
+      setSmoke(current => ({ ...current, [targetId]: smokeSeconds })); setTool(null);
+    } else if (tool === 'clear') {
+      if (closed) { if (await mutate(targetId)) setTool(null); }
+      else if (smoke[targetId] !== undefined) { setSmoke(current => { const next = { ...current }; delete next[targetId]; return next; }); setTool(null); }
+      else showNotice(`Nothing to clear on ${id}.`);
+    }
+  };
+  const onSelectTarget = (target: Target) => {
+    if (tool) { void placeHazard(target); return; }
+    if (isInvestigating) { showNotice(ANALYSIS_RUNNING); return; }
+    selectTarget(target);
+  };
+  const chooseTool = (next: HazardTool | null) => { setTool(next); if (next) { setIsEditing(false); setSelectedTarget(null); } };
+
+  // Smoke is a forecast: the closure is timed, the real scenario is untouched, and nothing here can be approved.
+  const contextHash = snapshot?.context.context_hash ?? '';
+  useEffect(() => {
+    const hazardEvents = smokeEvents(smoke);
+    const current = snapshotRef.current;
+    if (!hazardEvents.length || !current || connection !== 'connected') { setSmokeForecast(null); setSmokePending(false); setSmokeError(null); return; }
+    const controller = new AbortController();
+    const context = { ...current.context };
+    setSmokePending(true); setSmokeError(null);
+    simulateHazard({ alternative_id: 'KEEP_CURRENT', events: hazardEvents }, controller.signal).then(response => {
+      if (controller.signal.aborted) return;
+      setSmokePending(false);
+      if (!response.is_valid) { setSmokeForecast(null); setSmokeError('The forecast could not be checked.'); return; }
+      setSmokeForecast({ events: hazardEvents, count: response.completed_crossings, population: response.completed_crossings + response.remaining_population, breakdown: forecastBreakdown(response.boundary_breakdown), context });
+      addEvent('analysis', `Smoke forecast · ${hazardEvents.map(event => `${event.element_id} at ${event.close_at_s} s`).join(', ')} · local solver, no Gemini call.`, 'success');
+    }, error => {
+      if (controller.signal.aborted) return;
+      setSmokePending(false); setSmokeForecast(null); setSmokeError(failureMessage(error));
+    });
+    return () => controller.abort();
+  }, [smoke, contextHash, connection, addEvent]);
+  const smokeCurrent = Boolean(smokeForecast && connection === 'connected' && sameContext(smokeForecast.context, snapshot?.context));
+  const smokeHazardEvents = smokeEvents(smoke);
+  const forecastUi = smokeHazardEvents.length === 0 ? null
+    : smokeCurrent && smokeForecast ? { text: forecastLine({ events: smokeForecast.events, forecast: smokeForecast.count, current: stageCount, population: smokeForecast.population }), pending: false }
+    : { text: '', pending: smokePending };
+
+  const resetFacts: ResetFacts = { scenarioClear: blocked.length === 0, gateClosedObserved: snapshot?.physical_gate_state === 'CLOSED' && Boolean(snapshot?.last_hardware_boot_id), noRunActive: !isInvestigating && !activeInvestigation && !isSimulating, boardReady: physical ? boardView === 'live' : boardView !== 'none' };
+  // While waiting, name exactly what is unmet so the message never contradicts a green item.
+  const resetMessage = reset.phase === 'waiting' ? (pendingMessage(resetFacts, physical) ?? reset.message) : reset.message;
+  const resetNow = async () => {
+    if (reset.phase === 'running' || !snapshotRef.current) return;
+    setReset({ phase: 'running', message: 'Cancelling any run…' });
+    try {
+      if (activeInvestigation) {
+        await cancelInvestigation('facility-demo', activeInvestigation.id, activeInvestigation.context).catch(() => undefined);
+        for (let attempt = 0; attempt < 16; attempt += 1) {
+          const status = await fetchHealth().catch(() => null);
+          if (!status?.investigation_running) break;
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+      setReset({ phase: 'running', message: 'Clearing hazards and the scenario…' });
+      if (!(await mutate(undefined, true))) { setReset({ phase: 'error', message: 'The scenario could not be cleared. Retry.' }); return; }
+      if (physical && !operatorToken.trim()) { setReset({ phase: 'error', message: 'Operator token required to close P3.' }); return; }
+      setReset({ phase: 'running', message: 'Closing P3…' });
+      const response = await resetGate(physical ? operatorToken.trim() : undefined);
+      addEvent('device', response.status === 'ALREADY_CLOSED' ? 'P3 already closed. Waiting for the endpoint to confirm.' : 'Close request acknowledged — not arrival. Waiting for the endpoint.', 'info');
+      setResultMemory({ current: null, previous: null });
+      setReset({ phase: 'waiting', message: 'Waiting for P3 closed to be observed…' });
+    } catch (error) {
+      const message = failureMessage(error);
+      addEvent('device', message, 'warning');
+      setReset({ phase: 'error', message });
+    }
+  };
+  useEffect(() => {
+    if (reset.phase === 'waiting' && resetComplete(resetFacts, physical)) setReset({ phase: 'done', message: 'Ready for the next judge.' });
+  });
+  useEffect(() => {
+    if (reset.phase === 'done') {
+      const timer = setTimeout(() => setReset({ phase: 'idle', message: null }), 8000);
+      return () => clearTimeout(timer);
+    }
+  }, [reset.phase]);
+
+  const receiptAge = capabilities?.last_live_receipt_age_seconds ?? (capabilities?.last_live_receipt_at ? Math.max(0, (Date.now() - Date.parse(capabilities.last_live_receipt_at)) / 1000) : null);
+  const preflight = preflightItems({ geminiConfigured: apiConfigured, receiptAgeSeconds: Number.isFinite(receiptAge) ? receiptAge : null, hardwareMode: health?.hardware_mode, gateState: snapshot?.physical_gate_state, endpointReported, physical, tokenHeld: operatorToken.trim().length > 0, cameraLive: physical ? boardView === 'live' : boardView !== 'none' });
+  const [clearMessage, setClearMessage] = useState<string | null>(null);
+  const clearHazards = async () => {
+    if (snapshot?.physical_gate_state === 'OPEN') { setClearMessage('P3 is open \u00b7 use Next judge'); return; }
+    setClearMessage(null);
+    if (await mutate(undefined, true)) setClearMessage('Hazards cleared.');
+  };
+  const toggleMenu = () => setMenuOpen(value => !value);
+  const uploadPanel = <div className="clip-slot">
+    <ClipPicker videoEnabled={videoOptions.length > 0} onSelect={selection => void selectClip(selection)} disabled={isGrounding || connection !== 'connected' || !snapshot} />
+    {videoOptions.length > 1 && <label className="clip-mode">Video mode<select aria-label="Video mode" value={videoMode} onChange={event => setVideoMode(event.target.value as VideoMode)}><option value="static">Static frames</option><option value="agentic">Agentic</option></select></label>}
+  </div>;
+  const openSheet = (tab?: SheetTab) => { if (tab) setSheetTab(tab); setSheetOpen(true); };
+
+  return <div className={`app${presenting ? ' presenting' : ''}`}>
     <a className="skip-link" href="#workspace-main">Skip to workspace</a>
-    <aside className="workspace-rail" aria-label="Workspace navigation">
-      <a className="rail-brand" href="#workspace-main" aria-label="SpatialTwin workspace"><BrandMark small /><span>SpatialTwin<span className="wordmark-dot" /></span></a>
-      <div className="rail-workspace-label">WORKSPACE</div>
-      <nav>
-        <button className={!details ? 'is-active' : ''} onClick={() => { setDetails(null); window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }); }}><LayoutDashboard size={18} strokeWidth={1.7} /><span>Overview</span></button>
-        <button onClick={inspectModel}><Layers2 size={18} strokeWidth={1.7} /><span>Spatial model</span></button>
-        <button onClick={() => focusSection('scenario-lab')}><FlaskConical size={18} strokeWidth={1.7} /><span>Scenarios</span></button>
-        <button className={details === 'evidence' ? 'is-active' : ''} onClick={() => setDetails('evidence')}><ClipboardCheck size={18} strokeWidth={1.7} /><span>Evidence</span></button>
-        <button className={details === 'devices' ? 'is-active' : ''} onClick={() => setDetails('devices')}><Cpu size={18} strokeWidth={1.7} /><span>Devices</span></button>
-      </nav>
-      <div className="rail-scope"><span className="status-dot" /><div>Tabletop 01<small>Illustrative model</small></div></div>
-      <div className="rail-bottom"><button onClick={() => setDetails('guide')}><CircleHelp size={18} /><span>Workspace guide</span></button><div className="operator-profile"><span className="operator-avatar">OP</span><span>Local operator<small>Review before applying</small></span></div></div>
-    </aside>
-    <div className="workspace-content">
-      <header className="workspace-topbar">
-        <a className="workspace-wordmark" href="#workspace-main">SpatialTwin<span className="wordmark-dot" /></a>
-        <div className="workspace-breadcrumb"><span>Workspace</span><span>/</span><strong>Tabletop 01</strong></div>
-        <div className="workspace-connection" role="status"><span className={connection === 'connected' ? 'status-dot' : 'status-dot status-dot-waiting'} />{connection === 'connected' ? 'Backend connected' : connection === 'connecting' ? 'Connecting…' : 'Reconnecting…'}</div>
-        <button className="topbar-evidence" onClick={() => setDetails('evidence')}><FileJson size={15} /><span>Evidence</span></button>
-      </header>
-      <main id="workspace-main" className="workspace-main" tabIndex={-1}>
-        <div className="workspace-heading">
-          <div><h1>Spatial control room<span className="title-period">.</span></h1><p className="workspace-subtitle">Observe a change. Review its impact. Confirm the result.</p></div>
-          <div className="workspace-heading-actions"><button className="button-secondary" onClick={() => void mutate(undefined, true)} disabled={!canChange} aria-describedby="clear-blockages-note" title="Clear model blockages. P3 position stays unchanged."><RotateCcw size={14} /><span>{isMutating ? 'Updating…' : 'Clear blockages'}</span></button><button ref={presenterTriggerRef} className={`button-presenter${presenting ? ' is-active' : ''}`} onClick={() => setPresenting(!presenting)} aria-pressed={presenting}><Expand size={15} /><span>{presenting ? 'Exit presenter' : 'Present'}</span></button></div>
-        </div>
-        <div className="workspace-scope"><span><Box size={13} />Illustrative tabletop · synthetic population</span><span id="clear-blockages-note">Clear blockages preserves P3’s reported position.</span></div>
-        {loadError && <div className="workspace-alert" role="alert"><Radio size={17} /><span>{loadError}</span><button onClick={() => void refresh()}>Reconnect<RotateCcw size={13} /></button></div>}
-        {mutationError && <div className="workspace-alert" role="alert"><span>{mutationError}</span><button onClick={() => setMutationError(null)} aria-label="Dismiss error"><X size={16} /></button></div>}
-        <section className="workspace-metrics" aria-label="Current modeled result" aria-busy={Boolean(snapshot && !planCurrent)}>
-          <div className="metric-primary"><div className="metric-label"><span>Modeled crossings</span><span className={`result-tag${planCurrent ? ' is-valid' : ''}`}>{planCurrent ? <Check size={12} /> : <Activity size={12} />}{planCurrent ? 'Checked' : snapshot ? 'Pending' : 'Connecting'}</span></div><div className="metric-value">{planCurrent ? plan?.completed_crossings : '—'}<span>/ {plan?.initial_population ?? '—'}</span><small>in {plan?.horizon_seconds ?? '—'}s</small></div></div>
-          <div><div className="metric-label">Remaining population</div><div className="metric-value">{planCurrent ? plan?.remaining_population : '—'}<small>synthetic occupants</small></div><span className="metric-caption">{planCurrent ? 'Every occupant accounted for' : 'Awaiting a current checked result'}</span></div>
-          <div><div className="metric-label">Scenario</div><div className={`metric-state${blocked.length ? ' has-blockage' : ''}`}><span className={`status-dot${blocked.length ? ' status-dot-warning' : ''}`} />{!snapshot ? 'Awaiting scenario' : blocked.length ? `${blocked.length} ${blocked.length === 1 ? 'target' : 'targets'} blocked` : 'Baseline layout'}</div><button className="metric-link" onClick={event => { reviewTriggerRef.current = event.currentTarget; if (isEditing) closeEditor(); else { setIsEditing(true); if (!selectedTarget) setSelectedTarget('portal:P2'); } }} disabled={!snapshot}>{isEditing ? 'Close editor' : 'Edit scenario'}<ArrowRight size={12} /></button></div>
-          <div><div className="metric-label">Hardware</div><div className="metric-state"><Cpu size={16} />{health?.hardware_mode === 'simulator' ? 'Simulator' : health?.hardware_mode === 'physical_serial' ? 'Serial bridge' : 'Not connected'}</div><button className="metric-link" onClick={() => setDetails('devices')}>P3 · {snapshot?.physical_gate_state.toLowerCase() ?? 'unknown'}<ArrowRight size={12} /></button></div>
-        </section>
-        <nav className="workflow-guide" aria-label="Workflow">
-          <button onClick={() => focusSection('observation-workspace')}><span>01</span><div><strong>Observe</strong><small>Choose an input</small></div><ArrowRight size={14} /></button>
-          <button onClick={() => focusSection('observation-review')}><span>02</span><div><strong>Review</strong><small>Apply a proposed change</small></div><ArrowRight size={14} /></button>
-          <button onClick={() => { setInterventionView('analysis'); focusSection('intervention-workspace'); }}><span>03</span><div><strong>Compare</strong><small>Check the alternatives</small></div><ArrowRight size={14} /></button>
-          <button onClick={() => { setInterventionView('device'); focusSection('intervention-workspace'); }}><span>04</span><div><strong>Confirm</strong><small>Review endpoint evidence</small></div><ArrowRight size={14} /></button>
-        </nav>
-        {isEditing && selectedTarget && <section ref={reviewRef} className="scenario-review" aria-label="Review scenario change"><div className="scenario-review-symbol"><Layers2 size={20} /></div><div className="scenario-review-copy"><h2>{targetSpec?.title}</h2><p>{targetSpec?.description} {targetBlocked ? 'Restore its availability in the model.' : 'Mark it unavailable in the model.'}</p><span>Manual scenario change · review before applying</span></div><div className="scenario-review-actions"><label>Target<select aria-label="Scenario target" value={selectedTarget} onChange={event => setSelectedTarget(event.target.value as Target)}>{targets.map(target => <option key={target.id} value={target.id}>{target.title}</option>)}</select></label><button className="button-primary" disabled={!canChange} onClick={() => void mutate(selectedTarget)}>{isMutating ? <LoaderCircle size={15} className="spin" /> : <Check size={15} />}{targetBlocked ? 'Restore target' : 'Apply blockage'}</button></div><button className="icon-button" aria-label="Cancel scenario change" onClick={closeEditor}><X size={18} /></button></section>}
-        <div className="workspace-hero">
-          <ObservationPanel key={`observation-${epochKey}`} proposal={proposal} result={grounding} currentContext={snapshot?.context} liveConfigured={health?.ai?.direct.configured ?? health?.live_api_configured ?? false} fixturesEnabled={health?.ai?.fixtures_enabled ?? false} appliedCaptureId={appliedCaptureId} isLoading={isGrounding} isApplying={isMutating} isProposalCurrent={proposalCurrent} availabilityMessage={availabilityMessage} error={groundingError} onCapture={capture} onApply={applyProposal} onClearProposal={clearProposal} isAvailable={connection === 'connected' && Boolean(snapshot)} />
-          <div ref={spatialRef} className="workspace-spatial"><SpatialViewport snapshot={displaySnapshot} selectedTarget={selectedTarget} onSelectTarget={selectTarget} onInspectPlan={() => focusSection('schedule-explorer')} forecast={hazardCurrent ? hazard?.view.events : undefined} /></div>
-        </div>
-        <div className="workspace-analysis">
-          <InvestigationPanel key={`investigation-${epochKey}`} view={interventionView} onViewChange={setInterventionView} snapshot={connectedSnapshot} investigation={investigation} progress={investigationProgress} isLoading={isInvestigating} error={investigationError} isCurrent={investigationCurrent} availabilityMessage={availabilityMessage} onInvestigate={investigate} onCancel={cancelAnalysis} isCancelling={isCancelling} cancellationRequested={cancellationRequested} onApprove={approve} onStop={stop} isApproving={isApproving} physical={needsOperatorToken(health?.hardware_mode)} hardwareMode={health?.hardware_mode === 'simulator' ? 'Simulator' : health?.hardware_mode === 'physical_serial' ? 'Serial' : ''} apiConfigured={health?.ai?.managed.configured ?? health?.live_api_configured ?? false} localEnabled={health?.ai?.fixtures_enabled ?? false} />
-          <EventConsole events={events} connected={connection === 'connected'} onClear={() => setEvents([])} />
-        </div>
-        <div className="workspace-exploration">
-          <ScheduleExplorer snapshot={displaySnapshot} isCurrent={planCurrent} />
-          <ScenarioLab snapshot={snapshot} isCurrent={connection === 'connected'} />
-        </div>
-        <div className="workspace-exploration">
-          <section className="hazard-runner" aria-label="Run a hazard forecast">
-            <h2>Forecast closures</h2>
-            <p className="hazard-runner-note">Closure times are known in advance. This is a forecast model, not reactive replanning.</p>
-            {hazardRows.map((row, index) => <div className="hazard-runner-row" key={index}>
-              <select aria-label={`Closure element ${index + 1}`} value={row.element_id} onChange={event => setHazardRows(rows => rows.map((item, at) => at === index ? { ...item, element_id: event.target.value } : item))}>{hazardElements.map(id => <option key={id} value={id}>{id}</option>)}</select>
-              <input aria-label={`Close at seconds ${index + 1}`} inputMode="numeric" value={row.close_at_s} onChange={event => setHazardRows(rows => rows.map((item, at) => at === index ? { ...item, close_at_s: event.target.value } : item))} placeholder="seconds" />
-              <button className="button-secondary" onClick={() => setHazardRows(rows => rows.filter((_, at) => at !== index))} aria-label={`Remove closure ${index + 1}`}><X size={14} /></button>
-            </div>)}
-            <div className="hazard-runner-actions">
-              <button className="button-secondary" onClick={() => setHazardRows(rows => [...rows, { element_id: 'portal:P2', close_at_s: '12' }])} disabled={hazardRows.length >= 6}>Add closure</button>
-              <button className="button-primary" onClick={() => void runHazard()} disabled={!canChange || isSimulating || cleanHazardEvents(hazardRows).length === 0}>{isSimulating ? <LoaderCircle size={15} className="spin" /> : <FlaskConical size={15} />}Run forecast</button>
-            </div>
-            {hazardError && <p className="hazard-runner-error" role="alert">{hazardError}</p>}
-          </section>
-          <HazardPanel result={hazard?.view ?? null} isCurrent={hazardCurrent} />
-        </div>
-        <div className="workspace-exploration">
-          <div className="clip-slot">
-            <ClipPicker videoEnabled={Boolean(capabilities?.video_static || capabilities?.video_agentic)} onSelect={selection => void selectClip(selection)} disabled={isGrounding || connection !== 'connected' || !snapshot} />
-            {capabilities?.video_static && capabilities?.video_agentic && <label className="clip-mode">Video mode<select aria-label="Video mode" defaultValue="static" onChange={event => { clipMode.current = event.target.value as 'static' | 'agentic'; }}><option value="static">Static frames</option><option value="agentic">Agentic</option></select></label>}
-          </div>
-          <ReviewPanel snapshot={connectedSnapshot} isCurrent={planCurrent} investigationId={investigation?.investigation_id ?? null} />
-        </div>
-        <footer className="workspace-footer"><span>Illustrative geometry. Every result has a source.</span><button onClick={() => setDetails('guide')}>Workspace guide</button><div><span>{snapshot ? `Scenario ${snapshot.context.scenario_revision} · physical ${snapshot.context.physical_revision}` : 'Awaiting context'}</span><button onClick={() => setDetails('evidence')}>Inspect evidence<ArrowRight size={13} /></button></div></footer>
-      </main>
-    </div>
-    <WorkspaceDetails view={details} onClose={() => setDetails(null)} snapshot={snapshot} health={health} grounding={grounding} capture={heldCapture} investigation={investigation} planCurrent={planCurrent} />
+    <TopBar hardware={hardwareChip(health?.hardware_mode)} checked={checkedChip(Boolean(snapshot), planCurrent)} connection={connection} presenting={presenting} presenterRef={presenterTriggerRef} onTogglePresenting={() => setPresenting(value => !value)} onStop={stop} onOpenDetails={() => openSheet()} onToggleMenu={toggleMenu} menuOpen={menuOpen} menuRef={menuTriggerRef} onResetJudge={() => void resetNow()} isResetting={reset.phase === 'running'} canReset={Boolean(snapshot) && connection === 'connected'} />
+    <PresenterMenu open={menuOpen} onClose={() => setMenuOpen(false)} triggerRef={menuTriggerRef} boardSlot={setMenuSlot} mode={mode} onModeChange={setSelectedMode} modeLocked={isInvestigating} apiConfigured={apiConfigured} localEnabled={localEnabled} physical={physical} operatorToken={operatorToken} onOperatorToken={setOperatorToken} preflight={preflight} facts={resetFacts} resetMessage={resetMessage} isResetting={reset.phase === 'running'} canReset={Boolean(snapshot) && connection === 'connected'} onReset={() => void resetNow()} onClearHazards={() => void clearHazards()} clearMessage={clearMessage} />
+    <main id="workspace-main" className="main" tabIndex={-1}>
+      <div className="alerts">
+        {loadError && <div className="alert" role="alert"><span>{loadError}</span><button type="button" onClick={() => void refresh()}>Reconnect<RotateCcw size={13} aria-hidden="true" /></button></div>}
+        {mutationError && <div className="alert" role="alert"><span>{mutationError}</span><button type="button" onClick={() => setMutationError(null)} aria-label="Dismiss error"><X size={16} aria-hidden="true" /></button></div>}
+      </div>
+      <StageChips hero={<HeroNumber hero={hero} forecast={smokeCurrent && smokeForecast ? heroForecastLine(smokeForecast.events, smokeForecast.count) : null} />} gate={gateChip(snapshot?.physical_gate_state, endpointReported)} provenance={provenanceChip(aiResult)} blocked={blocked} />
+      <SpatialViewport snapshot={displaySnapshot} selectedTarget={selectedTarget} onSelectTarget={onSelectTarget} forecast={smokeCurrent ? smokeForecast?.events : hazardCurrent ? hazard?.view.events : undefined} armedTool={tool} onBackgroundTap={() => showNotice(isInvestigating ? ANALYSIS_RUNNING : HAZARD_REJECT)} smoke={smoke} forecastFlow={smokeCurrent ? smokeForecast?.breakdown : null} />
+      <div className="stage-tools">
+        <HazardPalette tool={tool} onTool={chooseTool} smokeSeconds={smokeSeconds} onSmokeSeconds={setSmokeSeconds} locked={isInvestigating} notice={stageNotice} forecast={forecastUi} forecastError={smokeError} />
+        {isEditing && selectedTarget && <TargetReview reviewRef={reviewRef} targets={targets} target={selectedTarget} blocked={targetBlocked} busy={isMutating} disabled={!canChange} onChange={value => setSelectedTarget(value as Target)} onApply={() => void mutate(selectedTarget)} onClose={closeEditor} />}
+        {reset.phase !== 'idle' && <ResetChecklist facts={resetFacts} message={resetMessage} physical={physical} />}
+      </div>
+      <ObservationPanel resetKey={epochKey} physical={physical} proposal={proposal} result={grounding} currentContext={snapshot?.context} liveConfigured={health?.ai?.direct.configured ?? health?.live_api_configured ?? false} fixturesEnabled={health?.ai?.fixtures_enabled ?? false} appliedCaptureId={appliedCaptureId} isLoading={isGrounding} isApplying={isMutating} isProposalCurrent={proposalCurrent} availabilityMessage={availabilityMessage} error={groundingError} onCapture={capture} onApply={applyProposal} onClearProposal={clearProposal} isAvailable={connection === 'connected' && Boolean(snapshot)} uploadSlot={uploadPanel} settingsSlot={menuSlot} locked={isInvestigating} onLockedTap={() => showNotice(ANALYSIS_RUNNING)} readSeconds={readSeconds} onCameraLive={setCameraLive} onBoardView={setBoardView} />
+      <div className="stage-decision">
+        <WhyStrip snapshot={snapshot} isCurrent={connection === 'connected' && planCurrent} closeKey={`${epochKey}:${snapshot?.physical_gate_state}`} />
+        <DecisionBar key={`investigation-${epochKey}`} snapshot={connectedSnapshot} investigation={investigation} isLoading={isInvestigating} error={investigationError} isCurrent={investigationCurrent} availabilityMessage={availabilityMessage} onInvestigate={investigate} onCancel={cancelAnalysis} isCancelling={isCancelling} cancellationRequested={cancellationRequested} onApprove={approve} isApproving={isApproving} physical={physical} tokenHeld={operatorToken.trim().length > 0} apiConfigured={apiConfigured} localEnabled={localEnabled} mode={mode} resolvedCount={stageCount} />
+      </div>
+      <div className="panes">
+        <EventConsole events={events} connected={connection === 'connected'} onClear={() => setEvents([])} />
+        <AgentPane investigation={investigation} progress={investigationProgress} isLoading={isInvestigating} mode={mode} />
+      </div>
+    </main>
+    <DetailsSheet open={sheetOpen} tab={sheetTab} onTab={setSheetTab} onClose={() => setSheetOpen(false)} panels={{
+      forecast: <><HazardRunner rows={hazardRows} onRows={setHazardRows} onRun={() => void runHazard()} canRun={canChange && cleanHazardEvents(hazardRows).length > 0} isSimulating={isSimulating} error={hazardError} /><HazardPanel result={hazard?.view ?? null} isCurrent={hazardCurrent} /></>,
+      scenarios: <ScenarioLab snapshot={snapshot} isCurrent={connection === 'connected'} />,
+      schedule: <ScheduleExplorer snapshot={displaySnapshot} isCurrent={planCurrent} />,
+      review: <ReviewPanel snapshot={connectedSnapshot} isCurrent={planCurrent} investigationId={investigation?.investigation_id ?? null} />,
+      evidence: <EvidenceDetails snapshot={snapshot} health={health} grounding={grounding} capture={heldCapture} captureOrigin={captureOrigin} investigation={investigation} planCurrent={planCurrent} />,
+      upload: uploadPanel,
+    }} />
   </div>;
 }

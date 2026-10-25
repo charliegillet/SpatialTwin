@@ -1,277 +1,60 @@
-/* The canvas is the only surface with a drawing grid. */
-.spatial-panel { --spatial-border:var(--line,#30383a); --spatial-muted:#a1ada7; --spatial-text:var(--text,#f1f3ef); --spatial-accent:var(--accent,#d3ed9c); display:flex; flex-direction:column; min-width:0; width:100%; min-height:590px; height:100%; overflow:hidden; color:var(--spatial-text); background:#111718; border:1px solid var(--spatial-border); border-radius:10px; }
-.spatial-panel button { font:inherit; cursor:pointer; touch-action:manipulation; }
-.spatial-panel button:focus-visible,.spatial-model-target:focus-visible { outline:2px solid var(--spatial-accent); outline-offset:4px; }
-.spatial-panel-header { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 20px; border-bottom:1px solid var(--spatial-border); }
-.spatial-panel-heading { display:flex; align-items:center; gap:9px; min-width:0; color:var(--spatial-muted); font-size:.75rem; }
-.spatial-panel-heading h2 { margin:0; font-size:.9375rem; font-weight:500; color:var(--spatial-text); }
-.spatial-panel-slash,.spatial-panel-heading > span { display:none; }
-.spatial-view-switch { display:inline-flex; gap:3px; border:1px solid #3a4441; padding:3px; border-radius:6px; }
-.spatial-view-switch button { display:flex; align-items:center; justify-content:center; gap:6px; min-height:36px; padding:5px 9px; border:0; border-radius:4px; background:transparent; color:#abb9ae; font-size:.75rem; }
-.spatial-view-switch button:hover { color:var(--spatial-text); background:#252f29; }
-.spatial-view-switch button.is-active { background:#303c30; color:#e1ecd7; }
-.spatial-canvas { position:relative; flex:1; min-height:420px; overflow:hidden; background:#111718; }
-.spatial-canvas::before { content:''; position:absolute; inset:0; pointer-events:none; opacity:.23; background-image:linear-gradient(#46614e25 1px,transparent 1px),linear-gradient(90deg,#46614e25 1px,transparent 1px); background-size:32px 32px; }
-.spatial-scene-caption { position:absolute; top:20px; left:20px; z-index:1; pointer-events:none; }
-.spatial-scene-caption > div { color:#e0e9da; font-size:.875rem; }
-.spatial-scene-caption > span { display:block; color:#a1b19f; font-size:.6875rem; margin-top:5px; }
-.spatial-result-indicator { position:absolute; z-index:1; right:20px; top:21px; display:flex; align-items:center; gap:6px; color:#cbb996; font-size:.6875rem; }
-.spatial-result-indicator > span { display:block; width:5px; height:5px; border-radius:50%; background:currentColor; }
-.spatial-result-indicator.is-checked { color:#c5df9c; }
-.spatial-model-svg { position:absolute; top:15px; left:0; width:100%; height:calc(100% - 30px); display:block; overflow:visible; }
-.spatial-model-camera { transform-origin:0 0; transition:transform .2s ease-out; }
-.spatial-floor-grid path {
-  fill: none;
-  stroke: #778b72;
-  stroke-opacity: .12;
-  stroke-width: .6;
-}
+.stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: radial-gradient(ellipse at 50% 58%, #141b1b 0%, transparent 68%); }
+.stage-svg { position: absolute; inset: 0; display: block; width: 100%; height: 100%; overflow: visible; cursor: grab; touch-action: pan-x pan-y pinch-zoom; }
+.stage-svg.is-dragging { cursor: grabbing; }
+.stage-svg.is-touch-armed { touch-action: none; }
+.stage-svg:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.spatial-model-camera { transform-origin: 0 0; transition: transform .2s ease-out; }
+.stage-svg.is-dragging .spatial-model-camera { transition: none; }
+.spatial-floor-grid path { fill: none; stroke: #778b72; stroke-opacity: .12; stroke-width: .6; }
+.spatial-architectural-insets { fill: none; stroke: #7c9282; stroke-opacity: .15; stroke-width: .6; }
+.spatial-wall { stroke-linejoin: round; }
+.spatial-route-bed { stroke: #a5cb7420; stroke-width: 14; fill: none; stroke-linejoin: round; }
+.spatial-route-line { stroke: #5f766333; stroke-width: 2; fill: none; stroke-linejoin: round; }
+.spatial-route--active .spatial-route-bed { stroke: #a5cb7417; }
+.spatial-route--active .spatial-route-line { stroke: #bcf582; stroke-width: 2.6; }
+.spatial-reserve-path { stroke: #7a8c7d5c; stroke-width: 1.4; stroke-dasharray: 4 5; fill: none; stroke-linejoin: round; }
+.spatial-reserve-path.is-confirmed { stroke: #98bb82; }
+.spatial-room-label { pointer-events: none; }
+.spatial-room-label text { fill: #dce6d6; font-size: 18px; font-weight: 500; letter-spacing: -.1px; }
+.spatial-room-label--small text { font-size: 13px; fill: #a1b79f; }
+.spatial-target-hitbox { fill: transparent; stroke: transparent; stroke-width: 10; }
+.spatial-target-outline { fill: #a4c98d0d; stroke: #8caa734f; stroke-width: .8; stroke-dasharray: 3 3; transition: fill .18s, stroke .18s; }
+.spatial-model-target { cursor: pointer; outline: 0; }
+.spatial-target-stem { stroke: #73846c; stroke-width: .7; }
+.spatial-target-badge { fill: #17291e; stroke: #7c9d69; stroke-width: .8; transition: fill .18s, stroke .18s; }
+.spatial-model-target text { fill: #d6eac6; font: 500 15px var(--mono); }
+.spatial-target-dot { fill: #a9cf84; }
+.spatial-model-target:hover .spatial-target-badge, .spatial-model-target:focus-visible .spatial-target-badge, .spatial-model-target.is-selected .spatial-target-badge { fill: #2c4326; stroke: #d3ffa3; stroke-width: 1.4; }
+.spatial-model-target:hover .spatial-target-outline, .spatial-model-target:focus-visible .spatial-target-outline, .spatial-model-target.is-selected .spatial-target-outline { stroke: #bcf582; fill: #bcf58221; stroke-width: 1.2; }
+.spatial-model-target:focus-visible .spatial-target-badge { stroke-width: 2.4; }
+.spatial-model-target.is-blocked .spatial-target-badge { fill: #3f2925; stroke: #d18e7b; }
+.spatial-model-target.is-blocked text { fill: #fac3b0; }
+.spatial-model-target.is-blocked .spatial-target-dot { fill: var(--hazard-core); }
+.spatial-model-target.is-blocked .spatial-target-outline { stroke: #ec9a84; fill: #f68c7c13; }
+.spatial-model-target.is-blocked.is-selected .spatial-target-badge { stroke: #bcf582; stroke-width: 1.6; }
+.spatial-closure polygon { fill: #e89c7e33; stroke: #f0a38c; stroke-width: 1; }
+.spatial-closure path { stroke: #f5bc9d; stroke-width: 2.3; fill: none; }
+.spatial-gate-label text { font: 12px var(--mono); fill: #b1beb1; letter-spacing: .35px; }
+.spatial-gate-label circle { fill: #89968b; }
+.spatial-gate-label.is-confirmed text, .spatial-gate-label.is-confirmed circle { fill: #bcf582; }
+.spatial-boundary-label { font: 500 14px var(--mono); letter-spacing: .8px; fill: #9db0a2; }
+.spatial-forecast-outline { fill: none; stroke: #d3ed9c; stroke-width: 1.4; stroke-dasharray: 5 4; pointer-events: none; }
+.spatial-forecast-chip { pointer-events: none; }
+.spatial-forecast-chip rect { fill: #151a1b; stroke: #d3ed9c; stroke-width: .8; stroke-dasharray: 3 2; }
+.spatial-forecast-chip text { fill: #d3ed9c; font: 600 11px var(--mono); }
 
-.spatial-architectural-insets {
-  fill: none;
-  stroke: #7c9282;
-  stroke-opacity: .15;
-  stroke-width: .6;
-}
+/* Signature: a static hazard plume and the physical token on each blocked target; lime chevrons leave through each exit. */
+.plume-core { stop-color: var(--hazard-core); }
+.stage-plume-glow { fill: var(--hazard-glow); filter: blur(6px); }
+.stage-plume-core { fill: #ffb49a; opacity: .85; }
+.stage-exit-arrow polygon { fill: var(--accent); stroke: #0c0f10; stroke-width: 2; stroke-linejoin: round; }
+.stage-exit-blocked path { fill: none; stroke: var(--hazard-core); stroke-width: 5; stroke-linecap: round; opacity: .55; }
 
-.spatial-wall {
-  stroke-linejoin: round;
-}
-
-.spatial-route-bed {
-  stroke: #a5cb7420;
-  stroke-width: 14;
-  fill: none;
-  stroke-linejoin: round;
-}
-
-.spatial-route-line {
-  stroke: #5f766333;
-  stroke-width: 2;
-  fill: none;
-  stroke-linejoin: round;
-}
-
-.spatial-route--active .spatial-route-bed {
-  stroke: #a5cb7417;
-}
-
-.spatial-route--active .spatial-route-line {
-  stroke: #bcf582;
-  stroke-width: 2.2;
-}
-
-.spatial-reserve-path {
-  stroke: #7a8c7d5c;
-  stroke-width: 1.4;
-  stroke-dasharray: 4 5;
-  fill: none;
-  stroke-linejoin: round;
-}
-
-.spatial-reserve-path.is-confirmed {
-  stroke: #98bb82;
-}
-
-.spatial-room-label {
-  pointer-events: none;
-}
-
-.spatial-room-label text {
-  fill: #dce6d6;
-  font-size: 18px;
-  font-weight: 500;
-  letter-spacing: -.1px;
-}
-
-.spatial-room-label .spatial-room-subtitle {
-  fill: #b0c3a7;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 11px;
-  font-weight: 400;
-  letter-spacing: 1px;
-}
-
-.spatial-room-label--small text {
-  font-size: 12px;
-  fill: #a1b79f;
-}
-
-.spatial-target-hitbox {
-  fill: transparent;
-  stroke: transparent;
-  stroke-width: 10;
-}
-
-.spatial-target-outline {
-  fill: #a4c98d0d;
-  stroke: #8caa734f;
-  stroke-width: .8;
-  stroke-dasharray: 3 3;
-  transition: fill .18s, stroke .18s;
-}
-
-.spatial-model-target {
-  cursor: pointer;
-  outline: 0;
-}
-
-.spatial-target-stem {
-  stroke: #73846c;
-  stroke-width: .7;
-}
-
-.spatial-target-badge {
-  fill: #17291e;
-  stroke: #7c9d69;
-  stroke-width: .8;
-  transition: fill .18s, stroke .18s;
-}
-
-.spatial-model-target text {
-  fill: #d6eac6;
-  font-size: 15px;
-  font-weight: 500;
-  font-family: 'IBM Plex Mono', monospace;
-}
-
-.spatial-target-dot {
-  fill: #a9cf84;
-}
-
-.spatial-model-target:hover .spatial-target-badge, .spatial-model-target:focus-visible .spatial-target-badge, .spatial-model-target.is-selected .spatial-target-badge {
-  fill: #2c4326;
-  stroke: #d3ffa3;
-  stroke-width: 1.4;
-}
-
-.spatial-model-target:hover .spatial-target-outline, .spatial-model-target:focus-visible .spatial-target-outline, .spatial-model-target.is-selected .spatial-target-outline {
-  stroke: #bcf582;
-  fill: #bcf58221;
-  stroke-width: 1.2;
-}
-
-.spatial-model-target.is-blocked .spatial-target-badge {
-  fill: #3f2925;
-  stroke: #d18e7b;
-}
-
-.spatial-model-target.is-blocked text {
-  fill: #fac3b0;
-}
-
-.spatial-model-target.is-blocked .spatial-target-dot {
-  fill: #f68c7c;
-}
-
-.spatial-model-target.is-blocked .spatial-target-outline {
-  stroke: #ec9a84;
-  fill: #f68c7c13;
-}
-
-.spatial-model-target.is-blocked.is-selected .spatial-target-badge {
-  stroke: #bcf582;
-  stroke-width: 1.6;
-}
-
-.spatial-blocked-mark {
-  fill: #f68c7c;
-  stroke: #1d2825;
-  stroke-width: 2;
-}
-
-.spatial-blocked-cross {
-  stroke: #4e2720;
-  stroke-width: 1.6;
-  stroke-linecap: round;
-}
-
-.spatial-closure polygon {
-  fill: #e89c7e33;
-  stroke: #f0a38c;
-  stroke-width: 1;
-}
-
-.spatial-closure path {
-  stroke: #f5bc9d;
-  stroke-width: 2.3;
-  fill: none;
-}
-
-.spatial-gate-label text {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 11px;
-  fill: #9ba99b;
-  letter-spacing: .35px;
-}
-
-.spatial-gate-label circle {
-  fill: #89968b;
-}
-
-.spatial-gate-label.is-confirmed text, .spatial-gate-label.is-confirmed circle {
-  fill: #bcf582;
-}
-
-.spatial-boundary-label text {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 11px;
-  letter-spacing: .8px;
-  fill: #778a7e;
-}
-
-
-.spatial-zoom-controls { position:absolute; z-index:2; top:65px; right:16px; display:flex; flex-direction:column; align-items:center; padding:4px; border:1px solid #3c4b40; border-radius:6px; background:#1a241c; }
-.spatial-zoom-controls button { display:grid; place-items:center; width:36px; min-height:36px; padding:4px; border:0; border-radius:4px; color:#c7d5bd; background:transparent; }
-.spatial-zoom-controls button:hover { background:#34432e; }
-.spatial-zoom-controls button:disabled { opacity:.4; cursor:default; }
-.spatial-zoom-controls > span { font:.6875rem var(--mono); color:#b3c4a8; padding:3px 0; font-variant-numeric:tabular-nums; }
-.spatial-zoom-controls > i { width:20px; height:1px; background:#45543c; margin:3px 0; }
-.spatial-view-legend { position:absolute; bottom:18px; left:20px; display:flex; gap:12px; flex-wrap:wrap; max-width:calc(100% - 100px); pointer-events:none; }
-.spatial-view-legend > span { display:flex; align-items:center; gap:6px; font-size:.6875rem; color:#a8bba5; }
-.spatial-view-legend i { width:12px; height:2px; background:var(--spatial-accent); }
-.spatial-view-legend .spatial-legend-wall { width:6px; height:6px; background:#e5eade; border-radius:1px; }
-.spatial-view-legend .spatial-legend-blocked { width:6px; height:6px; background:#efa28c; border-radius:50%; }
-.spatial-axis { position:absolute; right:17px; bottom:16px; pointer-events:none; }
-.spatial-axis svg { width:43px; height:33px; overflow:visible; }
-.spatial-axis path { fill:none; stroke:#8a9d88; stroke-width:1; }
-.spatial-axis text { font:9px var(--mono); fill:#b4c6aa; }
-.spatial-axis > span { display:none; }
-.spatial-selection-bar { padding:17px 20px; border-top:1px solid var(--spatial-border); background:#18201c; }
-.spatial-selection-hint { display:flex; align-items:center; gap:8px; color:#ceddc4; font-size:.8125rem; margin-bottom:13px; }
-.spatial-selection-hint > span { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
-.spatial-selection-hint small { font-size:.6875rem; color:#a1b59a; }
-.spatial-target-buttons { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
-.spatial-target-buttons button { display:flex; align-items:center; justify-content:flex-start; flex-wrap:wrap; gap:6px; min-height:40px; padding:9px 10px; border:1px solid #485741; border-radius:5px; color:#b6c7ad; background:#1f2a21; text-align:left; }
-.spatial-target-buttons button > span:first-child { font:.75rem var(--mono); color:#deebd2; }
-.spatial-target-buttons button > span:nth-child(2) { font-size:.6875rem; }
-.spatial-target-buttons button > svg { margin-left:auto; color:#adc391; }
-.spatial-target-buttons button:hover,.spatial-target-buttons button.is-selected { border-color:#c0d995; background:#34432a; color:#e2efcd; }
-.spatial-target-buttons button.is-selected > span:first-child { color:var(--spatial-accent); }
-.spatial-target-buttons button.is-blocked { border-color:#80614e; background:#31261e; }
-.spatial-target-buttons button.is-blocked > span:first-child { color:#f5bea2; }
-.spatial-panel-footer { display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px 18px; padding:13px 20px; font-size:.6875rem; color:#a5b79b; border-top:1px solid #303c31; }
-.spatial-panel-footer button { min-height:36px; border:0; background:transparent; color:#cee0bc; display:flex; align-items:center; gap:6px; }
-@media(max-width:1080px) { .spatial-panel-header { flex-wrap:wrap; gap:12px; } .spatial-scene-caption { top:17px; left:16px; } .spatial-result-indicator { top:68px; left:16px; right:auto; } .spatial-target-buttons button > span:nth-child(2) { display:none; } .spatial-selection-bar { padding:16px; } .spatial-target-buttons button { justify-content:center; } .spatial-target-buttons button > svg { margin-left:0; } }
-@media(max-width:860px) { .spatial-panel { min-height:560px; } .spatial-panel-header { flex-wrap:nowrap; } .spatial-canvas { min-height:390px; } .spatial-result-indicator { top:21px; right:20px; left:auto; } .spatial-target-buttons button > span:nth-child(2) { display:block; } }
-@media(max-width:600px) { .spatial-panel-header { padding:14px 16px; gap:10px; flex-wrap:wrap; } .spatial-panel-heading h2 { font-size:.875rem; } .spatial-panel { min-height:570px; } .spatial-view-switch button { min-height:36px; padding:5px 8px; } .spatial-canvas { min-height:360px; } .spatial-result-indicator { top:65px; left:16px; right:auto; } .spatial-zoom-controls button { width:36px; min-height:36px; } .spatial-view-legend { gap:8px; left:16px; bottom:14px; max-width:calc(100% - 70px); } .spatial-target-buttons button { min-height:44px; } .spatial-target-buttons button > span:nth-child(2) { display:none; } .spatial-panel-footer { padding:12px 16px; } .spatial-selection-hint > span { gap:4px 10px; } }
-@media(prefers-reduced-motion:reduce) { .spatial-model-camera { transition:none; } }
-
-.spatial-model-svg { cursor:grab; touch-action:pan-x pan-y pinch-zoom; }
-.spatial-model-svg.is-dragging { cursor:grabbing; }
-.spatial-model-svg.is-dragging .spatial-model-camera { transition:none; }
-.spatial-model-svg:focus-visible { outline:2px solid var(--spatial-accent); outline-offset:-2px; }
-.spatial-forecast-outline { fill:none; stroke:#d3ed9c; stroke-width:1.4; stroke-dasharray:5 4; pointer-events:none; }
-.spatial-forecast-chip { pointer-events:none; }
-.spatial-forecast-chip rect { fill:#151a1b; stroke:#d3ed9c; stroke-width:.8; stroke-dasharray:3 2; }
-.spatial-forecast-chip text { fill:#d3ed9c; font:600 11px var(--mono); }
-.spatial-view-legend .spatial-legend-forecast { width:10px; height:6px; background:transparent; border:1px dashed #d3ed9c; border-radius:1px; }
-
-/* One-finger pan only after the model has been tapped, so the page still scrolls past it. */
-.spatial-model-svg.is-touch-armed { touch-action:none; }
-.spatial-scene-caption > .spatial-touch-hint { display:none; }
-@media (pointer:coarse) {
-  .spatial-scene-caption > .spatial-touch-hint { display:block; }
-  .spatial-view-switch button, .spatial-zoom-controls button, .spatial-panel-footer button, .spatial-target-buttons button { min-height:44px; }
-  .spatial-zoom-controls button { width:44px; }
-}
+.stage-zoom { position: absolute; z-index: 2; left: 16px; bottom: 16px; display: flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 8px; background: #151a1bd9; }
+.stage-zoom button { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 6px; color: var(--text); background: transparent; touch-action: manipulation; }
+.stage-zoom button:hover:not(:disabled) { background: var(--surface-raised); }
+.stage-zoom > span { min-width: 40px; text-align: center; font: .6875rem var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+@media (pointer: coarse) { .stage-zoom button { width: 44px; height: 44px; } }
+/* Phones: the whole plan fits at 100%, so only reset remains (page pinch-zoom still works). */
+@media (max-width: 699px) { .stage-zoom { left: auto; right: 6px; top: auto; bottom: 6px; padding: 0; border: 0; background: transparent; } .stage-zoom > span, .stage-zoom > i, .stage-zoom button:not(:last-of-type) { display: none; } .stage-zoom button { background: #151a1bd9; border: 1px solid var(--line); } }
+@media (prefers-reduced-motion: reduce) { .spatial-model-camera { transition: none; } }

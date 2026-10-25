@@ -22,12 +22,12 @@ test('approve 502 says nothing was recorded and can be retried', () => {
   const message = operatorErrorMessage('approve', 502, 'device_not_acknowledged:timeout');
   assert.match(message, /did not acknowledge/);
   assert.match(message, /timeout/);
-  assert.match(message, /Nothing was recorded; you can retry/);
+  assert.match(message, /Nothing recorded; retry/);
 });
 
 test('stop 502 does not claim the outputs stopped', () => {
   const message = operatorErrorMessage('stop', 502, 'stop_not_acknowledged:serial_closed');
-  assert.match(message, /still active/);
+  assert.match(message, /still be active/);
   assert.match(message, /serial closed/);
   assert.doesNotMatch(message, /retry\b.*recorded/);
 });
@@ -39,10 +39,11 @@ test('unsafe reason text is dropped', () => {
 
 test('409 and 429 and success wording', () => {
   assert.match(operatorErrorMessage('approve', 409, ''), /already recorded/);
+  for (const [action, status, detail] of [['approve', 403, 'operator_token_rejected'], ['stop', 502, 'stop_not_acknowledged:x'], ['approve', 409, ''], ['approve', 502, '']]) assert.ok(operatorErrorMessage(action, status, detail).length <= 60);
   assert.match(investigationErrorMessage(429), /Too many analyses/);
   assert.equal(investigationErrorMessage(500), '');
   assert.match(approvalSuccessMessage(true), /not arrival/);
-  assert.match(stopSuccessMessage(), /Acknowledgement is not proof/);
+  assert.match(stopSuccessMessage(), /not proof/);
 });
 
 test('workflow epoch invalidates earlier requests', () => {

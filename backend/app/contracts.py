@@ -396,6 +396,7 @@ class HazardResult(BaseModel):
     status: str
     completed_crossings: int
     remaining_population: int
+    boundary_breakdown: Dict[str, int] = Field(default_factory=dict)
     baseline_completed_crossings: Optional[int] = None
     modeled_exposure_people_seconds: Optional[float] = None
     exposure_label: str

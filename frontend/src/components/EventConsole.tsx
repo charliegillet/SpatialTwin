@@ -1,8 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowDown, Check, Pause, Play, Terminal, Trash2 } from 'lucide-react';
+import { Pause, Play, Trash2 } from 'lucide-react';
 import { getActivityView, pauseActivity, type ActivitySnapshot } from '../ai/interactions';
+import { TerminalPane } from './TerminalPane';
 export interface WorkspaceEvent { id: number; at: string; source: 'system' | 'scenario' | 'planner' | 'vision' | 'analysis' | 'device'; message: string; level: 'info' | 'success' | 'warning'; }
 interface Props { events: WorkspaceEvent[]; connected: boolean; onClear: () => void; }
+
+const FILTERS = [{ id: 'all', label: 'All' }, { id: 'model', label: 'Model' }, { id: 'ai', label: 'AI' }];
+const FOOTNOTE = 'Illustrative schematic · synthetic population · modeled crossings, not survival.';
+
 export function EventConsole({ events, connected, onClear }: Props) {
   const [filter, setFilter] = useState('all');
   const [held, setHeld] = useState<ActivitySnapshot<WorkspaceEvent> | null>(null);
@@ -18,12 +23,16 @@ export function EventConsole({ events, connected, onClear }: Props) {
       behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }));
   };
   const clear = () => { onClear(); if (paused) setHeld(pauseActivity([])); };
-  return <section className="event-console" aria-labelledby="console-title">
-    <header className="panel-header"><div><Terminal size={15} aria-hidden="true" /><h2 id="console-title">Activity stream</h2><span className="console-live"><i className={connected ? 'is-connected' : ''} />{connected ? 'Connected' : 'Reconnecting'}</span></div><div className="console-tools"><button className="icon-button" onClick={() => paused ? resume() : setHeld(pauseActivity(events))} aria-label={paused ? 'Resume activity stream' : 'Pause activity stream'} title={paused ? 'Resume activity stream' : 'Pause activity stream'}>{paused ? <Play size={13} aria-hidden="true" /> : <Pause size={13} aria-hidden="true" />}</button><button className="icon-button" onClick={clear} aria-label="Clear activity stream" title="Clear activity stream"><Trash2 size={13} aria-hidden="true" /></button></div></header>
-    <div className="console-toolbar"><div className="console-filters" role="group" aria-label="Activity filters">{['all', 'model', 'ai'].map(item => <button key={item} onClick={() => setFilter(item)} className={filter === item ? 'is-active' : ''} aria-pressed={filter === item}>{item === 'all' ? 'All events' : item === 'model' ? 'Model' : 'AI'}{item === 'all' && <span>{visibleEvents.length}</span>}</button>)}</div><span><span className="console-prompt">&gt;_</span> LOCAL SESSION</span></div>
-    <div className="console-output" ref={scrollRef} role="log" tabIndex={0} aria-label="Recorded application events" aria-live={paused ? 'off' : undefined} aria-relevant="additions"><div className="console-session-heading"><span>SPATIALTWIN / EVENT LEDGER</span><span>ACTUAL APPLICATION EVENTS</span></div>
-      {filtered.length ? filtered.map(event => <div key={event.id} className={`console-event console-event-${event.level}`}><time dateTime={event.at}>{new Date(event.at).toLocaleTimeString('en-GB', { hour12: false })}</time><span className={`console-source console-source-${event.source}`}>{event.source}</span><span className="console-message">{event.message}</span>{event.level === 'success' && <Check size={11} aria-hidden="true" />}</div>) : <div className="console-empty"><Terminal size={21} strokeWidth={1} aria-hidden="true" /><p>{paused ? 'Activity paused.' : visibleEvents.length ? 'No events match this filter.' : 'Your next action starts the story.'}</p><span>{paused ? 'New events continue buffering. Resume when you are ready.' : 'Scenario changes, model results and device events appear here.'}</span></div>}
-      {!paused && <div className="console-cursor"><span>›</span><i /></div>}
-    </div><footer className="console-footer"><span><i />{paused ? 'Paused · incoming events buffered' : 'Listening for application events'}</span><button onClick={resume}>{paused ? `${bufferedCount} new · Resume` : `${filtered.length} ${filtered.length === 1 ? 'event' : 'events'}`}<ArrowDown size={10} aria-hidden="true" /></button></footer>
-  </section>;
+  const pauseLabel = paused ? `Resume activity (${bufferedCount} new)` : 'Pause activity';
+  return <TerminalPane id="activity" title="Activity" status={<><i className={`terminal-dot${connected ? ' is-on' : ''}`} aria-hidden="true" />{connected ? 'live' : 'reconnecting'}{paused && ` · paused · ${bufferedCount} new`}</>}
+    actions={<>
+      <div className="terminal-filters" role="group" aria-label="Activity filters">{FILTERS.map(item => <button key={item.id} type="button" onClick={() => setFilter(item.id)} aria-pressed={filter === item.id}>{item.label}</button>)}</div>
+      <button type="button" className="terminal-icon" onClick={() => paused ? resume() : setHeld(pauseActivity(events))} aria-label={pauseLabel} title={pauseLabel}>{paused ? <Play size={14} aria-hidden="true" /> : <Pause size={14} aria-hidden="true" />}</button>
+      <button type="button" className="terminal-icon" onClick={clear} aria-label="Clear activity" title="Clear activity"><Trash2 size={14} aria-hidden="true" /></button>
+    </>}
+    footer={FOOTNOTE}>
+    <div className="terminal-body" ref={scrollRef} role="log" tabIndex={0} aria-label="Recorded application events" aria-live={paused ? 'off' : undefined} aria-relevant="additions">
+      {filtered.length ? filtered.map(event => <div key={event.id} className={`t-line t-${event.level}`}><time dateTime={event.at}>{new Date(event.at).toLocaleTimeString('en-GB', { hour12: false })}</time><span className="t-src">{event.source}</span><span className="t-msg">{event.message}</span></div>) : <div className="t-empty">{paused ? 'Paused.' : visibleEvents.length ? 'No events match this filter.' : 'Waiting for events.'}</div>}
+    </div>
+  </TerminalPane>;
 }

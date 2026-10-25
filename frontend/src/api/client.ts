@@ -15,7 +15,10 @@ import type {
   HazardSimulateRequest,
   HazardSimulateResponse,
   StopResponse,
+  ResetGateResponse,
 } from '../types.ts';
+import { hazardErrorMessage } from '../ai/hazardTools.ts';
+import { resetGateError } from '../ai/resetFlow.ts';
 import { investigationErrorMessage, operatorErrorMessage, type OperatorAction } from '../ai/operator.ts';
 
 const API_BASE = '';
@@ -149,5 +152,13 @@ export const getCapabilities = (signal?: AbortSignal) =>
 export const simulateHazard = (body: HazardSimulateRequest, signal?: AbortSignal) =>
   requestJson<HazardSimulateResponse>('/api/hazard/simulate', {
     method: 'POST', body, signal, timeoutMs: 30_000, fallback: 'The hazard simulation could not finish',
-    describe: (status, _text, code) => status === 422 ? `The hazard schedule was rejected (${(code || 'invalid_request').replace(/_/g, ' ')}).` : '',
+    describe: (status, _text, code) => hazardErrorMessage(status, code),
+  });
+
+/** Closes P3 for the next judge. Arrival is confirmed only by the endpoint observation, never by this response. */
+export const resetGate = (operatorToken?: string) =>
+  requestJson<ResetGateResponse>('/api/hardware/reset-gate', {
+    method: 'POST', headers: operatorHeaders(operatorToken), body: {}, timeoutMs: 20_000,
+    fallback: 'The reset request was not accepted',
+    describe: (status, detail) => resetGateError(status, detail) || (status === 403 ? operatorErrorMessage('stop', status, detail) : ''),
   });

@@ -79,7 +79,8 @@ def main(argv: list[str] | None = None) -> int:
 
     # 1. Server, configuration and frontend assets
     health = http.get("/health")
-    check.record("GET /health", health.status_code == 200 and "hardware_mode" in health.json(),
+    check.record("GET /health", health.status_code == 200 and "hardware_mode" in health.json()
+                 and isinstance(health.json().get("investigation_running"), bool),
                  f"hardware_mode={health.json().get('hardware_mode') if health.status_code == 200 else health.status_code}")
     caps = http.get("/api/ai/capabilities")
     check.record("GET /api/ai/capabilities", caps.status_code == 200 and {"video_static", "video_agentic"} <= set(caps.json()),
@@ -157,6 +158,15 @@ def main(argv: list[str] | None = None) -> int:
                  hz.get("completed_crossings") is not None and plan.get("completed_crossings") is not None
                  and hz["completed_crossings"] <= plan["completed_crossings"],
                  f"forecast={hz.get('completed_crossings')} live={plan.get('completed_crossings')}")
+    breakdown = hz.get("boundary_breakdown") or {}
+    check.record("hazard boundary_breakdown (B1/B2 sum to crossings)",
+                 set(breakdown) == {"B1", "B2"} and sum(breakdown.values()) == hz.get("completed_crossings"),
+                 json.dumps(breakdown))
+    odd = http.post("/api/hazard/simulate", json={"alternative_id": "KEEP_CURRENT",
+                                                  "events": [{"element_id": "P1", "close_at_s": 7}]})
+    check.record("hazard odd close time → invalid_close_time",
+                 odd.status_code == 422 and odd.json().get("detail", {}).get("code") == "invalid_close_time",
+                 str(odd.status_code))
     bad_hazard = http.post("/api/hazard/simulate", json={"alternative_id": "KEEP_CURRENT",
                                                          "events": [{"element_id": "ZZ", "close_at_s": 12}]})
     check.record("hazard rejects unknown element", bad_hazard.status_code == 422, str(bad_hazard.status_code))
@@ -200,6 +210,16 @@ def main(argv: list[str] | None = None) -> int:
     stop = http.post("/api/hardware/stop")
     check.record("POST hardware/stop (device ACK)", stop.status_code == 200 and stop.json().get("status") == "STOP_ACKNOWLEDGED",
                  str(stop.status_code))
+
+    # 7b. Reset for next judge: close P3 again, arrival confirmed by the endpoint report
+    if hardware_mode == "simulator":
+        reset_gate = http.post("/api/hardware/reset-gate")
+        status = reset_gate.json().get("status") if reset_gate.status_code == 200 else reset_gate.text[:80]
+        check.record("POST hardware/reset-gate", reset_gate.status_code == 200
+                     and status in ("CLOSE_ACKNOWLEDGED", "ALREADY_CLOSED"), f"{reset_gate.status_code} {status}")
+        closed = wait_for(lambda: snapshot().get("physical_gate_state") == "CLOSED", 15)
+        check.record("reset-gate arrival observed (CLOSED)", bool(closed),
+                     f"physical_gate_state={snapshot().get('physical_gate_state')}")
 
     # 8. Back to baseline
     ctx = context()
