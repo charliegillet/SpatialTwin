@@ -53,6 +53,7 @@ from backend.app.ai.real2sim.critique import (
 from backend.app.ai.real2sim.extract import (
     SOURCE_MIME_TYPES,
     THINKING_LEVELS,
+    VIDEO_MIME_TYPES,
     DraftExtractor,
     ExtractionResult,
     SourceDocument,
@@ -79,7 +80,8 @@ DEFAULT_PING_SECONDS = 15.0
 PDF_CANVAS_WIDTH_PX = 1600
 A4_LANDSCAPE_PT = (842.0, 595.0)
 IN_PROGRESS = ("extracting", "checking", "critiquing")
-SOURCE_SUFFIX = {"image/jpeg": "jpg", "image/png": "png", "application/pdf": "pdf", "video/mp4": "mp4"}
+SOURCE_SUFFIX = {"image/jpeg": "jpg", "image/png": "png", "application/pdf": "pdf", "video/mp4": "mp4",
+                 "video/webm": "webm", "video/quicktime": "mov"}
 MAX_FURNITURE_EDITS = 60
 PAPER = (255, 255, 255)
 
@@ -421,7 +423,8 @@ class Real2SimService:
         except BaseException:
             self._live_slot.release()
             raise
-        self._start(run, self._live_pipeline(run), release_slot=True)
+        pipeline = self._room_pipeline(run) if source.source_kind == "video" else self._live_pipeline(run)
+        self._start(run, pipeline, release_slot=True)
         return {"draft_id": run.draft_id, "revision": run.revision, "status": "extracting"}
 
     async def create_fixture(self, saved: SavedRun, *, name: Optional[str] = None) -> Dict[str, Any]:
@@ -460,7 +463,7 @@ class Real2SimService:
         directory = runtime_root(self._runtime_dir) / draft_id
         suffix = SOURCE_SUFFIX[source.mime_type]
         overlay_base = source.data
-        if source.mime_type in ("application/pdf", "video/mp4"):
+        if source.mime_type == "application/pdf" or source.mime_type in VIDEO_MIME_TYPES:
             canvas = Image.new("RGB", (source.image.width_px, source.image.height_px), PAPER)
             buffer = io.BytesIO()
             canvas.save(buffer, format="PNG")
@@ -492,7 +495,7 @@ class Real2SimService:
             "settings": {"thinking_level": thinking_level, "critique_rounds": self.critique_rounds,
                          "stream": self.extractor.stream},
             "overlay_available": False, "topdown_available": False, "accepted": None,
-            "furniture_edits": None,
+            "furniture_edits": None, "room": None, "counts": None,
         }
         self._pending.add(draft_id)
         try:
@@ -710,6 +713,96 @@ class Real2SimService:
         await self._render_final(run, draft, assessment)
         await self._finish(run, assessment)
 
+    def _assess_room(self, run: _Run, room: Dict[str, Any]) -> Assessment:
+        """Preview compile of a RoomLab reading (no controllable doors, no headcount) and graph checks. Never raises."""
+        from backend.app.ai.real2sim.room.contracts import RoomDraft
+        from backend.app.venues.room_compiler import compile_room
+        try:
+            result = compile_room(RoomDraft.model_validate(room), venue_id=run.preview_venue_id, name=run.venue_name)
+        except Exception:
+            result = CompileResult(None, CompileReport(), "compiler_failure")
+        if result.venue is None:
+            return Assessment(result=result, issues=[])
+        try:
+            issues = list(self._check(result.venue))
+        except Exception:
+            issues = [GraphIssue("graph_check_failure", "error", "The local graph checks could not run.")]
+        return Assessment(result=result, issues=issues)
+
+    def _contact_sheet(self, run: _Run) -> Optional[bytes]:
+        """The keyframes Argon read, as one picture (the video's evidence, where a drawing shows its overlay)."""
+        frames = run.source.frames[:12]
+        if not frames:
+            return None
+        try:
+            thumbs = []
+            for _, _, jpeg in frames:
+                with Image.open(io.BytesIO(jpeg)) as opened:
+                    thumb = opened.convert("RGB")
+                    thumb.thumbnail((320, 320))
+                    thumbs.append(thumb)
+            columns = min(4, len(thumbs))
+            rows = (len(thumbs) + columns - 1) // columns
+            cell_w, cell_h = max(t.width for t in thumbs), max(t.height for t in thumbs)
+            sheet = Image.new("RGB", (columns * cell_w + (columns + 1) * 6, rows * cell_h + (rows + 1) * 6), PAPER)
+            for index, thumb in enumerate(thumbs):
+                sheet.paste(thumb, (6 + (index % columns) * (cell_w + 6), 6 + (index // columns) * (cell_h + 6)))
+            buffer = io.BytesIO()
+            sheet.save(buffer, format="PNG")
+            return buffer.getvalue()
+        except (OSError, ValueError, UnidentifiedImageError):
+            return None
+
+    async def _room_pipeline(self, run: _Run) -> None:
+        """A video walkthrough: RoomLab's reading, the room compiler, the same graph checks. No critique round: the
+        critique corrects a drawn floor plan against its overlay, and a room reading has neither."""
+        call = await self.extractor.read_room(run.source, on_thought=self._thought_sink(run, "extract"))
+        self._receipt(run, "extract", call)
+        run.payload["timings_ms"]["extract"] = round(call.latency_ms, 1)
+        if call.status != "completed" or call.room is None:
+            await self._fail(run, call.errors[0] if call.errors else "extraction_failed")
+            return
+        run.payload["room"] = call.room
+        run.payload["repaired"] = list(call.repaired)
+        await self._persist(run, "checking", "check")
+        started = time.monotonic()
+        assessment = await asyncio.to_thread(self._assess_room, run, call.room)
+        run.payload["timings_ms"].setdefault("compile_checks", []).append(round((time.monotonic() - started) * 1000, 1))
+        venue = assessment.result.venue
+        counts = ({"rooms": len(venue.zones), "doors": len(venue.doors), "exits": len(venue.exits)} if venue is not None
+                  else {"rooms": 0, "doors": 0, "exits": 0})
+        run.payload["counts"] = counts
+        run.payload["dropped"] = list(assessment.result.report.dropped)
+        run.log.append("draft", {"phase": "extract", "draft": None, "unreadable": [], "dropped": run.payload["dropped"],
+                                 "repaired": run.payload["repaired"], "counts": counts})
+        self._record_assessment(run, assessment, "extract")
+        run.payload["critique_note"] = "no critique round: a video is read as one room and checked locally"
+        started = time.monotonic()
+
+        def render() -> tuple[Optional[bytes], Optional[bytes]]:
+            sheet = self._contact_sheet(run)
+            topdown = None
+            if venue is not None:
+                try:
+                    topdown = self._topdown(venue)
+                except Exception:
+                    topdown = None
+            for file_name, data in (("overlay.png", sheet), ("topdown.png", topdown)):
+                try:
+                    if data:
+                        (run.directory / file_name).write_bytes(data)
+                except OSError:
+                    pass
+            return sheet, topdown
+
+        sheet, topdown = await asyncio.to_thread(render)
+        run.payload["overlay_available"] = bool(sheet) and (run.directory / "overlay.png").is_file()
+        run.payload["topdown_available"] = bool(topdown) and (run.directory / "topdown.png").is_file()
+        if venue is not None and not topdown:
+            run.payload["errors"].append("topdown_unavailable")
+        run.payload["timings_ms"]["render"] = round((time.monotonic() - started) * 1000, 1)
+        await self._finish(run, assessment)
+
     async def _fixture_pipeline(self, run: _Run, saved: SavedRun) -> None:
         sink = self._thought_sink(run, "saved_run", recorded=True)
         for text in saved.meta.thoughts:
@@ -752,6 +845,13 @@ class Real2SimService:
                        "room_names": [rooms.get(key, key) for key in door["between"]], "symbol": door["symbol"],
                        "confidence": door["confidence"], "venue_door_id": element_ids.get(door["key"])}
                       for door in (draft or {}).get("doors", [])]
+        if record.get("room"):
+            # A room reading's doors exist only in its compiled venue (D1..), so those ids are the choices.
+            preview = (record.get("compile") or {}).get("venue") or {}
+            names = {zone["id"]: zone["name"] for zone in preview.get("zones", [])}
+            candidates = [{"key": door["id"], "between": list(door["zones"]),
+                           "room_names": [names.get(z, z) for z in door["zones"]], "symbol": door["kind"],
+                           "confidence": None, "venue_door_id": door["id"]} for door in preview.get("doors", [])]
         log = self._logs.get(record["draft_id"])
         # What blocks Accept on the preview compile (Accept recompiles with the operator's choices and re-checks).
         checks = record.get("checks") or {}
@@ -765,6 +865,8 @@ class Real2SimService:
         unreachable = sorted({zone_to_key[zone] for issue in checks.get("issues", []) if issue.get("code") == "room_unreachable"
                               for zone in issue.get("element_ids", []) if zone in zone_to_key})
         unreachable_rooms = [{"key": key, "name": rooms.get(key, key)} for key in unreachable]
+        if record.get("room"):
+            unreachable_rooms = []   # leaving a room out is for drawn floor plans; a video's rooms come from its walls
         return {**record, "controllable_door_candidates": candidates, "unreachable_rooms": unreachable_rooms,
                 "max_controllable_doors": MAX_CONTROLLABLE_DOORS, "accept_blockers": blockers,
                 "last_event_id": log.last_id if log is not None else None}
@@ -842,10 +944,16 @@ class Real2SimService:
                      venue_id: Optional[str] = None, make_active: bool = True,
                      left_out_rooms: Sequence[str] = ()) -> Dict[str, Any]:
         record = await asyncio.to_thread(self._record, draft_id)
-        if record["status"] != "ready" or not record.get("draft"):
+        room_json = record.get("room")
+        if record["status"] != "ready" or not (record.get("draft") or room_json):
             raise Real2SimError("draft_not_ready", 409, status=record["status"])
         if expected_revision != record["revision"]:
             raise Real2SimError("stale_draft_revision", 409, revision=record["revision"])
+        if room_json:
+            return await self._accept_room(record, room_json, expected_revision=expected_revision,
+                                           controllable_doors=controllable_doors, headcount=headcount,
+                                           building_width_m=building_width_m, venue_id=venue_id,
+                                           make_active=make_active, left_out_rooms=left_out_rooms)
         draft = VenueDraftV1.model_validate(record["draft"])
         door_keys = {door.key for door in draft.doors}
         if len(set(controllable_doors)) != len(controllable_doors):
@@ -916,6 +1024,69 @@ class Real2SimService:
             raise Real2SimError("compile_failed", 422, error=result.error)
         if errors_in(issues):
             raise Real2SimError("graph_check_errors", 422, issues=[issue.to_json() for issue in issues])
+        return await self._store_accepted(record, expected_revision, result, issues, venue_id=venue_id, name=name,
+                                          controllable_doors=controllable_doors, headcount=headcount,
+                                          building_width_m=building_width_m, make_active=make_active,
+                                          left_out=left_out)
+
+    async def _accept_room(self, record: Dict[str, Any], room_json: Dict[str, Any], *, expected_revision: int,
+                           controllable_doors: List[str], headcount: Optional[int], building_width_m: Optional[float],
+                           venue_id: Optional[str], make_active: bool, left_out_rooms: Sequence[str]) -> Dict[str, Any]:
+        """Accept for a video walkthrough: the RoomLab reading is recompiled with the operator's choices."""
+        from backend.app.ai.real2sim.room.contracts import RoomDraft
+        from backend.app.venues.compiler import with_furniture
+        from backend.app.venues.room_compiler import compile_room
+        if left_out_rooms:
+            raise Real2SimError("left_out_rooms_unsupported", 422)
+        preview = (record.get("compile") or {}).get("venue") or {}
+        door_ids = {door["id"] for door in preview.get("doors", [])}
+        if len(set(controllable_doors)) != len(controllable_doors):
+            raise Real2SimError("duplicate_controllable_door", 422)
+        if len(controllable_doors) > MAX_CONTROLLABLE_DOORS:
+            raise Real2SimError("too_many_controllable_doors", 422, max=MAX_CONTROLLABLE_DOORS)
+        unknown = sorted(key for key in controllable_doors if key not in door_ids)
+        if unknown:
+            raise Real2SimError("unknown_controllable_door", 422, keys=unknown)
+        room = RoomDraft.model_validate(room_json)
+        name = record.get("name") or (room.name if room.name != "Estimated room" else None)
+        if venue_id is None:
+            venue_id = slug_venue_id(name, f"{record['draft_id']}:{record['source']['sha256']}")
+        if not isinstance(venue_id, str) or not _VENUE_ID.match(venue_id) or venue_id == BUILTIN_VENUE_ID:
+            raise Real2SimError("invalid_venue_id", 422)
+        furniture_edits = record.get("furniture_edits")
+        preview_extent = preview.get("extent")
+
+        def compile_and_check() -> tuple[CompileResult, List[GraphIssue]]:
+            result = compile_room(room, venue_id=venue_id, controllable_doors=list(controllable_doors),
+                                  headcount=headcount, building_width_m=building_width_m, name=name)
+            if result.venue is not None and furniture_edits is not None:
+                pieces = furniture_edits
+                if preview_extent and all(preview_extent):
+                    sx = result.venue.extent[0] / preview_extent[0]
+                    sy = result.venue.extent[1] / preview_extent[1]
+                    pieces = [{**piece, "position": [piece["position"][0] * sx, piece["position"][1] * sy]}
+                              for piece in pieces]
+                result = dataclasses.replace(result, venue=with_furniture(result.venue, pieces))
+            return result, (list(self._check(result.venue)) if result.venue is not None else [])
+
+        try:
+            result, issues = await asyncio.to_thread(compile_and_check)
+        except Exception:
+            raise Real2SimError("compiler_failure", 422) from None
+        if result.venue is None:
+            raise Real2SimError("compile_failed", 422, error=result.error)
+        if errors_in(issues):
+            raise Real2SimError("graph_check_errors", 422, issues=[issue.to_json() for issue in issues])
+        return await self._store_accepted(record, expected_revision, result, issues, venue_id=venue_id, name=name,
+                                          controllable_doors=controllable_doors, headcount=headcount,
+                                          building_width_m=building_width_m, make_active=make_active, left_out=[])
+
+    async def _store_accepted(self, record: Dict[str, Any], expected_revision: int, result: CompileResult,
+                              issues: List[GraphIssue], *, venue_id: str, name: Optional[str],
+                              controllable_doors: List[str], headcount: Optional[int],
+                              building_width_m: Optional[float], make_active: bool,
+                              left_out: List[str]) -> Dict[str, Any]:
+        source = record["source"]
         venue = result.venue
         payload = {key: value for key, value in record.items()
                    if key not in ("draft_id", "revision", "status", "created_at", "updated_at")}
@@ -932,7 +1103,7 @@ class Real2SimService:
             "interaction_id_hashes": [r["interaction_id_hash"] for r in record.get("receipts", [])
                                       if r.get("interaction_id_hash")],
             "checks": {"issues": accepted["issues"], **summary(issues)},
-            "critique_rounds": record.get("rounds", []), "draft": record["draft"],
+            "critique_rounds": record.get("rounds", []), "draft": record.get("draft") or record.get("room"),
             "defaults": result.report.defaults, "controllable_doors": list(controllable_doors),
             "headcount": headcount, "building_width_m": building_width_m, "left_out_rooms": left_out,
         }

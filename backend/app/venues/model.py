@@ -97,9 +97,19 @@ class VenueFurniture(_Strict):
     color: HexColor = Field(default="", **_HEX_FIELD)
 
 
+class VenueFeature(_Strict):
+    """A railing, glass partition or window from a room reading, drawn on a wall line. Looks only."""
+    kind: Literal["railing", "glass", "window"]
+    a: Point2
+    b: Point2
+    height: float = Field(gt=0, le=6)
+    sill: float = Field(default=0, ge=0, le=4)
+
+
 class VenueAppearance(_Strict):
     zones: Dict[str, ZoneLook] = Field(default_factory=dict)
     furniture: List[VenueFurniture] = Field(default_factory=list, max_length=60)
+    features: List[VenueFeature] = Field(default_factory=list, max_length=100)
 
 
 class VenueV2(_Strict):

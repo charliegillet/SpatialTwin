@@ -72,3 +72,26 @@ This adds a fourth source, **Video**. Someone films a walkthrough of a space on 
 - Exact API shape for the upload and for saving furniture edits (a new revision of the draft, using the existing revision/conflict pattern, is the natural fit).
 - Editor UI details inside the existing panel style: drag in the 3D view or number fields. The video branch does both.
 - Test strategy. Fixtures for tests are fine as long as they are labelled as fixtures and never shown as live results.
+
+## Update: RoomLab's reading (same prompt, schema, inputs)
+
+At the user's request the video path now reads a walkthrough exactly as the RoomLab branch does, then converts the
+room into a planable venue:
+
+- **Reading** (`backend/app/ai/real2sim/room/`, ported unchanged from `charlie-video`): RoomLab's system prompt, provider
+  schema and `normalize_provider_payload`; input = RoomLab's prompt naming every keyframe, the clip inline when it is at
+  most 20 MB (otherwise a small re-encoded copy, where RoomLab sent frames only), and up to 48 timestamped keyframes
+  (RoomLab's schedule, at most 960 px); thinking low, 8192 output tokens. The call still streams so any thought
+  summaries show, and the receipt, model check and error codes are the real2sim ones.
+- **Conversion** (`backend/app/venues/room_compiler.py`): turn the room so its main walls lie on the axes; cluster and
+  round coordinates to 0.1 m; floor minus voids; split along every interior wall (partition, railing) that crosses it;
+  cut through a void inside a room and join the halves with a wide open passage (it is open floor); trace any slanted
+  room on a 0.1 m grid. Doors and passages on an interior wall between two rooms become doors (one per room pair, the
+  widest); on the outer shell, exits. Windows, glass partitions and railings are kept as looks
+  (`appearance.features`). People, rates and the horizon use the floor-plan compiler's declared defaults.
+- **Review**: the keyframes are the evidence picture (where a drawing shows its overlay); there is no critique round
+  (it corrects a drawn plan against its overlay); the controllable-door choices are the compiled doors (D1..); rooms
+  cannot be left out (that is for drawn plans).
+- **Live check** (the lobby walkthrough): 54 s, 31,708 tokens; RoomLab's reading (mezzanine landing + glass-fronted
+  lobby, atrium void, glass partition with door and panels, railings, 9 objects) compiled to 2 rooms, 1 door and
+  3 exits with no check errors; a fire in the lobby re-planned through the landing.

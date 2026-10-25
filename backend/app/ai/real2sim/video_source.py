@@ -1,12 +1,13 @@
-"""Video walkthrough sources for Real2Sim: container check, measured duration, and a compact copy for Argon.
+"""Video walkthrough sources for Real2Sim: container check, measured duration, keyframes, and the clip Argon reads.
 
-A phone walkthrough (MP4, WebM or MOV, at most 120 s and 256 MB) is decoded with ffmpeg: the duration is measured from
-the stream, never taken from the browser, and the clip is re-encoded once to a small silent H.264 MP4 (at most 640 px
-wide, a few frames per second) so it fits in one inline request part. Argon samples video at about one frame per second,
-so the lower frame rate loses nothing it would read.
+A phone walkthrough (MP4, WebM or MOV, at most 120 s and 256 MB) is prepared the way the RoomLab branch prepares it
+(``roomlab/media.py``): ffmpeg measures the duration from the stream (never the browser's figure) and extracts up to 48
+timestamped keyframes (at most 960 px, JPEG). The clip itself goes inline when it is at most 20 MB; RoomLab then left the
+clip out, while here a small silent H.264 copy (at most 640 px, a few frames per second) is sent instead, so Argon
+still sees the motion between keyframes.
 
-Coordinates of a video draft refer to a square top-down plan canvas (``PLAN_CANVAS_PX``), not to any frame: Argon lays
-the space out as a plan. The overlay is therefore drawn on a blank canvas, as for a PDF.
+A video is read as one room in metres (``extract.DraftExtractor.read_room``), not on an image grid; ``PLAN_CANVAS_PX`` is
+only the frame size recorded for the draft's evidence pictures.
 """
 from __future__ import annotations
 
@@ -25,7 +26,10 @@ from backend.app.ai.real2sim.schema import SourceImage
 MAX_VIDEO_BYTES = 256 * 1024 * 1024
 MAX_DURATION_S = 120.0
 MIN_DURATION_S = 1.0
-MAX_INLINE_BYTES = 18 * 1024 * 1024          # one inline part; the request limit is about 20 MB
+MAX_INLINE_BYTES = 18 * 1024 * 1024          # the compact copy, when the original is over RoomLab's 20 MB inline limit
+MAX_ORIGINAL_INLINE_BYTES = 20 * 1024 * 1024
+MAX_FRAMES = 48                              # RoomLab's keyframe budget and timestamp schedule
+TARGET_FRAME_PX = 960
 PLAN_CANVAS_PX = 1000
 VIDEO_MIME = "video/mp4"
 # Encoder passes, smallest last: (max width px, frames per second, x264 CRF).
@@ -95,6 +99,35 @@ def compact_copy(exe: str, path: Path, workdir: Path) -> Tuple[bytes, str]:
     raise Real2SimError("video_too_large_to_read", 413)
 
 
+def select_timestamps(duration_s: float, max_frames: int = MAX_FRAMES) -> List[float]:
+    """RoomLab's keyframe schedule: about 1.25 per second for short clips, 0.6 per second (at least 16) after 16 s."""
+    if duration_s <= 0.4:
+        return [0.0]
+    if duration_s <= 16.0:
+        count = min(max_frames, max(2, int(round(duration_s * 1.25)) + 1))
+    else:
+        count = min(max_frames, max(16, int(round(duration_s * 0.6)) + 1))
+    span = max(0.0, duration_s - 0.08)
+    if count == 1 or span <= 0:
+        return [0.0]
+    step = span / (count - 1)
+    return [round(i * step, 3) for i in range(count)]
+
+
+def keyframes(exe: str, path: Path, duration_s: float, workdir: Path) -> List[Tuple[str, float, bytes]]:
+    frames: List[Tuple[str, float, bytes]] = []
+    for timestamp in select_timestamps(duration_s):
+        out = workdir / f"frame-{len(frames) + 1:03d}.jpg"
+        done = _run([exe, "-hide_banner", "-nostdin", "-loglevel", "error", "-ss", f"{timestamp:.3f}", "-i", str(path),
+                     "-frames:v", "1", "-vf", f"scale='min({TARGET_FRAME_PX},iw)':'min({TARGET_FRAME_PX},ih)':"
+                     "force_original_aspect_ratio=decrease", "-q:v", "3", "-y", str(out)])
+        if done.returncode == 0 and out.is_file() and out.stat().st_size > 0:
+            frames.append((f"frame-{len(frames) + 1:03d}", timestamp, out.read_bytes()))
+    if not frames:
+        raise Real2SimError("invalid_source_video", 422)
+    return frames
+
+
 def prepare_video(path: Path, *, original_bytes: Optional[int] = None) -> Tuple[SourceDocument, List[str]]:
     """Validate an uploaded video file and return the source Argon reads plus plain-language notes."""
     with path.open("rb") as handle:
@@ -111,9 +144,14 @@ def prepare_video(path: Path, *, original_bytes: Optional[int] = None) -> Tuple[
             digest.update(chunk)
     exe = ffmpeg_exe()
     duration = measure_duration(exe, path)
+    label = {"video/mp4": "MP4", "video/webm": "WebM", "video/quicktime": "MOV"}[container]
     with tempfile.TemporaryDirectory(prefix="r2s-video-") as tmp:
-        data, how = compact_copy(exe, path, Path(tmp))
-    notes = [f"{container.split('/')[1].upper()} walkthrough, {duration:.0f} s", how,
-             "laid out as a top-down plan; the overlay is drawn on a blank canvas"]
-    image = SourceImage(PLAN_CANVAS_PX, PLAN_CANVAS_PX, digest.hexdigest(), VIDEO_MIME)
-    return SourceDocument(data, VIDEO_MIME, "video", image, None), notes
+        frames = keyframes(exe, path, duration, Path(tmp))
+        if size <= MAX_ORIGINAL_INLINE_BYTES:
+            data, mime, how = path.read_bytes(), container, "the clip is read as uploaded"
+        else:
+            data, how = compact_copy(exe, path, Path(tmp))
+            mime = VIDEO_MIME
+    notes = [f"{label} walkthrough, {duration:.0f} s", f"{len(frames)} timestamped keyframes", how]
+    image = SourceImage(PLAN_CANVAS_PX, PLAN_CANVAS_PX, digest.hexdigest(), mime)
+    return SourceDocument(data, mime, "video", image, None, frames=tuple(frames), duration_s=round(duration, 3)), notes

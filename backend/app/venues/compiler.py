@@ -417,7 +417,7 @@ def with_furniture(venue: VenueV2, furniture: Sequence[dict]) -> VenueV2:
                        "position": [round(min(max(float(x), 0.0), width), 2), round(min(max(float(y), 0.0), height), 2)]})
     appearance = raw.get("appearance") or {"zones": {}}
     raw["appearance"] = {**appearance, "furniture": pieces}
-    if not raw["appearance"]["zones"] and not pieces:
+    if not raw["appearance"]["zones"] and not pieces and not raw["appearance"].get("features"):
         raw.pop("appearance")
     probe = VenueV2.model_validate({**raw, "geometry_revision": "geom-pending"}).to_json()
     raw["geometry_revision"] = _canonical_revision(probe)

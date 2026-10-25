@@ -78,7 +78,9 @@ export interface VenueFurniture {
   yaw_deg: number;
   color: string;
 }
-export interface VenueAppearance { zones: Record<string, ZoneLook>; furniture: VenueFurniture[] }
+/** A railing, glass partition or window from a room reading, on a wall line (venue metres). Looks only. */
+export interface VenueFeature { kind: 'railing' | 'glass' | 'window'; a: Point2; b: Point2; height: number; sill: number }
+export interface VenueAppearance { zones: Record<string, ZoneLook>; furniture: VenueFurniture[]; features?: VenueFeature[] }
 
 // POST /api/venues/building-v2/door-plan
 export interface HazardInput {

@@ -50,6 +50,10 @@ export interface DraftView {
   preview: VenueV2 | null;
   /** Rooms the checks found with no door path to an exit (by draft key), which the operator may leave out at Accept. */
   unreachable_rooms: { key: string; name: string }[];
+  /** What was uploaded; a video's evidence picture is its keyframes, not an overlay. */
+  source_kind: SourceKind | null;
+  /** Rooms, doors and exits of a video's compiled room (it has no floor-plan draft to count). */
+  counts: DraftCounts | null;
 }
 
 export interface SavedRun {
@@ -102,6 +106,7 @@ export const REAL2SIM_ERRORS: Record<string, string> = {
   invalid_furniture: 'That furniture could not be saved. Check each piece is inside a room.',
   too_much_furniture: 'At most 60 pieces of furniture can be kept.',
   preview_unavailable: 'This draft has no preview to edit.',
+  left_out_rooms_unsupported: 'Rooms cannot be left out of a video reading.',
   source_required: 'Choose a photo or PDF first.',
   invalid_source_encoding: 'The file could not be read. Try another one.',
   source_mime_mismatch: 'The file type does not match its contents. Try another file.',
@@ -243,6 +248,8 @@ export function parseDraftView(raw: unknown): DraftView {
     accept_blockers: strings(raw.accept_blockers, 'blocker list'), accepted, preview: previewVenue(raw.compile),
     unreachable_rooms: Array.isArray(raw.unreachable_rooms) ? raw.unreachable_rooms.filter(isRecord)
       .filter(item => typeof item.key === 'string').map(item => ({ key: item.key as string, name: str(item.name) ?? (item.key as string) })) : [],
+    source_kind: isRecord(raw.source) && typeof raw.source.kind === 'string' && ['photo', 'sketch', 'pdf', 'video'].includes(raw.source.kind) ? raw.source.kind as SourceKind : null,
+    counts: parseCounts(raw.counts),
   };
 }
 

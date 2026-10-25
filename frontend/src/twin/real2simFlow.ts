@@ -129,6 +129,8 @@ export function createReal2SimFlow(deps: Real2SimDeps) {
     if (view.draft) {
       patch.unreadable = view.unreadable; patch.dropped = view.dropped; patch.repaired = view.repaired;
       patch.counts = countsFromDraft(view.draft) ?? state.counts;
+    } else if (view.counts) {
+      patch.counts = view.counts;
     }
     if (view.thoughts.length >= state.thoughts.length) {
       patch.thoughts = view.thoughts.slice(-MAX_THOUGHTS).map((thought, position) => ({

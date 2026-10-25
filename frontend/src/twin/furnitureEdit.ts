@@ -26,7 +26,7 @@ export function furnitureOf(venue: VenueV2): VenueFurniture[] {
 
 /** The venue drawn with the working copy (zones, doors and exits are the same objects). */
 export function withFurniture(venue: VenueV2, furniture: VenueFurniture[]): VenueV2 {
-  return { ...venue, appearance: { zones: venue.appearance?.zones ?? {}, furniture } };
+  return { ...venue, appearance: { zones: venue.appearance?.zones ?? {}, furniture, features: venue.appearance?.features ?? [] } };
 }
 
 function centroid(polygon: Point2[]): Point2 {

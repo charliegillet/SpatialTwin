@@ -208,6 +208,8 @@ class SalvageResult:
     # "room LIVING: name shortened to 40 characters" — repairs that kept the element
     repaired: List[str] = field(default_factory=list)
     error: Optional[str] = None
+    # A video walkthrough's RoomLab reading (RoomDraft JSON) instead of a floor-plan draft.
+    room: Optional[Dict[str, Any]] = None
 
 
 # Words a model uses for "the other side is outdoors". Not EXIT or OUT: a door keyed to EXIT usually leads to an

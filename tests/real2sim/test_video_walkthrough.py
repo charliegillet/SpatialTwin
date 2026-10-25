@@ -8,10 +8,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.app.ai.real2sim.drafts import Real2SimError, Real2SimService
-from backend.app.ai.real2sim.extract import DraftExtractor, extraction_prompt, source_part
+from backend.app.ai.real2sim.extract import DraftExtractor, room_inputs
 from backend.app.ai.real2sim.routes import build_real2sim_router
 from backend.app.ai.real2sim.schema import SourceImage, salvage_draft
-from backend.app.ai.real2sim.video_source import detect_container, ffmpeg_exe, prepare_video
+from backend.app.ai.real2sim.video_source import detect_container, ffmpeg_exe, prepare_video, select_timestamps
 from backend.app.hazard.door_planner import plan_doors
 from backend.app.venues.compiler import compile_draft, with_furniture
 from backend.app.venues.graph_checks import check_venue, errors_in
@@ -19,6 +19,7 @@ from backend.app.venues.model import get_venue
 from backend.app.venues.schemas import DoorPlanRequest
 from tests.real2sim.test_critique import FakeInteractions, fake_adapter, script
 from tests.real2sim.test_drafts import png_bytes
+from tests.real2sim.test_room_compiler import lobby
 
 PLAN = SourceImage(1000, 1000, "0" * 64, "video/mp4")
 
@@ -140,14 +141,20 @@ def make_video(path, seconds, size="64x48", rate=4):
     return path
 
 
-def test_video_source_measures_reencodes_and_refuses(tmp_path):
-    source, notes = prepare_video(make_video(tmp_path / "walk.mp4", 3))
+def test_video_source_measures_takes_roomlab_keyframes_and_refuses(tmp_path):
+    original = make_video(tmp_path / "walk.mp4", 3)
+    source, notes = prepare_video(original)
     assert source.mime_type == "video/mp4" and source.source_kind == "video"
-    assert (source.image.width_px, source.image.height_px) == (1000, 1000)
-    assert source.data[4:8] == b"ftyp" and notes[0].startswith("MP4 walkthrough, 3 s")
-    part = source_part(source)
-    assert part["type"] == "video" and part["processing"] == {"type": "static", "fps": 1.0}
-    assert json.loads(extraction_prompt(source)["text"])["task"] == "lay_out_video_walkthrough"
+    assert source.data == original.read_bytes() and notes[0].startswith("MP4 walkthrough, 3 s")
+    # A frame ffmpeg cannot seek to (the last one of a tiny clip) is skipped, never invented.
+    assert len(select_timestamps(3.0)) - 1 <= len(source.frames) <= len(select_timestamps(3.0))
+    assert source.frames[0][0] == "frame-001" and source.frames[0][1] == 0.0
+    assert all(jpeg[:3] == b"\xff\xd8\xff" for _, _, jpeg in source.frames)
+    parts = room_inputs(source)
+    assert "frame-001" in parts[0]["text"] and parts[1]["type"] == "video"
+    assert parts[1]["processing"] == {"type": "static", "fps": 1.0}
+    assert [p["type"] for p in parts[2:4]] == ["text", "image"] and parts[2]["text"].startswith("Frame ID: frame-001")
+    assert len(select_timestamps(120.0)) == 48
     with pytest.raises(Real2SimError) as too_long:
         prepare_video(make_video(tmp_path / "long.mp4", 122, size="16x16", rate=1))
     assert too_long.value.code == "video_too_long"
@@ -169,8 +176,8 @@ def wait_ready(client, draft_id, timeout=20.0):
     raise AssertionError("draft did not finish")
 
 
-def test_video_route_reads_edits_furniture_and_accepts(tmp_path):
-    fake = FakeInteractions(script(one_room_draft()))
+def test_video_route_reads_the_roomlab_way_edits_furniture_and_accepts(tmp_path):
+    fake = FakeInteractions(script(lobby()))
     adapter = fake_adapter(fake)
     service = Real2SimService(adapter, runtime_dir=tmp_path / "runtime", extractor=DraftExtractor(adapter, stream=True),
                               critique_rounds=0, ping_seconds=0.05, topdown_fn=lambda venue: png_bytes(9, 9))
@@ -185,12 +192,18 @@ def test_video_route_reads_edits_furniture_and_accepts(tmp_path):
         assert view["status"] == "ready" and view["source"]["kind"] == "video"
         assert view["source"]["mime_type"] == "video/mp4" and view["accept_blockers"] == []
         call = fake.calls[0]
-        assert call["input"][1]["type"] == "video" and "video walking through" in call["system_instruction"]
+        assert call["input"][1]["type"] == "video" and "spatial layout estimator" in call["system_instruction"]
+        assert call["generation_config"]["thinking_level"] == "low" and call["generation_config"]["max_output_tokens"] == 8192
+        assert "floor_vertices" in json.dumps(call["response_format"]["schema"])
+        assert view["room"]["name"] == "Reception lobby" and view["counts"] == {"rooms": 2, "doors": 1, "exits": 1}
+        assert [c["key"] for c in view["controllable_door_candidates"]] == ["D1"]
         preview = view["compile"]["venue"]
-        assert [f["label"] for f in preview["appearance"]["furniture"]] == ["Sofa", "Table"]
+        assert {f["label"] for f in preview["appearance"]["furniture"]} == {"Reception counter", "Potted plant"}
+        assert view["overlay_available"] and view["topdown_available"]
 
+        lobby_zone = next(z["id"] for z in preview["zones"] if z["name"] == "Reception")
         pieces = [{**preview["appearance"]["furniture"][0], "position": [1.0, 1.0]},
-                  {"zone": "STUDIO", "label": "Plant", "category": "plant", "position": [5.0, 3.0], "width": 0.5,
+                  {"zone": lobby_zone, "label": "Plant", "category": "plant", "position": [5.0, 3.0], "width": 0.5,
                    "depth": 0.5, "height": 1.2}]
         stale = client.put(f"/api/real2sim/drafts/{view['draft_id']}/furniture",
                            json={"expected_revision": view["revision"] - 1, "furniture": pieces})
@@ -198,18 +211,19 @@ def test_video_route_reads_edits_furniture_and_accepts(tmp_path):
         saved = client.put(f"/api/real2sim/drafts/{view['draft_id']}/furniture",
                            json={"expected_revision": view["revision"], "furniture": pieces})
         assert saved.status_code == 200, saved.text
-        assert [f["label"] for f in saved.json()["furniture"]] == ["Sofa", "Plant"]
+        assert [f["label"] for f in saved.json()["furniture"]][1] == "Plant"
         bad = client.put(f"/api/real2sim/drafts/{view['draft_id']}/furniture",
                          json={"expected_revision": saved.json()["revision"],
                                "furniture": [{**pieces[1], "zone": "ATTIC"}]})
         assert bad.status_code == 422 and bad.json()["detail"]["code"] == "invalid_furniture"
 
         accepted = client.post(f"/api/real2sim/drafts/{view['draft_id']}/accept",
-                               json={"expected_revision": saved.json()["revision"]})
+                               json={"expected_revision": saved.json()["revision"], "controllable_doors": ["D1"]})
         assert accepted.status_code == 200, accepted.text
         stored = get_venue(accepted.json()["venue_id"])
-        assert [f.label for f in stored.appearance.furniture] == ["Sofa", "Plant"]
-        assert stored.appearance.furniture[0].position == (1.0, 1.0)
+        assert [f.label for f in stored.appearance.furniture][1] == "Plant"
+        assert stored.doors[0].planner_can_open and len(stored.zones) == 2
+        assert {f.kind for f in stored.appearance.features} == {"glass", "window"}
 
 
 def test_video_route_refuses_non_video_and_missing_key(tmp_path):

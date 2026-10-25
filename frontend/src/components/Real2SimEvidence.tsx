@@ -17,12 +17,12 @@ export function Real2SimEvidence({ view, overlaySrc, topdownSrc }: { view: Draft
   return <div className="r2s-evidence">
     {(overlaySrc || topdownSrc) && <div className="r2s-figure">
       <div className="r2s-toggle" role="group" aria-label="Evidence image">
-        <button type="button" className="btn btn-quiet" aria-pressed={shown === 'overlay'} disabled={!overlaySrc} onClick={() => setShown('overlay')}>Overlay on source</button>
+        <button type="button" className="btn btn-quiet" aria-pressed={shown === 'overlay'} disabled={!overlaySrc} onClick={() => setShown('overlay')}>{view.source_kind === 'video' ? 'Keyframes' : 'Overlay on source'}</button>
         <button type="button" className="btn btn-quiet" aria-pressed={shown === 'topdown'} disabled={!topdownSrc} onClick={() => setShown('topdown')}>Top-down plan</button>
       </div>
       {src && !broken[src]
         ? <img className="r2s-image" src={src} onError={() => setBroken(prev => ({ ...prev, [src]: true }))}
-            alt={shown === 'overlay' ? 'The source drawing with the compiled rooms, doors and exits drawn on top' : 'Top-down plan of the compiled building'} />
+            alt={shown === 'overlay' ? (view.source_kind === 'video' ? 'Keyframes from the video that Gemini read' : 'The source drawing with the compiled rooms, doors and exits drawn on top') : 'Top-down plan of the compiled building'} />
         : <p className="twin-quiet">This image is not available.</p>}
     </div>}
     <p className="r2s-checks" role="status">

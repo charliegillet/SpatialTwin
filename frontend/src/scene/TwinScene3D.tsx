@@ -7,6 +7,7 @@ import { ariaSummary } from '../twin/sceneModel.ts';
 import type { TwinScene3DProps, VenueV2 } from '../twin/types.ts';
 import { DEFAULT_UNDERLAY_OPACITY, underlayMatches, type Underlay as UnderlaySpec } from '../twin/underlay.ts';
 import Building, { hasLooks } from './Building.tsx';
+import Features from './Features.tsx';
 import Furniture, { justDragged } from './Furniture.tsx';
 import CameraRig, { FOV, type CameraPreset } from './CameraRig.tsx';
 import Doors from './Doors.tsx';
@@ -133,6 +134,7 @@ export default function TwinScene3D(props: TwinScene3DProps) {
         <LabelProjector labels={labels} refs={labelRefs} />
         {underlay && <Underlay underlay={underlay} extent={venue.extent} opacity={photo} onReady={setUnderlayReady} />}
         <Building venue={venue} plan={plan} fills={fills} underlayOpacity={photo} lowGraphics={lowGraphics} />
+        <Features venue={venue} />
         <Furniture venue={venue} edit={props.furnitureEdit} />
         <Routes venue={venue} plan={plan} />
         <Doors venue={venue} plan={plan} reducedMotion={reducedMotion} gates={props.gates} />
