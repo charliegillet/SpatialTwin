@@ -14,7 +14,8 @@ test('event rows are cleaned, de-duplicated and capped', () => {
     { element_id: 'portal:P2', close_at_s: '' }, { element_id: 'boundary:B2', close_at_s: '-5' },
     { element_id: 'boundary:B2', close_at_s: '1.5' }, { element_id: 'boundary:B2', close_at_s: '60' },
   ];
-  assert.deepEqual(cleanHazardEvents(rows), [{ element_id: 'portal:P1', close_at_s: 20 }, { element_id: 'boundary:B2', close_at_s: 60 }]);
+  // Target labels map to venue ids; the horizon is 40 s, so 60 s is dropped.
+  assert.deepEqual(cleanHazardEvents(rows), [{ element_id: 'P1', close_at_s: 20 }]);
 });
 
 test('responses map to one table and the verdict needs every alternative valid', () => {

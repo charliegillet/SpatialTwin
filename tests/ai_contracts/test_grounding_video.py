@@ -131,7 +131,7 @@ async def test_prompt_injection_p3_is_rejected(adapter, context, mock_http, rece
     payload = dict(VALID_OUTPUT, candidate_ids=["portal:P3"], selected_entity_id="P3")
     set_output(state, payload)
     res = await ground_video(mp4(5), "video/mp4", context, "agentic", adapter=adapter, receipt_path=receipt)
-    assert res.proposal is None and res.errors == ["invalid_provider_output"]
+    assert res.proposal is None and len(res.errors) == 1 and res.errors[0].startswith(("invalid_provider_output:schema", "invalid_provider_output:semantic"))
 
 
 @pytest.mark.asyncio
@@ -139,7 +139,7 @@ async def test_extra_fields_rejected(adapter, context, mock_http, receipt):
     state, _ = mock_http
     set_output(state, dict(VALID_OUTPUT, open_exit="P3"))
     res = await ground_video(mp4(5), "video/mp4", context, "agentic", adapter=adapter, receipt_path=receipt)
-    assert res.proposal is None and res.errors == ["invalid_provider_output"]
+    assert res.proposal is None and len(res.errors) == 1 and res.errors[0].startswith(("invalid_provider_output:schema", "invalid_provider_output:semantic"))
 
 
 @pytest.mark.asyncio
@@ -177,3 +177,50 @@ def test_default_receipt_absent_means_disabled():
     assert video_mod.VIDEO_PROBE_FILES == {"static": "P3.json", "agentic": "P4.json"}
     if not (video_mod.VIDEO_PROBE_DIR / "P4.json").exists():
         assert not video_enabled("agentic")
+
+
+@pytest.mark.asyncio
+async def test_provider_processing_steps_are_allowed(adapter, context, mock_http, receipt):
+    # Regression (P4): agentic video runs provider-side processing steps before the final text.
+    state, _ = mock_http
+    text_step = state["response"]["steps"][0]
+    state["response"]["steps"] = [{"type": "processing_call"}, {"type": "processing_result"}, text_step]
+    res = await ground_video(mp4(5), "video/mp4", context, "agentic", adapter=adapter, receipt_path=receipt)
+    assert res.status == "completed", res.errors
+
+
+@pytest.mark.asyncio
+async def test_client_function_call_step_still_rejected(adapter, context, mock_http, receipt):
+    state, _ = mock_http
+    state["response"]["steps"].insert(0, {"type": "function_call", "name": "get_checked_comparison"})
+    res = await ground_video(mp4(5), "video/mp4", context, "agentic", adapter=adapter, receipt_path=receipt)
+    assert res.status == "failed" and res.errors == ["unexpected_provider_step"]
+
+
+@pytest.mark.asyncio
+async def test_single_code_fence_is_tolerated(adapter, context, mock_http, receipt):
+    # Regression (P3): a model may wrap the JSON in one markdown fence; the schema still decides the content.
+    state, _ = mock_http
+    fenced = "```json\n" + json.dumps(VALID_OUTPUT) + "\n```"
+    state["response"]["steps"][0]["content"][0]["text"] = fenced
+    res = await ground_video(mp4(5), "video/mp4", context, "static", adapter=adapter, receipt_path=receipt)
+    assert res.status == "completed", res.errors
+
+
+@pytest.mark.asyncio
+async def test_parse_failure_reports_its_stage(adapter, context, mock_http, receipt):
+    state, _ = mock_http
+    state["response"]["steps"][0]["content"][0]["text"] = "I think the token is at P2."
+    res = await ground_video(mp4(5), "video/mp4", context, "static", adapter=adapter, receipt_path=receipt)
+    assert res.proposal is None and res.errors == ["invalid_provider_output:json"]
+
+
+@pytest.mark.asyncio
+async def test_schema_failure_names_fields_not_values(adapter, context, mock_http, receipt):
+    # Diagnostics for P3: the reason carries the failing field names, never the offending value.
+    state, _ = mock_http
+    set_output(state, dict(VALID_OUTPUT, open_exit="SECRET-VALUE-XYZ"))
+    res = await ground_video(mp4(5), "video/mp4", context, "static", adapter=adapter, receipt_path=receipt)
+    assert res.proposal is None and len(res.errors) == 1
+    assert res.errors[0].startswith("invalid_provider_output:schema:")
+    assert "open_exit" in res.errors[0] and "SECRET-VALUE-XYZ" not in res.errors[0]

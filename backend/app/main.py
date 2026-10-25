@@ -144,6 +144,25 @@ def ai_capabilities() -> Dict[str, Any]:
     }
 
 
+def _with_default_hazard_zones(event: Dict[str, Any], venue: Any) -> Dict[str, Any]:
+    """A closure without explicit zones affects the zones its element connects.
+
+    Exposure counts occupants in hazard zones, so an empty list would always report zero.
+    Portals affect both endpoint zones; boundaries affect the zone they serve.
+    """
+    if event.get("hazard_zone_ids"):
+        return event
+    element = event["element_id"]
+    if element in venue.portals:
+        spec = venue.portals[element]
+        zones = (spec.from_zone, spec.to_zone)
+    elif element in venue.boundaries:
+        zones = (venue.boundaries[element].from_zone,)
+    else:
+        zones = ()
+    return {**event, "hazard_zone_ids": tuple(dict.fromkeys(zones))}
+
+
 @app.post("/api/hazard/simulate")
 def simulate_hazard(body: Any = Body(...)) -> Dict[str, Any]:
     """Local-only timed-closure simulation. Never echoes request values.
@@ -166,7 +185,8 @@ def simulate_hazard(body: Any = Body(...)) -> Dict[str, Any]:
             continue
     ctx = ToolContext(venue=state_manager.venue_graph, base_context=context, envelopes=envelopes)
     arguments = {"alternative_id": request.alternative_id.value,
-                 "events": [e.model_dump() for e in request.events]}
+                 "events": [_with_default_hazard_zones(e.model_dump(), state_manager.venue_graph)
+                            for e in request.events]}
     try:
         result = execute_hazard_tool("simulate_hazard_schedule", arguments, ctx)
         exposure = execute_hazard_tool("score_exposure", arguments, ctx)

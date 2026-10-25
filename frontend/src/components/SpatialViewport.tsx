@@ -1,5 +1,6 @@
-import React, { useId, useState } from 'react';
+import React, { useId, useRef, useState } from 'react';
 import { ArrowUpRight, Box, Check, Layers2, Minus, Plus, RotateCcw, Scan } from 'lucide-react';
+import { clampPan, forecastTargets, formatForecastClosure, panByKey, type ForecastClosure, type Pan } from '../features/spatial-view/spatialView';
 import type { ScenarioSnapshot } from '../types';
 import './SpatialViewport.css';
 
@@ -9,6 +10,7 @@ interface SpatialViewportProps {
   selectedTarget: string | null;
   onSelectTarget: (target: SpatialTarget) => void;
   onInspectPlan?: () => void;
+  forecast?: ForecastClosure[];
 }
 type Point = [number, number];
 type Project = (x: number, y: number, height?: number) => Point;
@@ -64,8 +66,13 @@ function WallPrism({ wall, project, flat }: { wall: Wall; project: Project; flat
   </g>;
 }
 
-export const SpatialViewport: React.FC<SpatialViewportProps> = ({ snapshot, selectedTarget, onSelectTarget, onInspectPlan }) => {
-  const [zoom, setZoom] = useState(1);
+export const SpatialViewport: React.FC<SpatialViewportProps> = ({ snapshot, selectedTarget, onSelectTarget, onInspectPlan, forecast }) => {
+  // The model is drawn wide; on phone-width screens it is unreadable at 1x, so the default view is closer.
+  const defaultZoom = () => (typeof window !== 'undefined' && window.matchMedia?.('(max-width: 520px)').matches ? 1.25 : 1);
+  const [zoom, setZoom] = useState(defaultZoom);
+  const [pan, setPan] = useState<Pan>({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const drag = useRef<{ x: number; y: number; scale: number } | null>(null);
   const [flat, setFlat] = useState(false);
   const uid = useId().replace(/:/g, '');
   const plan = snapshot?.current_plan;
@@ -98,7 +105,37 @@ export const SpatialViewport: React.FC<SpatialViewportProps> = ({ snapshot, sele
   ]);
   const line = (path: Point[]) => path.map(([x, y], index) => `${index ? 'L' : 'M'} ${project(x, y).join(' ')}`).join(' ');
   const gatePosition = project(150, 205);
-  const changeZoom = (delta: number) => setZoom(current => Math.max(.75, Math.min(1.65, Math.round((current + delta) * 100) / 100)));
+  const viewBox = flat ? '100 0 850 640' : '0 72 1060 520';
+  const bounds = flat ? { width: 850, height: 640 } : { width: 1060, height: 520 };
+  const forecastByTarget = new Map(forecastTargets(forecast).map(item => [item.target, item.close_at_s]));
+  const changeZoom = (delta: number) => {
+    const next = Math.max(.75, Math.min(1.65, Math.round((zoom + delta) * 100) / 100));
+    setZoom(next); setPan(current => clampPan(current, next, bounds));
+  };
+  const resetView = () => { setZoom(defaultZoom()); setPan({ x: 0, y: 0 }); };
+  const onPointerDown = (event: React.PointerEvent<SVGSVGElement>) => {
+    if (event.pointerType === 'touch' || event.button !== 0) return;
+    const ctm = event.currentTarget.getScreenCTM();
+    if (!ctm || !ctm.a) return;
+    drag.current = { x: event.clientX, y: event.clientY, scale: ctm.a };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDragging(true);
+  };
+  const onPointerMove = (event: React.PointerEvent<SVGSVGElement>) => {
+    const start = drag.current;
+    if (!start) return;
+    const dx = (event.clientX - start.x) / start.scale, dy = (event.clientY - start.y) / start.scale;
+    drag.current = { ...start, x: event.clientX, y: event.clientY };
+    setPan(current => clampPan({ x: current.x + dx, y: current.y + dy }, zoom, bounds));
+  };
+  const endDrag = () => { drag.current = null; setDragging(false); };
+  const onModelKeyDown = (event: React.KeyboardEvent<SVGSVGElement>) => {
+    const delta = panByKey(event.key);
+    if (!delta) return;
+    event.preventDefault();
+    setPan(current => clampPan({ x: current.x + delta.x, y: current.y + delta.y }, zoom, bounds));
+  };
+  const panned = pan.x !== 0 || pan.y !== 0;
 
   const route = (path: Point[], active: boolean, key: string) => <g key={key} className={active ? 'spatial-route spatial-route--active' : 'spatial-route'}>
     <path d={line(path)} className="spatial-route-bed" />
@@ -118,7 +155,8 @@ export const SpatialViewport: React.FC<SpatialViewportProps> = ({ snapshot, sele
       <div className="spatial-scene-caption"><div>Illustrative floor plan</div><span>4 modeled zones · synthetic population</span></div>
       <div className={`spatial-result-indicator ${checked ? 'is-checked' : ''}`}><span />{checked ? 'Checked result' : snapshot ? 'Result unverified' : 'Awaiting model'}</div>
 
-      <svg className="spatial-model-svg" role="group" viewBox={flat ? '100 0 850 640' : '0 72 1060 520'} aria-label="Illustrative event hall with west, east and reserve corridors. Select P1, P2 or B2 to review a scenario change.">
+      <svg className={`spatial-model-svg ${dragging ? 'is-dragging' : ''}`} role="group" tabIndex={0} viewBox={viewBox} aria-label="Illustrative event hall with west, east and reserve corridors. Drag or use arrow keys to pan. Select P1, P2 or B2 to review a scenario change."
+        onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endDrag} onPointerCancel={endDrag} onKeyDown={onModelKeyDown}>
         <defs>
           <linearGradient id={`${uid}-floor`} x1="0" y1="0" x2="1" y2="1"><stop stopColor="#303e3b" /><stop offset="1" stopColor="#1c2928" /></linearGradient>
           <linearGradient id={`${uid}-event`} x1="0" y1="0" x2="1" y2="1"><stop stopColor="#34433e" /><stop offset="1" stopColor="#293934" /></linearGradient>
@@ -126,7 +164,7 @@ export const SpatialViewport: React.FC<SpatialViewportProps> = ({ snapshot, sele
           <marker id={`${uid}-arrow`} viewBox="0 0 10 10" refX="7" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse"><path d="M 1 1 L 7 5 L 1 9" fill="none" stroke="#bcf582" strokeWidth="1.5" /></marker>
           <clipPath id={`${uid}-floor-clip`}><polygon points={polygon(-14, -14, 328, 400)} /></clipPath>
         </defs>
-        <g transform={`translate(${530 * (1 - zoom)} ${345 * (1 - zoom)}) scale(${zoom})`} className="spatial-model-camera">
+        <g transform={`translate(${530 * (1 - zoom) + pan.x} ${345 * (1 - zoom) + pan.y}) scale(${zoom})`} className="spatial-model-camera">
           {!flat && <ellipse cx="498" cy="483" rx="460" ry="159" fill={`url(#${uid}-shadow)`} />}
           {!flat && <>
             <polygon points={points([project(-14, 386), project(314, 386), project(314, 386, -12), project(-14, 386, -12)])} fill="#1a2625" stroke="#41504b" strokeWidth=".6" />
@@ -157,6 +195,8 @@ export const SpatialViewport: React.FC<SpatialViewportProps> = ({ snapshot, sele
             <path d={line([[target.x + 9, target.y - 4], [target.x - 9, target.y + 4]])} />
           </g>)}
 
+          {TARGETS.filter(target => forecastByTarget.has(target.id)).map(target => <polygon key={`forecast-${target.id}`} className="spatial-forecast-outline" points={polygon(target.x - 27, target.y - 14, 54, 28)} />)}
+
           {WALLS.map((wall, index) => <WallPrism key={`wall-${index}`} wall={wall} project={project} flat={flat} />)}
           {/* Reported position and checked route availability remain separate. */}
           {(gate === 'OPEN' || gate === 'CLOSED')
@@ -186,6 +226,9 @@ export const SpatialViewport: React.FC<SpatialViewportProps> = ({ snapshot, sele
                 <rect x="-26" y="-13" width="52" height="26" rx="5" className="spatial-target-badge" />
                 <circle cx="-13" cy="0" r="2.5" className="spatial-target-dot" />
                 <text x="5" y="4" textAnchor="middle">{target.short}</text>
+                {forecastByTarget.has(target.id) && <g className="spatial-forecast-chip" transform="translate(0 25)">
+                  <rect x="-62" y="-9" width="124" height="18" rx="4" /><text y="3.5" textAnchor="middle">{formatForecastClosure(forecastByTarget.get(target.id) ?? 0)}</text>
+                </g>}
                 {blocked && <g transform="translate(31 -18)"><circle r="9" className="spatial-blocked-mark" /><path d="M-3-3 3 3M3-3-3 3" className="spatial-blocked-cross" /></g>}
               </g>
             </g>;
@@ -203,9 +246,9 @@ export const SpatialViewport: React.FC<SpatialViewportProps> = ({ snapshot, sele
         <button type="button" onClick={() => changeZoom(.15)} disabled={zoom >= 1.65} aria-label="Zoom in"><Plus size={16} /></button>
         <span>{Math.round(zoom * 100)}%</span>
         <button type="button" onClick={() => changeZoom(-.15)} disabled={zoom <= .75} aria-label="Zoom out"><Minus size={16} /></button>
-        <i /><button type="button" onClick={() => setZoom(1)} aria-label="Reset zoom"><RotateCcw size={14} /></button>
+        <i /><button type="button" onClick={resetView} aria-label="Reset zoom and pan"><RotateCcw size={14} /></button>
       </div>
-      <div className="spatial-view-legend"><span><i className="spatial-legend-route" />Checked boundary flow</span><span><i className="spatial-legend-wall" />Modeled architecture</span>{blockedTargets.length > 0 && <span><i className="spatial-legend-blocked" />Blocked target</span>}</div>
+      <div className="spatial-view-legend"><span><i className="spatial-legend-route" />Checked boundary flow</span><span><i className="spatial-legend-wall" />Modeled architecture</span>{forecastByTarget.size > 0 && <span><i className="spatial-legend-forecast" />Forecast closure · modeled</span>}{blockedTargets.length > 0 && <span><i className="spatial-legend-blocked" />Blocked target</span>}</div>
       <div className="spatial-axis" aria-hidden="true"><svg viewBox="0 0 58 43"><path d="M29 34V9M29 34 5 22M29 34 53 22" /><text x="27" y="6">Z</text><text x="0" y="21">X</text><text x="53" y="21">Y</text></svg><span>SCHEMATIC</span></div>
     </div>
 

@@ -4,14 +4,23 @@ import type { HazardResultView } from '../features/hazard-exposure/hazard.ts';
 export const hazardElements = ['portal:P1', 'portal:P2', 'boundary:B2'] as const;
 
 /** Drop incomplete rows, keep the first row per element, and cap at the 6 events the server accepts. */
+/** Simulation horizon of the default venue graph (backend/app/planner/model.py default_horizon_seconds). */
+export const HAZARD_HORIZON_SECONDS = 40;
+
+/** UI target ids (portal:P1, boundary:B2) map to the venue ids the backend accepts (P1, B2). */
+export function venueElementId(targetId: string): string {
+  return targetId.replace(/^(portal|boundary):/, '');
+}
+
 export function cleanHazardEvents(rows: readonly { element_id: string; close_at_s: string }[]): HazardClosureEvent[] {
   const seen = new Set<string>();
   const events: HazardClosureEvent[] = [];
   for (const row of rows) {
     const seconds = Number(row.close_at_s);
-    if (row.close_at_s.trim() === '' || !Number.isInteger(seconds) || seconds < 0 || seen.has(row.element_id)) continue;
-    seen.add(row.element_id);
-    events.push({ element_id: row.element_id, close_at_s: seconds });
+    const elementId = venueElementId(row.element_id);
+    if (row.close_at_s.trim() === '' || !Number.isInteger(seconds) || seconds < 0 || seconds >= HAZARD_HORIZON_SECONDS || seen.has(elementId)) continue;
+    seen.add(elementId);
+    events.push({ element_id: elementId, close_at_s: seconds });
   }
   return events.slice(0, 6);
 }

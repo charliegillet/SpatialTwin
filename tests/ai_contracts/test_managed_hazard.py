@@ -286,3 +286,30 @@ async def test_network_deny_rejection_falls_back_to_remote(service):
     assert provider.create_calls[0]["environment"] == env
     assert provider.create_calls[1]["environment"] == "remote"
     assert any(e["phase"] == "environment_fallback" and e["used"] == "remote" for e in result.provider_progress)
+
+
+@pytest.mark.asyncio
+async def test_named_agent_run_sends_no_model_override(service):
+    # Regression (P5): the provider refuses an interaction-time model override on a named agent.
+    provider = Provider([response("completed", [])])
+    ref = agent_registry.AgentRef("spatialtwin-evac-v1")
+    await adapter_for(service, provider, agent_ref=ref).investigate_scenario(service.state_manager.context)
+    assert "agent_config" not in provider.create_calls[0]
+
+
+@pytest.mark.asyncio
+async def test_base_agent_run_still_sends_model_and_budget(service):
+    provider = Provider([response("completed", [])])
+    await adapter_for(service, provider).investigate_scenario(service.state_manager.context)
+    config = provider.create_calls[0]["agent_config"]
+    assert config["model"] == "gemini-4-argon" and config["max_total_tokens"] > 0
+
+
+def test_resolution_reads_the_key_the_live_probe_writes(tmp_path):
+    # Regression: the probe writes resolved_managed_model; the reader used to look for "model" only,
+    # so the app never reported the resolved model after a passing P1.
+    from backend.app.ai.managed import model_probe
+    cache = tmp_path / "model_resolution.json"
+    cache.write_text('{"managed_available": true, "resolved_managed_model": "gemini-4-argon"}')
+    resolution = model_probe.resolve_model(cache_path=str(cache))
+    assert resolution is not None and resolution.model == "gemini-4-argon" and not resolution.is_fallback

@@ -59,3 +59,10 @@ def test_repeated_calls_keep_baseline_and_exposure(client):
         assert payload["baseline_completed_crossings"] is not None
         assert payload["modeled_exposure_people_seconds"] is not None
         assert payload["exposure_label"].startswith("modeled")
+
+
+def test_default_zones_make_closure_exposure_nonzero(client):
+    # Regression: the UI sends no hazard zones, so exposure was always 0.
+    body = {"alternative_id": "KEEP_CURRENT", "events": [{"element_id": "P1", "close_at_s": 12}]}
+    payload = client.post("/api/hazard/simulate", json=body).json()
+    assert payload["modeled_exposure_people_seconds"] > 0

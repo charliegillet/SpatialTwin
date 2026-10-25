@@ -69,7 +69,7 @@ export function App() {
   const [isApproving, setIsApproving] = useState(false);
   const [capabilities, setCapabilities] = useState<AiCapabilities | null>(null);
   const [hazard, setHazard] = useState<{ view: HazardResultView; context: RunContext } | null>(null);
-  const [hazardRows, setHazardRows] = useState<{ element_id: string; close_at_s: string }[]>([{ element_id: 'portal:P1', close_at_s: '60' }]);
+  const [hazardRows, setHazardRows] = useState<{ element_id: string; close_at_s: string }[]>([{ element_id: 'portal:P1', close_at_s: '12' }]);
   const [isSimulating, setIsSimulating] = useState(false);
   const [hazardError, setHazardError] = useState<string | null>(null);
   const [events, setEvents] = useState<WorkspaceEvent[]>([]);
@@ -192,6 +192,7 @@ export function App() {
   const plan = snapshot?.current_plan;
   const planCurrent = Boolean(connection === 'connected' && plan?.validator_report.is_valid && sameContext(plan.base_context, snapshot?.context) && !physicalUncertain);
   const proposalCurrent = Boolean(connection === 'connected' && sameContext(proposal?.source_context, snapshot?.context) && !physicalUncertain);
+  const hazardCurrent = Boolean(hazard && connection === 'connected' && sameContext(hazard.context, snapshot?.context));
   const investigationCurrent = Boolean(connection === 'connected' && sameContext(investigation?.base_context, snapshot?.context) && !physicalUncertain);
   const blocked = [...(snapshot?.blocked_portals ?? []), ...(snapshot?.blocked_boundaries ?? [])];
   const targetSpec = targets.find(target => target.id === selectedTarget);
@@ -390,7 +391,7 @@ export function App() {
         {isEditing && selectedTarget && <section ref={reviewRef} className="scenario-review" aria-label="Review scenario change"><div className="scenario-review-symbol"><Layers2 size={20} /></div><div className="scenario-review-copy"><h2>{targetSpec?.title}</h2><p>{targetSpec?.description} {targetBlocked ? 'Restore its availability in the model.' : 'Mark it unavailable in the model.'}</p><span>Manual scenario change · review before applying</span></div><div className="scenario-review-actions"><label>Target<select aria-label="Scenario target" value={selectedTarget} onChange={event => setSelectedTarget(event.target.value as Target)}>{targets.map(target => <option key={target.id} value={target.id}>{target.title}</option>)}</select></label><button className="button-primary" disabled={!canChange} onClick={() => void mutate(selectedTarget)}>{isMutating ? <LoaderCircle size={15} className="spin" /> : <Check size={15} />}{targetBlocked ? 'Restore target' : 'Apply blockage'}</button></div><button className="icon-button" aria-label="Cancel scenario change" onClick={closeEditor}><X size={18} /></button></section>}
         <div className="workspace-hero">
           <ObservationPanel proposal={proposal} result={grounding} currentContext={snapshot?.context} liveConfigured={health?.ai?.direct.configured ?? health?.live_api_configured ?? false} fixturesEnabled={health?.ai?.fixtures_enabled ?? false} appliedCaptureId={appliedCaptureId} isLoading={isGrounding} isApplying={isMutating} isProposalCurrent={proposalCurrent} availabilityMessage={availabilityMessage} error={groundingError} onCapture={capture} onApply={applyProposal} onClearProposal={clearProposal} isAvailable={connection === 'connected' && Boolean(snapshot)} />
-          <div ref={spatialRef} className="workspace-spatial"><SpatialViewport snapshot={displaySnapshot} selectedTarget={selectedTarget} onSelectTarget={selectTarget} onInspectPlan={() => focusSection('schedule-explorer')} /></div>
+          <div ref={spatialRef} className="workspace-spatial"><SpatialViewport snapshot={displaySnapshot} selectedTarget={selectedTarget} onSelectTarget={selectTarget} onInspectPlan={() => focusSection('schedule-explorer')} forecast={hazardCurrent ? hazard?.view.events : undefined} /></div>
         </div>
         <div className="workspace-analysis">
           <InvestigationPanel view={interventionView} onViewChange={setInterventionView} snapshot={connection === 'connected' ? displaySnapshot : null} investigation={investigation} progress={investigationProgress} isLoading={isInvestigating} error={investigationError} isCurrent={investigationCurrent} availabilityMessage={availabilityMessage} onInvestigate={investigate} onCancel={cancelAnalysis} isCancelling={isCancelling} cancellationRequested={cancellationRequested} onApprove={approve} isApproving={isApproving} hardwareMode={health?.hardware_mode === 'simulator' ? 'Simulator' : health?.hardware_mode === 'physical_serial' ? 'Serial' : ''} apiConfigured={health?.ai?.managed.configured ?? health?.live_api_configured ?? false} localEnabled={health?.ai?.fixtures_enabled ?? false} />
@@ -410,12 +411,12 @@ export function App() {
               <button className="button-secondary" onClick={() => setHazardRows(rows => rows.filter((_, at) => at !== index))} aria-label={`Remove closure ${index + 1}`}><X size={14} /></button>
             </div>)}
             <div className="hazard-runner-actions">
-              <button className="button-secondary" onClick={() => setHazardRows(rows => [...rows, { element_id: 'portal:P2', close_at_s: '60' }])} disabled={hazardRows.length >= 6}>Add closure</button>
+              <button className="button-secondary" onClick={() => setHazardRows(rows => [...rows, { element_id: 'portal:P2', close_at_s: '12' }])} disabled={hazardRows.length >= 6}>Add closure</button>
               <button className="button-primary" onClick={() => void runHazard()} disabled={!canChange || isSimulating || cleanHazardEvents(hazardRows).length === 0}>{isSimulating ? <LoaderCircle size={15} className="spin" /> : <FlaskConical size={15} />}Run forecast</button>
             </div>
             {hazardError && <p className="hazard-runner-error" role="alert">{hazardError}</p>}
           </section>
-          <HazardPanel result={hazard?.view ?? null} isCurrent={Boolean(hazard && connection === 'connected' && sameContext(hazard.context, snapshot?.context))} />
+          <HazardPanel result={hazard?.view ?? null} isCurrent={hazardCurrent} />
         </div>
         <div className="workspace-exploration">
           <div className="clip-slot">

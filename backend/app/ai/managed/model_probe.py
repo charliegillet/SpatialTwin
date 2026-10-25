@@ -29,7 +29,8 @@ def resolve_model(candidates: tuple[str, ...] = CANDIDATES,
     """Offline: read the cached live result. Never calls a provider."""
     try:
         data = json.loads(Path(cache_path).read_text())
-        model = data.get("model") if isinstance(data, dict) else None
+        # The live probe writes resolved_managed_model; "model" is accepted for older cache files.
+        model = (data.get("resolved_managed_model") or data.get("model")) if isinstance(data, dict) else None
     except Exception:
         return None
     return _resolution(model, candidates) if model in candidates else None

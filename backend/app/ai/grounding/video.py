@@ -136,6 +136,14 @@ def _webm_duration(data: bytes) -> Optional[float]:
     return seconds if seconds == seconds and seconds >= 0 else None
 
 
+def _strip_one_code_fence(text: str) -> str:
+    """Models sometimes wrap the JSON in a single markdown fence. The schema still decides everything inside."""
+    lines = text.split("\n")
+    if text.startswith("```") and len(lines) >= 3 and lines[-1].strip() == "```":
+        return "\n".join(lines[1:-1]).strip()
+    return text
+
+
 def clip_duration_seconds(clip: bytes, mime: str) -> Optional[float]:
     return _mp4_duration(clip) if mime == "video/mp4" else _webm_duration(clip)
 
@@ -261,19 +269,30 @@ async def ground_video(
         if getattr(interaction, "errors", None):
             return result("failed", "provider_reported_errors")
         steps = getattr(interaction, "steps", None) or []
-        if any(getattr(s, "type", None) not in ("model_output", "thought") or getattr(s, "error", None) for s in steps):
+        # Agentic video processing runs provider-side processing steps; only the final model text is read.
+        # Client function calls and anything carrying an error still fail closed.
+        if any(getattr(s, "type", None) not in ("model_output", "thought", "processing_call", "processing_result")
+               or getattr(s, "error", None) for s in steps):
             return result("failed", "unexpected_provider_step")
         if any(getattr(c, "type", None) != "text" for s in steps if getattr(s, "type", None) == "model_output"
                for c in (getattr(s, "content", None) or [])):
             return result("failed", "unexpected_provider_step")
         text = getattr(interaction, "output_text", None)
-        if not isinstance(text, str) or not text.strip() or len(text) > MAX_OUTPUT_CHARS:
-            return result("failed", "invalid_provider_output")
+        if not isinstance(text, str) or not text.strip():
+            return result("failed", "invalid_provider_output:empty_text")
+        if len(text) > MAX_OUTPUT_CHARS:
+            return result("failed", "invalid_provider_output:too_long")
         try:
-            output = _GroundingOutput.model_validate(
-                json.loads(text, object_pairs_hook=_json_object, parse_constant=_invalid_json_constant))
-        except (ValueError, TypeError, ValidationError):
-            return result("failed", "invalid_provider_output")
+            parsed = json.loads(_strip_one_code_fence(text.strip()), object_pairs_hook=_json_object,
+                                parse_constant=_invalid_json_constant)
+        except (ValueError, TypeError):
+            return result("failed", "invalid_provider_output:json")
+        try:
+            output = _GroundingOutput.model_validate(parsed)
+        except ValidationError as error:
+            # Field names only (never values) so a failing schema is diagnosable without exposing content.
+            fields = sorted({".".join(str(part) for part in item["loc"]) for item in error.errors()})[:6]
+            return result("failed", "invalid_provider_output:schema:" + ",".join(fields))
         proposal = GroundingProposalV1(
             capture_id=clip_id, source_context=context, status=GroundingStatus(output.status),
             candidate_ids=output.candidate_ids,
@@ -282,7 +301,7 @@ async def ground_video(
             evidence=output.evidence, thinking_level=thinking_level, box_2d=output.box_2d,
         )
         if not proposal.validate_semantic_soundness()[0]:
-            return result("failed", "invalid_provider_output")
+            return result("failed", "invalid_provider_output:semantic")
         GroundingAdapter._validate_context(capture, context, live=True)
         return result("completed", proposal=proposal)
 
