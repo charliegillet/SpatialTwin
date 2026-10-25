@@ -2,6 +2,10 @@
 
 Each check reports pass, fail or cannot_measure. A range that straddles a
 threshold is never rounded into a pass or a fail.
+
+Wording: a pass or fail on a tape-measured width (basis ``anchor_measured``)
+says "within measured range"; every other basis is the model's estimate and
+says "within the model's estimated range (model-reported)".
 """
 from __future__ import annotations
 
@@ -19,6 +23,12 @@ ROUTE_MIN_M = 0.914  # 36 in
 TURN_MIN_M = 1.524  # 60 in turning circle
 
 _CITE = "2010 ADA Standards §"
+_MEASURED = "within measured range"
+_MODEL = "within the model's estimated range (model-reported)"
+
+
+def _within(m: Measure) -> str:
+    return _MEASURED if m.basis == "anchor_measured" else _MODEL
 
 ALWAYS_CANNOT_MEASURE: list[tuple[str, str]] = [
     ("ADA-404.2.5", "Door thresholds cannot be measured from video"),
@@ -73,9 +83,13 @@ def _door_result(d: Door) -> RuleResult:
             reason = "doorway depth unknown"
     lo, hi = m.low_m, m.high_m
     if status == "pass":
-        stmt = f"{d.id} clear width {lo:.2f}-{hi:.2f} m meets ADA §404.2.3 within measured range"
+        stmt = f"{d.id} clear width {lo:.2f}-{hi:.2f} m meets ADA §404.2.3 {_within(m)}"
+    elif status == "fail" and m.basis == "anchor_measured":
+        stmt = (f"{d.id} clear width {lo:.2f}-{hi:.2f} m (tape-measured) is below the "
+                "0.813 m (32 in) minimum in ADA §404.2.3")
     elif status == "fail":
-        stmt = f"{d.id} clear width {lo:.2f}-{hi:.2f} m is below the 0.813 m (32 in) minimum in ADA §404.2.3"
+        stmt = (f"{d.id} clear width {lo:.2f}-{hi:.2f} m is below the 0.813 m (32 in) minimum "
+                f"in ADA §404.2.3 {_MODEL}")
     elif reason == "basis assumed":
         stmt = f"{d.id} clear width is an assumed value; ADA §404.2.3 cannot measure"
     else:
@@ -100,9 +114,13 @@ def _route_result(d: Door) -> RuleResult:
         status = _range_status(m, ROUTE_MIN_M)
     lo, hi = m.low_m, m.high_m
     if status == "pass":
-        stmt = f"{d.id} route width {lo:.2f}-{hi:.2f} m meets ADA §403.5.1 (0.914 m) within measured range"
+        stmt = f"{d.id} route width {lo:.2f}-{hi:.2f} m meets ADA §403.5.1 (0.914 m) {_within(m)}"
+    elif status == "fail" and m.basis == "anchor_measured":
+        stmt = (f"{d.id} route width {lo:.2f}-{hi:.2f} m (tape-measured) is below the "
+                "0.914 m (36 in) minimum in ADA §403.5.1")
     elif status == "fail":
-        stmt = f"{d.id} route width {lo:.2f}-{hi:.2f} m is below the 0.914 m (36 in) minimum in ADA §403.5.1"
+        stmt = (f"{d.id} route width {lo:.2f}-{hi:.2f} m is below the 0.914 m (36 in) minimum "
+                f"in ADA §403.5.1 {_MODEL}")
     else:
         stmt = f"{d.id} route width {lo:.2f}-{hi:.2f} m: ADA §403.5.1 cannot measure against 0.914 m"
     return RuleResult(
@@ -127,9 +145,9 @@ def _turning_result(z: Zone) -> RuleResult:
     if status == "cannot_measure" and reason:
         stmt = f"{base}; furniture was seen, so the ADA §304.3.1 turning circle cannot be measured"
     elif status == "pass":
-        stmt = f"{base} meets the 1.524 m (60 in) turning circle of ADA §304.3.1 within measured range"
+        stmt = f"{base} meets the 1.524 m (60 in) turning circle of ADA §304.3.1 {_MODEL}"
     elif status == "fail":
-        stmt = f"{base} is below the 1.524 m (60 in) turning circle of ADA §304.3.1"
+        stmt = f"{base} is below the 1.524 m (60 in) turning circle of ADA §304.3.1 {_MODEL}"
     else:
         stmt = f"{base} spans the 1.524 m (60 in) turning circle of ADA §304.3.1; cannot measure"
     return RuleResult(

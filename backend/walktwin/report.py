@@ -12,8 +12,14 @@ The report states a verdict from measured, checker and model-reported rows:
 "venue". Declared parameters are model assumptions, never measurements.
 
 Copy rules: never claim people are out of danger or that a venue meets code.
-Say "reach a modeled exit in 120 s", "meets ADA §… within measured range" or
-"cannot measure".
+Say "reach a modeled exit in 120 s", "meets ADA §… within measured range" (a
+tape-measured width), "… within the model's estimated range (model-reported)"
+(any other width) or "cannot measure".
+
+Loop iterations are read as JSON dicts with ``kind`` ("baseline", "round" or
+"accepted"; a missing kind is "round"). Geometry rows score the iteration for
+the accepted revision (an "accepted" one first, then a "round") against the
+"baseline" scored before the loop under the same alignment.
 
 The note to security is a local markdown draft. Nothing here sends anything.
 """
@@ -43,6 +49,8 @@ CSP_META = ("<meta http-equiv=\"Content-Security-Policy\" "
 # Declared, not measured (global constraints).
 NON_ANCHOR_UNCERTAINTY = 0.20
 EYE_HEIGHT_DECLARED = "1.5±0.1"
+ROUTING_DECLARED = ("system-optimal (earliest arrival); "
+                    "real crowds tend to use the way they came in")
 GEOMETRY_DOOR_TOLERANCE_M = 0.5
 GEOMETRY_WALL_BAND_M = 0.15
 GEOMETRY_EDGE_PX = 5
@@ -161,6 +169,34 @@ def _accepted_run(session: Session):
     return graph, run, check
 
 
+def _kind(it: Any) -> str:
+    """An iteration's kind; old data without one is a critique round."""
+    k = _g(it, "kind")
+    return k if k in ("baseline", "round", "accepted") else "round"
+
+
+def _applied_anchor(graph: VenueGraph | None):
+    """The graph's anchor only when ``apply_anchor`` ran (the door is tape-measured)."""
+    if graph is None or graph.anchor is None:
+        return None
+    door = next((d for d in graph.doors if d.id == graph.anchor.door_id), None)
+    if door is None or door.clear_width.basis != "anchor_measured":
+        return None
+    return graph.anchor
+
+
+def _unanchored_alignment(session: Session) -> dict | None:
+    """The pre-anchor alignment when the session alignment is the anchored one, else None.
+
+    ``alignment_unanchored`` is added by the session API fix; read it defensively.
+    """
+    un = getattr(session, "alignment_unanchored", None)
+    cur = session.alignment
+    if not isinstance(un, dict) or not isinstance(cur, dict):
+        return None
+    return un if un.get("hash") != cur.get("hash") else None
+
+
 def _alignment(d: dict | None):
     if not isinstance(d, dict):
         return None
@@ -261,16 +297,17 @@ def _geometry_unavailable(session: Session) -> tuple[str, str] | None:
     the scale and geometry rows ``cannot_measure``; it never fails the verdict.
     """
     al = _alignment(session.alignment)
-    graph = session.accepted_graph
-    anchor = graph.anchor if graph is not None and graph.anchor is not None else session.anchor
+    anchor = _applied_anchor(session.accepted_graph) or session.anchor
     if al is not None:
         from .sfm import scale_badge
         if scale_badge(al) == "disagrees":
-            door = f" {anchor.door_id}" if anchor is not None else ""
             reason = (f"scale badge disagrees (residual {al.residual_m:.2f} m, "
                       f"eye height {al.eye_height_m:.2f} m)")
-            return reason, (f"Re-tape the anchor door{door} and re-capture the venue "
-                            f"walkthrough; {reason}")
+            if anchor is None:
+                return reason, ("Tape-measure one door as the anchor and re-capture the "
+                                f"venue walkthrough; {reason}")
+            return reason, (f"Re-tape the anchor door {anchor.door_id} and re-capture the "
+                            f"venue walkthrough; {reason}")
     # Field added by the session API fix (R30); read defensively until it is merged.
     raw = getattr(session, "geometry_unavailable_reason", None)
     if raw:
@@ -304,8 +341,9 @@ def _geometry_rows(session: Session, unavailable: tuple[str, str] | None,
         return same("cannot_measure", f"geometry unavailable: {unavailable[0]}", unavailable[1])
     its = list(session.iterations)
     scored = [i for i, it in enumerate(its) if isinstance(_g(it, "geometry"), dict)]
-    final_i = next((i for i in reversed(scored)
-                    if _g(its[i], "graph_revision") == graph.revision), None)
+    matches = [i for i in scored if _g(its[i], "graph_revision") == graph.revision]
+    final_i = next((i for kind in ("accepted", "round", "baseline")
+                    for i in reversed(matches) if _kind(its[i]) == kind), None)
     if final_i is None:
         return same("not_run", "no geometry score for the accepted graph")
     final = _g(its[final_i], "geometry")
@@ -314,14 +352,38 @@ def _geometry_rows(session: Session, unavailable: tuple[str, str] | None,
     if al is not None and ahash != al.hash:
         return same("not_run", f"geometry was scored under alignment {ahash}; "
                                f"the current alignment is {al.hash}")
-    # Baseline: the first round scored under the same alignment (possibly the final one).
-    base_i = next(i for i in scored if _g(its[i], "geometry").get("alignment_hash") == ahash)
-    base = _g(its[base_i], "geometry")
-    single = base_i == final_i
-    where = (f"loop round {_g(its[final_i], 'index', final_i)}, graph {graph.revision}, "
-             f"alignment {ahash}")
+    final_kind = _kind(its[final_i])
+    if final_kind == "accepted":
+        where = f"accepted graph {graph.revision} rescored at accept, alignment {ahash}"
+    elif final_kind == "baseline":
+        where = f"baseline before the loop, graph {graph.revision}, alignment {ahash}"
+    else:
+        where = (f"loop round {_g(its[final_i], 'index', final_i)}, graph {graph.revision}, "
+                 f"alignment {ahash}")
+    # Baseline: the "baseline" iteration recorded before the loop that led to the final
+    # score. Old data without kinds: the first round scored under the same alignment.
+    base: dict = {}
     no_base = "single measured round; no baseline to compare"
-    base_label = f"baseline loop round {_g(its[base_i], 'index', base_i)} (same alignment)"
+    baselines = [i for i in range(final_i + 1) if _kind(its[i]) == "baseline"]
+    if baselines:
+        base_i, base_label = baselines[-1], "baseline before the loop"
+        bgeom = _g(its[base_i], "geometry")
+        if base_i == final_i:
+            pass
+        elif not isinstance(bgeom, dict):
+            no_base = "the baseline before the loop has no measured geometry; not compared"
+        elif bgeom.get("alignment_hash") != ahash:
+            no_base = (f"the baseline before the loop was scored under alignment "
+                       f"{bgeom.get('alignment_hash')}; not compared")
+        else:
+            base = bgeom
+    else:
+        base_i = next((i for i in scored if _kind(its[i]) == "round"
+                       and _g(its[i], "geometry").get("alignment_hash") == ahash), final_i)
+        base_label = f"baseline loop round {_g(its[base_i], 'index', base_i)} (same alignment)"
+        if base_i != final_i:
+            base = _g(its[base_i], "geometry")
+    single = not base
     rows = []
 
     crossings = final.get("illegal_crossings")
@@ -382,7 +444,8 @@ def _geometry_rows(session: Session, unavailable: tuple[str, str] | None,
 
 def _scale_row(session: Session, unavailable: tuple[str, str] | None,
                todos: dict[str, str]) -> Requirement:
-    stmt = "SfM alignment residual and scale badge agree with the tape-measured anchor"
+    stmt = ("SfM alignment scale is consistent with the declared 1.5 ± 0.1 m eye height "
+            "(scale badge)")
     al = _alignment(session.alignment)
     if unavailable is not None:
         todos["alignment_scale"] = unavailable[1]
@@ -397,8 +460,14 @@ def _scale_row(session: Session, unavailable: tuple[str, str] | None,
     value = (f"residual {al.residual_m:.2f} m; eye height {al.eye_height_m:.2f} m; "
              f"scale badge {badge}")
     ev = (f"alignment {al.hash}; the badge agrees when eye height is within "
-          f"{EYE_HEIGHT_DECLARED} m (declared) and the residual is at most 0.5 m; "
-          "the tape-measured anchor stays the authority")
+          f"{EYE_HEIGHT_DECLARED} m (declared) and the residual is at most 0.5 m")
+    unanchored = _unanchored_alignment(session)
+    if unanchored is not None:  # the anchor is mentioned only for the anchored alignment
+        anchor = _applied_anchor(session.accepted_graph)
+        door = (f" {anchor.door_id} ({anchor.measured_width_m:.3f} m)"
+                if anchor is not None else "")
+        ev += (f"; rescaled at accept to the tape-measured anchor{door} from the "
+               f"pre-anchor alignment {unanchored.get('hash')}")
     if unavailable is not None:
         return _req("alignment_scale", stmt, "measured", "cannot_measure", value,
                     f"{unavailable[0]}; {ev}")
@@ -431,6 +500,8 @@ def _discrepancy_row(session: Session, todos: dict[str, str]) -> Requirement:
     its = list(session.iterations)
     match = None
     for i, it in enumerate(its):
+        if _kind(it) != "round":  # the baseline and the accepted rescore carry no critique
+            continue
         if _g(it, "stop_reason") == "provider_failed":  # its count of 0 is not a critique
             continue
         if _described_revision(its, i) == graph.revision:
@@ -509,7 +580,8 @@ def _declared(session: Session) -> dict:
             "eye_height_m": EYE_HEIGHT_DECLARED,
             "geometry_door_tolerance_m": GEOMETRY_DOOR_TOLERANCE_M,
             "geometry_wall_band_m": GEOMETRY_WALL_BAND_M,
-            "geometry_edge_px": GEOMETRY_EDGE_PX}
+            "geometry_edge_px": GEOMETRY_EDGE_PX,
+            "routing": ROUTING_DECLARED}
 
 
 def _receipt_text(rec: Any) -> str | None:
@@ -526,9 +598,10 @@ def _provenance(session: Session, accepted) -> list[str]:
     graph = session.accepted_graph
     if graph is not None:
         out.append(f"graph {graph.revision} (you accepted)")
-        if graph.anchor is not None:
-            out.append(f"anchor {graph.anchor.door_id} tape-measured at "
-                       f"{graph.anchor.measured_width_m:.3f} m")
+        anchor = _applied_anchor(graph)  # "tape-measured" only when apply_anchor ran
+        if anchor is not None:
+            out.append(f"anchor {anchor.door_id} tape-measured at "
+                       f"{anchor.measured_width_m:.3f} m (applied at accept)")
     out.append(f"scenario {session.scenario.hash}")
     if session.current_run is not None:
         verified = accepted is not None and accepted[2].ok
@@ -544,8 +617,18 @@ def _provenance(session: Session, accepted) -> list[str]:
         out.append(f"extraction: Argon proposed the draft graph ({ex.status}, mode {ex.mode})"
                    + (f"; {rec}" if rec else ""))
     for n, it in enumerate(session.iterations):
+        rev, kind = _g(it, "graph_revision", "?"), _kind(it)
+        geom = _g(it, "geometry")
+        scored = (f"geometry measured, alignment {geom.get('alignment_hash')}"
+                  if isinstance(geom, dict) else "geometry unavailable")
+        if kind == "baseline":
+            out.append(f"loop baseline (before round 1): graph {rev}; {scored}")
+            continue
+        if kind == "accepted":
+            out.append(f"accepted graph rescored at accept: graph {rev}; {scored}")
+            continue
         rec = _receipt_text(_g(it, "receipt"))
-        out.append(f"loop round {_g(it, 'index', n)}: graph {_g(it, 'graph_revision', '?')}"
+        out.append(f"loop round {_g(it, 'index', n)}: graph {rev}"
                    + (f"; {rec}" if rec else ""))
     for inv in session.investigations:
         rec = _receipt_text(_g(inv, "receipt")) or (

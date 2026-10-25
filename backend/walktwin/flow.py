@@ -26,6 +26,13 @@ the sink by step K; everyone else stays in their starting zone. Two-way flow
 through one interior gate in the same step (a swap, or a bounce back into the
 same zone) is equivalent to those people holding over, so each interior
 door-step is reduced to its net flow, signed a->b positive.
+
+Routing is a declared parameter, not a measurement: ``routing: "system-optimal
+(earliest arrival); real crowds tend to use the way they came in"``. The solver
+sends each person to whichever exit gets the whole population out earliest, as
+a coordinator with perfect information would. A real crowd mostly heads for the
+door it came in by, so the counts here are an optimistic bound for the same
+graph and scenario. The report lists this under ``declared_parameters``.
 """
 from __future__ import annotations
 
