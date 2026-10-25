@@ -80,6 +80,10 @@ Live team runs on 26 October (building-v2, fire in the lobby, four runs):
   12 numbers appeared in the sandbox's own code output). Once it missed its then 150 s deadline and the panel showed
   the labelled local fallback instead. The deadline is now 210 s, and nothing in Act 3 waits on this lane: approve and
   jam the doors while it streams.
+- After the sandbox sweep was narrowed to single failures (the scenarios the claims are about), a run started by
+  itself from a judge's phone hazard on Ferry Building Level 2 finished in 24 s (strategist, 2/2) and 57 s
+  (robustness, 12/12, all computed in the sandbox), about $0.07 together: "D9 open holds 18 of 18 single failures".
+- The team now starts by itself 2.5 s after a hazard is placed (live by default); "Ask the agent team" re-runs it.
 - The strategist chose D4 closed + D9 open (125 of 125). The robustness lane chose D4 open + D9 open, also 125, which
   held under 18 of 18 single failures against 8 of 16 for the strategist's choice. The checker's own best is D4 closed
   + D9 open; the panel states both, and they tie.
