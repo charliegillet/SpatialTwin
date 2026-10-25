@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { announcementText, speak, speechAvailable, stopSpeaking } from './announce.ts';
+import { announcementText, confirmedAnnouncement, speak, speechAvailable, stopSpeaking } from './announce.ts';
 
 const fakes = () => {
   const log = [];
@@ -48,4 +48,14 @@ test('stop cancels and never throws', () => {
 test('an unchecked plan has nothing to announce', () => {
   assert.equal(announcementText({ announcement: 'Fire.', chosen: { validator_report: { is_valid: false } } }), '');
   assert.equal(announcementText({ announcement: 'Fire.', chosen: { validator_report: { is_valid: true } } }), 'Fire.');
+});
+
+test('a planned door is announced open only after its endpoint switch says so', () => {
+  const text = 'Attention. Fire in the lobby. Door D9 between the hall and the east corridor is to be opened.';
+  const gate = (over) => ({ id: 'D9', observed: 'closed', moving: false, warn: false, ...over });
+  assert.equal(confirmedAnnouncement(text, [gate()]), text, 'approved or not, a closed door is still "to be opened"');
+  assert.match(confirmedAnnouncement(text, [gate({ observed: null, moving: true })]), /D9 between the hall and the east corridor is opening\./);
+  assert.match(confirmedAnnouncement(text, [gate({ observed: 'open' })]), /D9 between the hall and the east corridor is open\./);
+  assert.equal(confirmedAnnouncement(text, [gate({ observed: 'open', warn: true })]), text, 'a faulted gate never reads as open');
+  assert.equal(confirmedAnnouncement(text, []), text, 'a door with no gate keeps the planned wording');
 });

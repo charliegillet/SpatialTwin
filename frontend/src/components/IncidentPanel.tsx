@@ -97,7 +97,7 @@ function GateCard({ gate, incident }: { gate: GateView; incident: IncidentContro
     {gate.detail && <p className="twin-quiet incident-detail">{gate.detail}</p>}
 
     <div className="incident-gate-actions">
-      <button type="button" className="btn btn-stop" disabled={busy} onClick={() => void incident.jam(gate.id, 'stall')} title={FAULT_COPY.stall}>Jam the gate</button>
+      <button type="button" className="btn btn-stop" disabled={busy} onClick={() => void incident.jam(gate.id, 'stall')} title={FAULT_COPY.stall} aria-label={`Jam ${gate.id} (stall)`}>Jam the gate</button>
       <select aria-label={`Other fault for ${gate.id}`} value={other} disabled={busy} onChange={event => {
         const fault = event.target.value as GateFault;
         setOther('');
@@ -106,7 +106,7 @@ function GateCard({ gate, incident }: { gate: GateView; incident: IncidentContro
         <option value="">Other fault…</option>
         {OTHER_FAULTS.map(fault => <option key={fault} value={fault}>{FAULT_COPY[fault]}</option>)}
       </select>
-      <button type="button" className="btn" disabled={busy || (!gate.armedFault && !gate.warn)} onClick={() => void incident.clearFault(gate.id)}>Clear fault</button>
+      <button type="button" className="btn" disabled={busy || (!gate.armedFault && !gate.warn)} onClick={() => void incident.clearFault(gate.id)} aria-label={`Clear fault on ${gate.id}`}>Clear fault</button>
     </div>
   </article>;
 }
@@ -120,7 +120,7 @@ function IncidentConsole({ lines }: { lines: IncidentController['console'] }) {
   return <div className="incident-console">
     <div className="incident-console-head">
       <strong>Device console</strong>
-      <button type="button" className="btn btn-quiet btn-ghost" aria-pressed={announce} onClick={() => setAnnounce(value => !value)}>{announce ? 'Announcing' : 'Announce events'}</button>
+      <button type="button" className="btn btn-quiet btn-ghost" aria-pressed={announce} onClick={() => setAnnounce(value => !value)}>Announce events</button>
     </div>
     <div className="incident-log" ref={ref} role="log" tabIndex={0} aria-label="Simulated device events" aria-live={announce ? 'polite' : 'off'} aria-relevant="additions">
       {lines.length ? lines.map(line => <div key={`${line.seq}-${line.text}`} className={`incident-line is-${line.tone}`}><span>{line.seq}</span>{line.text}</div>)

@@ -222,10 +222,22 @@ export function doorVisuals(incident: IncidentState | null, movingSince: Record<
 
 export interface Availability { allowed: boolean; reason: string | null }
 
+const hazardKey = (h: HazardInput) => [h.id, h.type, h.position.x.toFixed(3), h.position.y.toFixed(3), h.source, h.untenable_s ?? ''].join('|');
+
+/** The server's incident hazards are the ones this screen shows. Another tab, phone or judge can change them; until
+ *  this screen's own set is synced, the plan on the server is not the plan this screen is showing. */
+export function hazardsInSync(server: readonly HazardInput[], local: readonly HazardInput[]): boolean {
+  if (server.length !== local.length) return false;
+  const a = server.map(hazardKey).sort();
+  const b = local.map(hazardKey).sort();
+  return a.every((key, index) => key === b[index]);
+}
+
 /** Approve is only for the current checker-valid plan, never while actuating, never with a gate in doubt unless the plan is the fallback that excludes it. */
-export function approveAvailability(incident: IncidentState | null): Availability {
+export function approveAvailability(incident: IncidentState | null, localHazards?: readonly HazardInput[]): Availability {
   const no = (reason: string): Availability => ({ allowed: false, reason });
   if (!incident) return no('Connecting to the door controller');
+  if (localHazards && !hazardsInSync(incident.hazards, localHazards)) return no('Syncing this screen\u2019s hazards with the door controller\u2026');
   if (incident.approval_in_progress || hasActuating(incident.approvals)) return no('Doors are moving — wait for the result');
   if (incident.controller.heartbeat === 'stale') return no('Controller heartbeat lost — reset the devices');
   if (incident.plan_error) return no(`No plan: ${TWIN_ERRORS[incident.plan_error] ?? incident.plan_error}`);

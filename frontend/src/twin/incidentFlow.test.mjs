@@ -4,7 +4,7 @@ import { ApiError } from '../api/client.ts';
 import { incidentErrorMessage, INCIDENT_ERRORS, parseIncidentEvent, parseIncidentState } from '../api/incident.ts';
 import {
   applyIncidentState, approveAvailability, createHazardSync, createIncidentConnection, createStaleGuard, doorVisuals, drawGate, fallbackBanner,
-  gateViews, initialIncidentState, MAX_CONSOLE_LINES, reduceIncidentEvent,
+  gateViews, hazardsInSync, initialIncidentState, MAX_CONSOLE_LINES, reduceIncidentEvent,
 } from './incidentFlow.ts';
 
 const gate = (id, over = {}) => ({
@@ -343,4 +343,18 @@ test('polling failure reports offline instead of pretending to be live', async (
   sources[0].listeners.gate({ data: 'garbage' });
   assert.equal(statuses[statuses.length - 1], 'offline');
   connection.stop();
+});
+
+test('approve waits until the server holds the hazards this screen shows', () => {
+  const fire = { id: 'h1', type: 'FIRE', position: { x: 20, y: 4 }, source: 'simulated' };
+  const smoke = { id: 'h2', type: 'SMOKE', position: { x: 8, y: 6 }, source: 'simulated', untenable_s: 10 };
+  assert.equal(hazardsInSync([fire, smoke], [smoke, fire]), true, 'order does not matter');
+  assert.equal(hazardsInSync([fire], [fire, smoke]), false);
+  assert.equal(hazardsInSync([fire], [{ ...fire, position: { x: 21, y: 4 } }]), false, 'a moved hazard is a different plan');
+  const state = incident({ hazards: [fire] });
+  assert.equal(approveAvailability(state, [fire]).allowed, true);
+  const another = approveAvailability(state, [fire, smoke]);
+  assert.equal(another.allowed, false, 'another tab or phone changed the hazards: this screen must not approve that plan');
+  assert.match(another.reason, /Syncing/);
+  assert.equal(approveAvailability(state).allowed, true, 'callers that do not pass hazards keep the old rule');
 });

@@ -986,7 +986,7 @@
     "held": []
   },
   "advisories": [],
-  "announcement": "Attention. Fire in the lobby. Do not use the south exit. Use the dock exit, north stair exit or west exit. Door D9 between the east corridor and the loading dock is open.",
+  "announcement": "Attention. Fire in the lobby. Do not use the south exit. Use the dock exit, north stair exit or west exit. Door D9 between the east corridor and the loading dock is to be opened.",
   "model_assumptions": [
     "building-v2 model: illustrative eight-zone building, synthetic population and declared rates; not a surveyed plan.",
     "A hazard applies to the whole zone that contains its point.",

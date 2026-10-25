@@ -11,7 +11,7 @@ def test_fire_in_lobby_restates_the_plan(venue):
     text = plan_doors(venue, make_request([("FIRE", 20, 4)])).announcement
     assert text.startswith("Attention. Fire in the lobby.")
     assert "Do not use the south exit." in text
-    assert "dock exit" in text and "Door D9 between the east corridor and the loading dock is open." in text
+    assert "dock exit" in text and "Door D9 between the east corridor and the loading dock is to be opened." in text
     for word in ("surviv", "safe now", "saved"):
         assert word not in text.lower()
 
