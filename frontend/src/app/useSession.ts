@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, runningJobs, snapshotIsStale, type Freshness } from '../api'
+import { api, runningJobs, snapshotIsStale, staleBannerVisible, type Freshness } from '../api'
 import type { Snapshot } from '../apiTypes'
 
 export const errText = (e: unknown) => (e instanceof Error ? e.message : String(e))
@@ -41,7 +41,8 @@ export function useSession(id: string | null) {
 
   useEffect(() => {
     let live = true
-    applied.current = seq.current
+    // drop every response to a request issued before this switch (they carry my <= seq.current)
+    applied.current = seq.current + 1
     queueMicrotask(() => {
       if (!live) return
       setSnap(null)
@@ -51,6 +52,16 @@ export function useSession(id: string | null) {
     return () => { live = false }
   }, [refresh])
 
+  // a reload still pending 2 s after a mutation counts as slow; the banner waits for that (or a failure)
+  const [slowFor, setSlowFor] = useState(0)
+  const waiting = fresh.mutatedAt > fresh.okAt && fresh.errorAt <= fresh.okAt
+  useEffect(() => {
+    if (!waiting) return
+    const m = fresh.mutatedAt
+    const t = setTimeout(() => setSlowFor(m), 2000)
+    return () => clearTimeout(t)
+  }, [waiting, fresh.mutatedAt])
+
   const busy = snap ? runningJobs(snap).length > 0 : false
   useEffect(() => {
     if (!busy) return
@@ -58,5 +69,9 @@ export function useSession(id: string | null) {
     return () => clearInterval(t)
   }, [busy, refresh])
 
-  return { snap, error, refresh, markMutated, busy, stale: !!snap && snapshotIsStale(fresh) }
+  return {
+    snap, error, refresh, markMutated, busy,
+    stale: !!snap && snapshotIsStale(fresh),
+    staleBanner: !!snap && staleBannerVisible(fresh, slowFor),
+  }
 }

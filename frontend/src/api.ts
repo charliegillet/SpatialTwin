@@ -51,8 +51,12 @@ const investigation = obj({
   interaction_id: nullable(str), environment_id: nullable(str),
   ledger: arr(obj({ call_id: str, kind: lit('client_function', 'sandbox_step'), name: str, args: rec(any), result: nullable(rec(any)), executed_at: str })),
   sandbox_runs: int, results: arr(result),
-  recommendation: nullable(obj({ intervention_id: nullable(str), claimed_reached_exit: nullable(int), rationale: str, caveats: arr(str) })),
+  recommendation: nullable(obj({
+    intervention_id: nullable(str), claimed_reached_exit: nullable(int), rationale: str, caveats: arr(str),
+    sweep_summary: opt(arr(obj({ intervention_id: str, claimed_reached_exit: int, label: lit('sandbox, unverified') }))),
+  })),
   best: nullable(result), disagreement: nullable(str), hook_denials: int, receipt: nullable(receipt), error: opt(nullable(str)),
+  network_mode: opt(nullable(str)),
 })
 const snapshotShape = obj({
   id: str, created_at: str,
@@ -69,7 +73,7 @@ const snapshotShape = obj({
   alignment: nullable(obj({
     scale: num, yaw_rad: num, tx: num, ty: num, floor_normal: xyz, floor_offset: num, residual_m: num, eye_height_m: num, hash: str,
   })),
-  alignment_error: nullable(str),
+  alignment_error: nullable(str), geometry_unavailable_reason: nullable(str),
   ghost_path: arr(obj({ t_s: num, x: num, y: num })),
   extraction: nullable(obj({
     status: lit('completed', 'failed', 'timeout', 'invalid'), graph: nullable(graphShape), findings: arr(finding),
@@ -135,11 +139,22 @@ export const checkedRun = (s: Snapshot): FlowRun | null => {
   return run && s.current_check?.ok && s.current_check.run_id === run.run_id ? run : null
 }
 
+/** One finding per (code, element_id); the first occurrence wins. */
+export function dedupeFindings(fs: Finding[]): Finding[] {
+  const seen = new Set<string>()
+  return fs.filter((f) => {
+    const k = `${f.code}\u0000${f.element_id ?? ''}`
+    if (seen.has(k)) return false
+    seen.add(k)
+    return true
+  })
+}
+
 export function acceptBlockers(s: Snapshot, extraErrors: Finding[] = []): string[] {
   const out: string[] = []
   if (!s.draft_graph) out.push('No draft twin yet')
   else if (!draftRevision(s)) out.push('Revision unknown; reload')
-  const errors = [...s.findings, ...extraErrors].filter((f) => f.severity === 'error').length
+  const errors = dedupeFindings([...s.findings, ...extraErrors]).filter((f) => f.severity === 'error').length
   if (errors) out.push(`${errors} error finding${errors > 1 ? 's' : ''} to fix`)
   for (const j of runningJobs(s)) out.push(`Waiting for ${j.split(':')[0]}`)
   return out
@@ -184,6 +199,13 @@ export function localDisagreement(inv: Investigation): string | null {
  */
 export interface Freshness { okAt: number; errorAt: number; mutatedAt: number }
 export const snapshotIsStale = (f: Freshness): boolean => f.okAt === 0 || f.errorAt > f.okAt || f.mutatedAt > f.okAt
+
+/**
+ * Whether to show the stale banner (gating uses snapshotIsStale immediately): only once a
+ * reload has actually failed, or the reload after mutation `slowFor` has taken over 2 s.
+ */
+export const staleBannerVisible = (f: Freshness, slowFor: number): boolean =>
+  f.okAt > 0 && (f.errorAt > f.okAt || (f.mutatedAt > f.okAt && slowFor === f.mutatedAt))
 
 // ---------- HTTP ----------
 export class ApiError extends Error {
