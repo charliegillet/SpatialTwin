@@ -6,6 +6,7 @@ extract/loop/sfm lanes; those are imported lazily inside ``run_cli``.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -33,7 +34,7 @@ class AnswerKey(BaseModel):
 
 
 class BenchmarkScore(BaseModel):
-    mode: str = ""
+    mode: str
     door_precision: float
     door_recall: float
     door_f1: float
@@ -59,7 +60,8 @@ def _distance(door: Door, t_s: float, tol: float) -> float | None:
     return best
 
 
-def score(graph: VenueGraph, key: AnswerKey, tolerance_s: float = 2.0) -> BenchmarkScore:
+def score(graph: VenueGraph, key: AnswerKey, tolerance_s: float = 2.0,
+          mode: str = "unlabelled") -> BenchmarkScore:
     cands: list[tuple[float, str, int]] = []
     for door in graph.doors:
         for i, kd in enumerate(key.doors):
@@ -94,7 +96,7 @@ def score(graph: VenueGraph, key: AnswerKey, tolerance_s: float = 2.0) -> Benchm
         if key.doors[i].measured_width_m is not None
     ]
     return BenchmarkScore(
-        door_precision=precision, door_recall=recall, door_f1=f1, exit_recall=exit_recall,
+        mode=mode, door_precision=precision, door_recall=recall, door_f1=f1, exit_recall=exit_recall,
         width_mae_m=sum(errs) / len(errs) if errs else None, matched=matched,
     )
 
@@ -107,7 +109,27 @@ def mode_label(mode: str, agentic_observed: bool | None) -> str:
     return mode
 
 
-def run_cli(args: argparse.Namespace) -> int:
+def _validate_modes(raw: str) -> list[str]:
+    modes = [m.strip() for m in raw.split(",") if m.strip()]
+    if not modes:
+        raise SystemExit("--modes is empty")
+    bad = [m for m in modes if m not in ALL_MODES]
+    if bad:
+        raise SystemExit(f"unknown mode(s) {bad!r}; choose from {', '.join(ALL_MODES)}")
+    return modes
+
+
+def _geometry_summary(iterations: list[Any]) -> dict[str, Any]:
+    last = iterations[-1] if iterations else None
+    geo = getattr(last, "geometry", None) if last is not None else None
+    if geo is None:
+        return {"available": False, "reason": "no measured geometry on the final iteration",
+                "final_illegal_crossings": None}
+    return {"available": True, "reason": None,
+            "final_illegal_crossings": len(geo.illegal_crossings)}
+
+
+async def run_cli_async(args: argparse.Namespace) -> int:
     # Lazy imports: these modules are owned by other lanes.
     from walktwin import extract as extract_mod
     from walktwin import loop as loop_mod
@@ -115,11 +137,13 @@ def run_cli(args: argparse.Namespace) -> int:
     from walktwin.genai_client import make_client
     from walktwin.media import prepare_video
 
+    modes = _validate_modes(args.modes)
     bench_dir = Path(args.venue)
     venue = bench_dir.name
     key = AnswerKey.model_validate_json((bench_dir / "answer_key.json").read_text())
     raw = Path(args.video) if args.video else bench_dir / "walkthrough.mp4"
     out_root = Path(args.out)
+    out_root.mkdir(parents=True, exist_ok=True)
     work = out_root / "work" / venue
     video = prepare_video(raw, work)
     if video.sha256 != key.video_sha256:
@@ -131,50 +155,80 @@ def run_cli(args: argparse.Namespace) -> int:
     receipts_dir.mkdir(parents=True, exist_ok=True)
     rows: list[dict[str, Any]] = []
     extractions: dict[str, Any] = {}
+    out = out_root / f"{venue}.json"
 
-    def save_receipt(mode: str, receipt: Any) -> str | None:
+    def save_receipt(name: str, receipt: Any) -> str | None:
         if receipt is None:
             return None
-        path = receipts_dir / f"{venue}_{mode}.json"
+        path = receipts_dir / f"{venue}_{name}.json"
         data = receipt.model_dump(mode="json") if hasattr(receipt, "model_dump") else receipt
         path.write_text(json.dumps(data, indent=2))
         return str(path)
 
-    for mode in [m.strip() for m in args.modes.split(",") if m.strip()]:
-        if mode not in ALL_MODES:
-            raise SystemExit(f"unknown mode {mode!r}")
-        if mode == "agentic_loop":
-            base = extractions.get("agentic") or extract_mod.extract_venue(
-                client, video, mode="agentic", deadline_s=args.deadline_s)
-            extractions["agentic"] = base
-            sfm = sfm_mod.run_sfm(video, work / "sfm")
-            alignment = sfm_mod.fit_alignment(sfm, base.graph)
-            graph, iterations = loop_mod.refine_graph(
-                client, base.graph, video, base, sfm=sfm, alignment=alignment,
-                base_url=args.base_url, deadline_s=args.deadline_s)
-            s = score(graph, key, args.tolerance_s)
-            last = iterations[-1] if iterations else None
-            crossings = len(last.geometry.illegal_crossings) if last else None
-            s = s.model_copy(update={"final_illegal_crossings": crossings,
-                                     "agentic_observed": base.agentic_observed})
-            receipt_path = save_receipt(mode, base.receipt)
-        else:
-            res = extractions.get(mode) or extract_mod.extract_venue(
+    def flush() -> None:
+        out.write_text(json.dumps({"venue": venue, "source": key.source, "rows": rows}, indent=2))
+
+    async def extraction_for(mode: str) -> Any:
+        if mode not in extractions:
+            extractions[mode] = await extract_mod.extract_venue(
                 client, video, mode=mode, deadline_s=args.deadline_s)
-            extractions[mode] = res
-            s = score(res.graph, key, args.tolerance_s)
+        return extractions[mode]
+
+    for mode in modes:
+        base_mode = "agentic" if mode == "agentic_loop" else mode
+        res = await extraction_for(base_mode)
+        if res.graph is None:
+            rows.append({"mode": mode, "score": None, "geometry": None, "receipt": None,
+                         "error": f"extraction {res.status}: {res.error}"})
+            print(f"{mode}: extraction {res.status} ({res.error}); not scored")
+            flush()
+            continue
+
+        geometry: dict[str, Any] | None = None
+        receipt_note: str | None = None
+        if mode == "agentic_loop":
+            sfm = sfm_mod.run_sfm(video, work / "sfm")
+            alignment = None
+            reason = None
+            if sfm.status != "completed":
+                reason = f"sfm {sfm.status}: {sfm.error}"
+            else:
+                try:
+                    alignment = sfm_mod.fit_alignment(sfm, res.graph)
+                except Exception as exc:  # noqa: BLE001 - recorded, not hidden
+                    reason = f"alignment failed: {exc}"
+            use_geo = alignment is not None
+            graph, iterations = await loop_mod.refine_graph(
+                client, res.graph, video, res, sfm=sfm if use_geo else None,
+                alignment=alignment, base_url=args.base_url, deadline_s=args.deadline_s)
+            geometry = _geometry_summary(iterations)
+            if reason is not None:
+                geometry = {"available": False, "reason": reason, "final_illegal_crossings": None}
+            s = score(graph, key, args.tolerance_s, mode=mode)
+            s = s.model_copy(update={
+                "final_illegal_crossings": geometry["final_illegal_crossings"],
+                "agentic_observed": res.agentic_observed})
+            receipt_path = save_receipt("agentic_loop_base_extraction", res.receipt)
+            receipt_note = "receipt of the agentic extraction the loop started from"
+        else:
+            s = score(res.graph, key, args.tolerance_s, mode=mode)
             s = s.model_copy(update={
                 "agentic_observed": res.agentic_observed if mode == "agentic" else None})
             receipt_path = save_receipt(mode, res.receipt)
         label = mode_label(mode, s.agentic_observed)
-        rows.append({"score": s.model_copy(update={"mode": label}).model_dump(mode="json"),
-                     "receipt": receipt_path})
+        rows.append({"mode": mode, "score": s.model_copy(update={"mode": label}).model_dump(mode="json"),
+                     "geometry": geometry, "receipt": receipt_path,
+                     "receipt_note": receipt_note, "error": None})
         print(f"{label}: F1={s.door_f1:.2f} P={s.door_precision:.2f} R={s.door_recall:.2f}")
+        flush()
 
-    out = out_root / f"{venue}.json"
-    out.write_text(json.dumps({"venue": venue, "source": key.source, "rows": rows}, indent=2))
+    flush()
     print(f"wrote {out}")
     return 0
+
+
+def run_cli(args: argparse.Namespace) -> int:
+    return asyncio.run(run_cli_async(args))
 
 
 def main(argv: list[str] | None = None) -> int:

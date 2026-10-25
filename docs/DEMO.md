@@ -2,7 +2,7 @@
 
 No slides. Three beats, each ends on one state change the judge sees. Every number said aloud comes from a CLI output (`runtime/bench/<venue>.json`, the session report); none is typed in advance.
 
-Wording rules: say "reach a modeled exit in 120 s", "Argon proposed", "geometry measured", "checker verified", "you approved". Held-out frames are "held out from the critique's frame pairs". The banned-word list is in the lane copy rules.
+Wording rules: say "reach a modeled exit in 120 s", "Argon proposed", "geometry measured", "checker verified", "you approved". Held-out frames are "held out from the critique's frame pairs". Banned words (never in our copy; if the agent writes one, it is shown as the agent's unedited words, flagged): "safe", "compliant", "survive", "evacuated".
 
 ## Script
 
@@ -14,7 +14,7 @@ Wording rules: say "reach a modeled exit in 120 s", "Argon proposed", "geometry 
 
 ### Closing 10 seconds
 
-Show the judge's own clip result, or its measured stage time stated honestly: "this takes about `<N>` minutes; here is the run from `<HH:MM>`" (N from the rehearsal table below, HH:MM from the saved run's timestamp). The ADA rows, the report and the benchmark table stay in the drawer for Q&A.
+Show the judge's own clip result, or its measured stage time stated honestly: "this takes about `<N>` minutes; here is the run from `<HH:MM>`" (N from the rehearsal table below, HH:MM from the saved run's timestamp; the UI shows "saved run · started HH:MM"). The ADA rows, the report and the benchmark table stay in the drawer for Q&A.
 
 ## Q&A, one sentence per lens
 
@@ -29,14 +29,15 @@ Show the judge's own clip result, or its measured stage time stated honestly: "t
 Needs a human with a Gemini key. Nothing here is pre-filled.
 
 - [ ] `GEMINI_API_KEY` set in `.env` (see `.env.example`).
-- [ ] `python tools/probe.py all`, then open `runtime/probes/*.json` and record:
+- [ ] `PYTHONPATH=backend /Users/charlie/hackathons/walktwin/.venv/bin/python tools/probe.py all --clip runtime/probe_clip.mp4`, then open `runtime/probes/*.json` and record:
   - [ ] every receipt exists and has `ok: true` (note any `refused: true`)
   - [ ] agentic video observed: ___ (yes / no, and time to first token ___ s)
   - [ ] repeated video URI accepted: ___ (yes / no). If no, use inline base64 for clips under 20 MB and skip zoom parts.
   - [ ] gates that failed and the fallback chosen: ________
 - [ ] `cd frontend && npm ci && npm run build` (the server mounts `frontend/dist`; headless renders need it).
-- [ ] Start the server from the repo root: `PYTHONPATH=backend .venv/bin/uvicorn walktwin.api:app --host 0.0.0.0 --port 8000`
+- [ ] Start the server from the repo root: `PYTHONPATH=backend uvicorn walktwin.api:app --host 0.0.0.0 --port 8000` (project virtualenv)
 - [ ] Laptop IP: ___ . Phone opens `http://<laptop-ip>:8000`. If venue Wi-Fi blocks it (client isolation), use a personal hotspot, or AirDrop/USB the clip and upload it.
+- [ ] Run the server on a personal hotspot, not shared Wi-Fi. The server has no auth, so anyone on the same Wi-Fi can use the Gemini key through it.
 - [ ] One app tab only, window sized for the projector, notifications off.
 - [ ] Saved live SHACK15 session prepared (see below) and its timestamp is visible on screen.
 
