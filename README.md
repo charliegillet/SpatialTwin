@@ -1,4 +1,4 @@
-# RoomLab
+# SpatialTwin
 
 Turn a short translated room walkthrough into an **estimated, editable 3D room**. Inspect the source frames, correct furniture position/rotation/dimensions, calibrate against a measured reference, and save/export the versioned scene.
 
@@ -24,7 +24,7 @@ Open **http://127.0.0.1:8001**. For UI development, `cd frontend && npm run dev`
 ## Use
 
 1. Upload an MP4, WebM or MOV, at most 10 minutes and 1 GiB. Walk with overlapping viewpoints; a stationary pan has less geometric information.
-2. RoomLab decodes the actual video and stores up to 48 timestamped evidence frames across its duration locally. Start extraction to make a direct `gemini-4-argon` request. Native video is included up to 20 MiB; larger clips use the timestamped frames with an explicit sampling warning. A missing key or provider error is shown; it never substitutes a canned room.
+2. SpatialTwin decodes the actual video and stores up to 48 timestamped evidence frames across its duration locally. Start extraction to make a direct `gemini-4-argon` request. Native video is included up to 20 MiB; larger clips use the timestamped frames with an explicit sampling warning. A missing key or provider error is shown; it never substitutes a canned room.
 3. Inspect the estimated shell and objects in orbit/top views. Select furniture to move, rotate or resize it; source frames remain available for comparison. Numeric editing also works independently of pointer interaction.
 4. Save before calibration. Select a wall/object dimension and supply its actual measured length. An optional held-out measurement reports a residual without participating in the scale fit. Calibrating one dimension does not confirm the rest of the geometry.
 5. Save/export your JSON. Reloading retains server-side scenes; importing JSON creates a new scene identity. Scene edits and long-running results carry revisions so stale changes can be rejected.
@@ -155,3 +155,57 @@ Ten-minute uploads retain up to 200 source frames, approximately one every three
 seconds. Sampling can miss brief events. Longer video support does not turn this
 single-level estimated scene editor into measured whole-building reconstruction:
 unconnected rooms/floors and uncertain cross-segment alignment require review.
+
+## Detailed reconstruction and geometry evidence
+
+In **Source**, choose **Detailed** before creating a room. The server decodes a
+bounded 2 fps candidate pool, selects up to 96 sharp views across the timeline with
+perceptual duplicate filtering, attempts CPU COLMAP camera/point reconstruction,
+and asks Gemini for an editable semantic draft. Stairs, doors, glass and uncertain
+items receive additional source views around their timestamps (quarter-second
+spacing, up to 48 detail frames, at up to 1600 px). A second model pass reinspects
+those views and several wider views. It is rejected if it adds validation errors
+or removes existing architecture/furniture. Topology review flags are preserved.
+This is estimated source reinspection, not a proven accuracy increase. Initial and
+refined drafts and diagnostics are saved under the ignored media runtime folder.
+
+**Check footage** reports image-quality heuristics; a temporal coverage ratio is
+not the percentage of room surfaces observed. **Reconstruct cameras** runs an
+isolated, cancellable COLMAP CPU process. **Inspect 3D evidence** shows its largest
+connected sparse component and camera positions. Geometry jobs/results survive
+reloads; interrupted jobs become retryable. Reprojection error is in image pixels,
+not a dimensional error in meters. More frames can help matching but cannot resolve
+invisible, reflective or textureless surfaces reliably.
+
+For a geometry-backed editable proposal, select at least three actual floor
+landmarks in perimeter order, supply the measured first-edge length, confirm one
+floor level/no drop-offs, and create a **separate floor proposal**. Non-coplanar or
+crossing outlines are rejected. Wall height is an explicit estimate. After that,
+select at least four object landmarks including sides/top and use **Fit furniture**
+to create a separate OBB proposal in the same measured coordinate frame. Missing
+surfaces may exceed fitted bounds; the displayed margin is a heuristic. A review
+flag remains until the user resolves topology, openings and missing furniture.
+No convex-hull floor, walking-speed scale, gravity, or automatic alignment between
+Gemini's room and the sparse cloud is assumed. This implementation is sparse SfM
+plus editable primitives, not a dense textured mesh or Gaussian splat.
+
+**Import RoomPlan JSON** accepts a single-level CapturedRoom export with rigid
+column-major transforms and a closed wall outline. It imports dimensioned walls,
+attached openings and object boxes as sensor estimates, with a topology review
+flag and no fabricated video evidence or calibration. USDZ, curved/nonuniform walls,
+multiple stories, disconnected rooms and conflicting floor boundaries are rejected
+for explicit conversion. Native device capture itself is not part of the web app.
+The importer has fixture/API coverage; a real device export is still needed to
+verify compatibility with the particular iOS/exporter version being used.
+
+In **Analysis → Check actual dimensions**, enter independent measured dimensions.
+The app reports per-reference error, MAE and maximum error; the API additionally
+provides RMSE, angular checks and object-center distances. The scale-fitting anchor
+is excluded from validation statistics. Reports survive reloads and recompute against
+the current revision without changing geometry. Do not use example furniture sizes
+as measured validation data.
+
+References: [COLMAP capture guidance](https://colmap.github.io/tutorial),
+[PyCOLMAP](https://colmap.github.io/pycolmap/index.html),
+[Gemini video processing](https://ai.google.dev/gemini-api/docs/video-understanding.md),
+[Apple RoomPlan](https://developer.apple.com/augmented-reality/roomplan/).

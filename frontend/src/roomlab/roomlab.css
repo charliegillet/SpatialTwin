@@ -1540,3 +1540,10 @@ input[type="range"] {
 
 .rl-stage-caption .rl-canvas-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rl-stage-caption > span:last-child { flex-shrink: 0; }
+
+.rl-geometry-cloud { position: absolute; inset: 0; z-index: 30; background: #f5f6f2; border-radius: inherit; overflow: hidden; }
+.rl-geometry-cloud-header { position: absolute; top: 20px; left: 24px; right: 24px; z-index: 2; display: flex; justify-content: space-between; gap: 16px; pointer-events: none; }
+.rl-geometry-cloud-header button { pointer-events: auto; align-self: start; }
+.rl-geometry-cloud-header p, .rl-geometry-cloud-footer { color: #677168; font-size: 11px; }
+.rl-geometry-cloud-footer { position: absolute; bottom: 14px; left: 24px; right: 24px; pointer-events: none; }
+.rl-point-label { background: white; padding: 3px 6px; border-radius: 5px; font-size: 11px; white-space: nowrap; }

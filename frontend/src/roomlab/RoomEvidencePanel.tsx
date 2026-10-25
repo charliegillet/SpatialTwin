@@ -37,7 +37,9 @@ export const RoomEvidencePanel: React.FC<RoomEvidencePanelProps> = ({
   onExtractRoom,
   onCancelJob,
 }) => {
-  const frames: EvidenceFrame[] = media?.frames ?? scene?.evidence_frames ?? [];
+  const frames: EvidenceFrame[] = scene?.evidence_frames?.length &&
+    (!media || scene.evidence_frames[0].media_id === media.media_id)
+    ? scene.evidence_frames : media?.frames ?? [];
   const highlightedSet = new Set(selectedFrameIds);
   const activeFrame = frames.find((f) => f.frame_id === activeFrameId) ?? null;
 

@@ -40,8 +40,8 @@ export const uploadVideo = (file: File) => {
 };
 export const getMedia = (id: string) =>
   request<MediaRecord>("/media/" + encodeURIComponent(id));
-export const extractRoom = (media_id: string) =>
-  request<JobRecord>("/extractions", json({ media_id }));
+export const extractRoom = (media_id: string, quality: "balanced" | "high" = "high") =>
+  request<JobRecord>("/extractions", json({ media_id, quality }));
 export const getJob = (id: string) =>
   request<JobRecord>("/jobs/" + encodeURIComponent(id));
 export const cancelJob = (id: string) =>
@@ -107,3 +107,25 @@ export const proposeOverlapRepair = (
   );
 
 export const getRoomLibrary = () => request<import('./contracts.generated').RoomLibrary>('/rooms');
+
+export type CaptureQuality = {
+  selected_frame_ids: string[];
+  rejected_frame_ids: Record<string,string>;
+  coverage_ratio: number;
+  low_sharpness_count: number;
+  duplicate_skipped_count: number;
+  exposure_flagged_count: number;
+  notes: string[];
+};
+export const analyzeCapture = (id: string) => request<CaptureQuality>(`/media/${encodeURIComponent(id)}/quality`,json({}));
+export const startGeometry = (id: string) => request<import('./contracts.generated').GeometryJob>(`/media/${encodeURIComponent(id)}/geometry`,json({}));
+export const getGeometry = (id: string) => request<import('./contracts.generated').GeometryJob>(`/geometry-jobs/${encodeURIComponent(id)}`);
+export const cancelGeometry = (id: string) => request<import('./contracts.generated').GeometryJob>(`/geometry-jobs/${encodeURIComponent(id)}`,{method:'DELETE'});
+export const fitGeometryFloor = (id: string, body: import('./contracts.generated').GeometryFloorRequest) => request<RoomSceneV1>(`/geometry-jobs/${encodeURIComponent(id)}/floor`,json(body));
+export const importRoomPlan = (body: unknown) => request<RoomSceneV1>('/imports/roomplan',json(body));
+export const getAccuracy = (id: string) => request<Record<string,unknown>>(`/scenes/${encodeURIComponent(id)}/accuracy`);
+export const checkAccuracy = (id: string,body: unknown) => request<Record<string,unknown>>(`/scenes/${encodeURIComponent(id)}/accuracy`,json(body));
+
+export const getSavedCapture = (id: string) => request<CaptureQuality>(`/media/${encodeURIComponent(id)}/quality`);
+export const getLatestGeometry = (id: string) => request<import('./contracts.generated').GeometryJob>(`/media/${encodeURIComponent(id)}/geometry`);
+export const fitGeometryObject = (id: string,body: import('./contracts.generated').GeometryObjectRequest) => request<RoomSceneV1>(`/geometry-jobs/${encodeURIComponent(id)}/object`,json(body));

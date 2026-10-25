@@ -14,6 +14,7 @@ from .reachability import solve
 from .optimizer import optimize
 from .overlap_repair import repair_overlaps
 from .critique_service import CritiqueService,receipt
+from .accuracy import AccuracyRequest,report_for_scene,evaluate
 
 ROOT=Path(__file__).resolve().parents[3]
 from .media import MAX_MEDIA_BYTES,MAX_DURATION_S
@@ -26,6 +27,8 @@ def create_app(runtime:Path|None=None)->FastAPI:
     journal=ExtractionJournal(runtime/'extraction-jobs')
     store=SceneStore(runtime/'scenes');jobs=journal.load();tasks={};limit=asyncio.Semaphore(1)
     critic=CritiqueService(store,media_root)
+    from .fidelity_api import fidelity_router
+    fidelity,close_fidelity=fidelity_router(runtime,store)
     @asynccontextmanager
     async def lifespan(_app):
         for previous in jobs.values():
@@ -33,6 +36,7 @@ def create_app(runtime:Path|None=None)->FastAPI:
                 previous.status='failed';previous.error='Room building stopped when the server restarted. Retry this walkthrough.';journal.save(previous)
         yield
         await critic.close()
+        await close_fidelity()
         pending=[task for task in tasks.values() if not task.done()]
         for task in pending:task.cancel()
         if pending:await asyncio.gather(*pending,return_exceptions=True)
@@ -98,14 +102,33 @@ def create_app(runtime:Path|None=None)->FastAPI:
         try:return MediaRecord.model_validate_json((media_root/id/'record.json').read_text())
         except (ValueError,FileNotFoundError):raise HTTPException(404,'Media not found.')
 
-    async def extract_job(job:JobRecord,media:MediaRecord):
+    async def extract_job(job:JobRecord,media:MediaRecord,quality:str):
         try:
             async with limit:
                 job.status='running';journal.save(job)
                 from .video_extractor import propose_room,extraction_timeout_s
                 extractor=app.state.extractor or propose_room
-                result=await asyncio.wait_for(extractor(media,media_root,api_key=os.environ.get('GEMINI_API_KEY')),timeout=extraction_timeout_s(media.duration_s))
+                fidelity_report=None
+                if quality=='high' and app.state.extractor is None:
+                    from .fidelity_pipeline import high_fidelity_room
+                    result,media,fidelity_report=await asyncio.wait_for(
+                        high_fidelity_room(media,media_root,api_key=os.environ.get('GEMINI_API_KEY')),
+                        timeout=min(10800,extraction_timeout_s(media.duration_s)+2280))
+                else:
+                    result=await asyncio.wait_for(extractor(media,media_root,api_key=os.environ.get('GEMINI_API_KEY')),timeout=extraction_timeout_s(media.duration_s))
+                from .contracts import Wall
+                pending=RoomSceneV1(**result.draft.model_dump(),scene_id='pending',evidence_frames=media.frames)
+                if not pending.walls:pending.walls=[Wall(id=f'wall-{i+1}',start=p,end=pending.floor[(i+1)%len(pending.floor)]) for i,p in enumerate(pending.floor)]
+                draft_report=validate_scene(pending)
+                errors=[i.model_dump() for i in draft_report.issues if i.severity=='error']
+                if errors:
+                    result.draft.topology_review_required=True
+                    if fidelity_report is not None:fidelity_report['geometry_errors']=errors
                 scene=store.create(result.draft,media.frames)
+                if fidelity_report is not None:
+                    from .fidelity_pipeline import atomic_json
+                    fidelity_report['extraction_revision']=scene.scene_revision
+                    atomic_json(runtime/'fidelity-scenes'/(scene.scene_id+'.json'),fidelity_report)
                 job.scene_id=scene.scene_id;job.model=result.model;job.latency_ms=result.latency_ms;job.warnings=result.warnings
                 report=validate_scene(scene)
                 job.warnings += [x.message for x in report.issues]
@@ -129,7 +152,7 @@ def create_app(runtime:Path|None=None)->FastAPI:
         if active:return active
         if sum(j.status in ('queued','running') for j in jobs.values())>=3:raise HTTPException(429,'Extraction queue is full. Wait or cancel a pending job.')
         job=JobRecord(job_id='job-'+uuid.uuid4().hex,status='queued',media_id=request.media_id);jobs[job.job_id]=job;journal.save(job)
-        tasks[job.job_id]=asyncio.create_task(extract_job(job,media));return job
+        tasks[job.job_id]=asyncio.create_task(extract_job(job,media,request.quality));return job
 
     @app.get('/api/roomlab/jobs/{id}',response_model=JobRecord)
     def job(id:str):
@@ -222,6 +245,24 @@ def create_app(runtime:Path|None=None)->FastAPI:
         scene=get_scene(id)
         if scene.scene_revision!=request.expected_revision:raise ConflictError('Scene revision changed. Reload before proposing repair.')
         return await asyncio.to_thread(repair_overlaps,scene,request)
+
+    app.include_router(fidelity)
+    from .fidelity_pipeline import atomic_json
+
+    @app.get('/api/roomlab/scenes/{id}/accuracy')
+    def accuracy_report(id:str):
+        try:return report_for_scene(get_scene(id),runtime)
+        except ValueError:raise HTTPException(422,'A saved measurement references an element removed from this room.')
+
+    @app.post('/api/roomlab/scenes/{id}/accuracy')
+    def check_accuracy(id:str,request:AccuracyRequest):
+        with store.lock:
+            scene=get_scene(id)
+            if scene.scene_revision!=request.expected_revision:raise ConflictError('Scene changed. Reload before checking measurements.')
+            try:result=evaluate(scene,request.references)
+            except ValueError as exc:raise HTTPException(422,str(exc))
+            atomic_json(runtime/'accuracy-checks'/(scene.scene_id+'.json'),dict(scene_revision=scene.scene_revision,geometry_hash=result['geometry_hash'],references=[r.model_dump() for r in request.references]))
+            return report_for_scene(scene,runtime)
 
     app.mount('/media',StaticFiles(directory=media_root),name='media')
     dist=ROOT/'frontend/dist'

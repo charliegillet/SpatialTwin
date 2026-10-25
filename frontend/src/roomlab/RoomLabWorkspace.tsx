@@ -50,8 +50,11 @@ import {
   type SelectionTarget,
   type ViewMode,
 } from "./editorState";
+import { GeometryCapturePanel, type GeometryPreview } from "./GeometryCapturePanel";
+import { GeometryCloud } from "./GeometryCloud";
 import { MyRooms } from "./MyRooms";
 import { OverlapRepairPanel } from "./OverlapRepairPanel";
+import { AccuracyPanel } from "./AccuracyPanel";
 import { VisualReviewPanel } from "./VisualReviewPanel";
 import type { RepairResult } from "./contracts.generated";
 import { RoomToolbar, RoomCanvasTools } from "./RoomToolbar";
@@ -70,6 +73,9 @@ export default function RoomLabWorkspace() {
     createInitialHistory(null),
   );
 
+  const [geometryPreview, setGeometryPreview] = useState<GeometryPreview | null>(null);
+  const [geometrySelected, setGeometrySelected] = useState<number[]>([]);
+  const showGeometry = useCallback((value: GeometryPreview | null) => { setGeometryPreview(value); setGeometrySelected([]); }, []);
   const [libraryOpen, setLibraryOpen] = useState(true);
   const [openingRoom, setOpeningRoom] = useState(false);
   const [startingRoom, setStartingRoom] = useState(false);
@@ -107,6 +113,7 @@ export default function RoomLabWorkspace() {
   const [repairResult, setRepairResult] = useState<RepairResult | null>(null);
   const [isRepairing, setRepairing] = useState(false);
 
+  const [extractionQuality, setExtractionQuality] = useState<"balanced" | "high">("high");
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
@@ -120,6 +127,7 @@ export default function RoomLabWorkspace() {
   const pollTimerRef = useRef<number | null>(null);
   const analysisEpoch = useRef(0);
   const scene = history.present;
+  useEffect(() => { showGeometry(null); }, [scene?.scene_id, showGeometry]);
   useEffect(() => {
     if (!scene || !selectedTarget) return;
     const items =
@@ -335,7 +343,7 @@ export default function RoomLabWorkspace() {
     setBannerError(null);
     try {
       const record = await getMedia(entry.media_id);
-      const started = await extractRoom(entry.media_id);
+      const started = await extractRoom(entry.media_id, extractionQuality);
       if (token !== navigationEpoch.current) return;
       setMedia(record);
       followJob.current = { id: started.job_id, epoch: token };
@@ -406,7 +414,7 @@ export default function RoomLabWorkspace() {
     setBannerInfo(null);
     setIsExtracting(true);
     try {
-      const startedJob = await extractRoom(media.media_id);
+      const startedJob = await extractRoom(media.media_id, extractionQuality);
       followJob.current = {
         id: startedJob.job_id,
         epoch: navigationEpoch.current,
@@ -810,6 +818,21 @@ export default function RoomLabWorkspace() {
                 aria-labelledby="tab-source"
                 hidden={sidebarTab !== "source"}
               >
+                <label className="rl-field">
+                  <span>Reconstruction quality</span>
+                  <select value={extractionQuality} disabled={isExtracting}
+                    onChange={e => setExtractionQuality(e.target.value as "high" | "balanced")}>
+                    <option value="high">Detailed · quality sampling, camera tracking &amp; reinspection</option>
+                    <option value="balanced">Quick · estimated layout</option>
+                  </select>
+                  <small>Detailed takes longer. Tracking can fail on glass, blur or stationary pans; measurements still establish scale.</small>
+                </label>
+                <details className="rl-notes-box">
+                  <summary>Record a better walkthrough</summary>
+                  <p>Walk slowly with overlapping views. Move around furniture rather than only turning in place. Show both sides of doors and glass, the foot and top of stairs, and revisit your starting view. Keep lighting steady and avoid zooming.</p>
+                  <p>Measure one reference to set scale, then different dimensions and object separations to check accuracy. A longer recording helps when it adds new viewpoints.</p>
+                </details>
+                <GeometryCapturePanel media={media} scene={scene} onSelectPoints={setGeometrySelected} dirty={history.dirty} selected={geometrySelected} preview={geometryPreview} onPreview={showGeometry} onScene={value => { if (requireCleanRoom()) applyNewAuthoritativeScene(value, "Imported geometry proposal; review dimensions and topology."); }} />
                 <RoomEvidencePanel
                   media={media}
                   job={job}
@@ -928,6 +951,7 @@ export default function RoomLabWorkspace() {
                   onApply={applyCandidate}
                   onDiscard={() => setRepairResult(null)}
                 />
+                <AccuracyPanel scene={scene} dirty={history.dirty} />
                 <VisualReviewPanel
                   scene={scene}
                   dirty={history.dirty}
@@ -1030,6 +1054,7 @@ export default function RoomLabWorkspace() {
               clearAnalysisOverlays();
             }}
           />
+          {geometryPreview && <GeometryCloud report={geometryPreview.report} selected={geometrySelected} onSelect={id => setGeometrySelected(old => old.includes(id) ? old.filter(i => i !== id) : [...old, id].slice(0,40))} onClose={() => showGeometry(null)} />}
           <div className="rl-stage-footer">
             <span>
               {scene

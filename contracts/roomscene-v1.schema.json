@@ -899,7 +899,7 @@
         "type": "string"
       },
       "latency_ms": {
-        "maximum": 600000,
+        "maximum": 10800000,
         "minimum": 0,
         "title": "Latency Ms",
         "type": "number"
@@ -1339,6 +1339,15 @@
     "properties": {
       "media_id": {
         "title": "Media Id",
+        "type": "string"
+      },
+      "quality": {
+        "default": "high",
+        "enum": [
+          "balanced",
+          "high"
+        ],
+        "title": "Quality",
         "type": "string"
       }
     },
@@ -2123,6 +2132,298 @@
       "total_count"
     ],
     "title": "RoomLibrary",
+    "type": "object"
+  },
+  "GeometryPoint": {
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "title": "Id",
+        "type": "integer"
+      },
+      "xyz": {
+        "items": {
+          "type": "number"
+        },
+        "maxItems": 3,
+        "minItems": 3,
+        "title": "Xyz",
+        "type": "array"
+      },
+      "rgb": {
+        "items": {
+          "type": "integer"
+        },
+        "maxItems": 3,
+        "minItems": 3,
+        "title": "Rgb",
+        "type": "array"
+      },
+      "error_px": {
+        "maximum": 1000,
+        "minimum": 0,
+        "title": "Error Px",
+        "type": "number"
+      }
+    },
+    "required": [
+      "id",
+      "xyz",
+      "rgb",
+      "error_px"
+    ],
+    "title": "GeometryPoint",
+    "type": "object"
+  },
+  "GeometryCamera": {
+    "additionalProperties": false,
+    "properties": {
+      "frame_id": {
+        "title": "Frame Id",
+        "type": "string"
+      },
+      "center": {
+        "items": {
+          "type": "number"
+        },
+        "maxItems": 3,
+        "minItems": 3,
+        "title": "Center",
+        "type": "array"
+      }
+    },
+    "required": [
+      "frame_id",
+      "center"
+    ],
+    "title": "GeometryCamera",
+    "type": "object"
+  },
+  "GeometryReport": {
+    "additionalProperties": false,
+    "properties": {
+      "media_id": {
+        "title": "Media Id",
+        "type": "string"
+      },
+      "source_sha256": {
+        "title": "Source Sha256",
+        "type": "string"
+      },
+      "engine": {
+        "title": "Engine",
+        "type": "string"
+      },
+      "units": {
+        "const": "arbitrary",
+        "default": "arbitrary",
+        "title": "Units",
+        "type": "string"
+      },
+      "registered_frames": {
+        "title": "Registered Frames",
+        "type": "integer"
+      },
+      "selected_frames": {
+        "title": "Selected Frames",
+        "type": "integer"
+      },
+      "component_count": {
+        "title": "Component Count",
+        "type": "integer"
+      },
+      "mean_reprojection_error_px": {
+        "maximum": 1000,
+        "minimum": 0,
+        "title": "Mean Reprojection Error Px",
+        "type": "number"
+      },
+      "points": {
+        "items": {
+          "$ref": "#/$defs/GeometryPoint"
+        },
+        "title": "Points",
+        "type": "array"
+      },
+      "cameras": {
+        "items": {
+          "$ref": "#/$defs/GeometryCamera"
+        },
+        "title": "Cameras",
+        "type": "array"
+      },
+      "warnings": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Warnings",
+        "type": "array"
+      }
+    },
+    "required": [
+      "media_id",
+      "source_sha256",
+      "engine",
+      "registered_frames",
+      "selected_frames",
+      "component_count",
+      "mean_reprojection_error_px",
+      "points",
+      "cameras",
+      "warnings"
+    ],
+    "title": "GeometryReport",
+    "type": "object"
+  },
+  "GeometryJob": {
+    "additionalProperties": false,
+    "properties": {
+      "job_id": {
+        "title": "Job Id",
+        "type": "string"
+      },
+      "media_id": {
+        "title": "Media Id",
+        "type": "string"
+      },
+      "status": {
+        "enum": [
+          "queued",
+          "running",
+          "completed",
+          "failed",
+          "cancelled"
+        ],
+        "title": "Status",
+        "type": "string"
+      },
+      "error": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Error"
+      },
+      "report": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/GeometryReport"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      }
+    },
+    "required": [
+      "job_id",
+      "media_id",
+      "status"
+    ],
+    "title": "GeometryJob",
+    "type": "object"
+  },
+  "GeometryFloorRequest": {
+    "additionalProperties": false,
+    "properties": {
+      "point_ids": {
+        "items": {
+          "type": "integer"
+        },
+        "maxItems": 40,
+        "minItems": 3,
+        "title": "Point Ids",
+        "type": "array"
+      },
+      "first_edge_measured_m": {
+        "exclusiveMinimum": 0,
+        "maximum": 1000,
+        "title": "First Edge Measured M",
+        "type": "number"
+      },
+      "wall_height_m": {
+        "default": 2.7,
+        "exclusiveMinimum": 0,
+        "maximum": 1000,
+        "title": "Wall Height M",
+        "type": "number"
+      },
+      "measurement_confirmed": {
+        "default": false,
+        "title": "Measurement Confirmed",
+        "type": "boolean"
+      },
+      "topology_confirmed": {
+        "default": false,
+        "title": "Topology Confirmed",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "point_ids",
+      "first_edge_measured_m"
+    ],
+    "title": "GeometryFloorRequest",
+    "type": "object"
+  },
+  "GeometryObjectRequest": {
+    "additionalProperties": false,
+    "properties": {
+      "scene_id": {
+        "title": "Scene Id",
+        "type": "string"
+      },
+      "expected_revision": {
+        "minimum": 1,
+        "title": "Expected Revision",
+        "type": "integer"
+      },
+      "point_ids": {
+        "items": {
+          "type": "integer"
+        },
+        "maxItems": 40,
+        "minItems": 4,
+        "title": "Point Ids",
+        "type": "array"
+      },
+      "label": {
+        "maxLength": 160,
+        "minLength": 1,
+        "title": "Label",
+        "type": "string"
+      },
+      "category": {
+        "default": "furniture",
+        "maxLength": 80,
+        "minLength": 1,
+        "title": "Category",
+        "type": "string"
+      },
+      "movable": {
+        "default": true,
+        "title": "Movable",
+        "type": "boolean"
+      },
+      "floor_supported_confirmed": {
+        "default": false,
+        "title": "Floor Supported Confirmed",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "scene_id",
+      "expected_revision",
+      "point_ids",
+      "label"
+    ],
+    "title": "GeometryObjectRequest",
     "type": "object"
   }
 }

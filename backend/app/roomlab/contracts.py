@@ -130,7 +130,7 @@ class RoomDraftResult(Contract):
     draft: RoomDraft
     model: str = 'gemini-4-argon'
     provenance: Literal['live'] = 'live'
-    latency_ms: Annotated[float, Field(ge=0, le=600000, allow_inf_nan=False)]
+    latency_ms: Annotated[float, Field(ge=0, le=10_800_000, allow_inf_nan=False)]
     warnings: list[str] = Field(default_factory=list)
 
 class ValidationIssue(Contract):
@@ -189,6 +189,7 @@ class OptimizeResult(Contract):
 
 class ExtractRequest(Contract):
     media_id: str
+    quality: Literal['balanced','high'] = 'high'
 
 class JobRecord(Contract):
     job_id: str
@@ -311,3 +312,49 @@ class RoomSubmission(Contract):
 class RoomLibrary(Contract):
     items: list[RoomSubmission]
     total_count: int
+
+class GeometryPoint(Contract):
+    id: int
+    xyz: Annotated[list[Finite],Field(min_length=3,max_length=3)]
+    rgb: Annotated[list[int],Field(min_length=3,max_length=3)]
+    error_px: Nonnegative
+
+class GeometryCamera(Contract):
+    frame_id: str
+    center: Annotated[list[Finite],Field(min_length=3,max_length=3)]
+
+class GeometryReport(Contract):
+    media_id: str
+    source_sha256: str
+    engine: str
+    units: Literal['arbitrary'] = 'arbitrary'
+    registered_frames: int
+    selected_frames: int
+    component_count: int
+    mean_reprojection_error_px: Nonnegative
+    points: list[GeometryPoint]
+    cameras: list[GeometryCamera]
+    warnings: list[str]
+
+class GeometryJob(Contract):
+    job_id: str
+    media_id: str
+    status: Literal['queued','running','completed','failed','cancelled']
+    error: str | None = None
+    report: GeometryReport | None = None
+
+class GeometryFloorRequest(Contract):
+    point_ids: Annotated[list[int],Field(min_length=3,max_length=40)]
+    first_edge_measured_m: Positive
+    wall_height_m: Positive = 2.7
+    measurement_confirmed: bool = False
+    topology_confirmed: bool = False
+
+class GeometryObjectRequest(Contract):
+    scene_id: str
+    expected_revision: int = Field(ge=1)
+    point_ids: Annotated[list[int],Field(min_length=4,max_length=40)]
+    label: str = Field(min_length=1,max_length=160)
+    category: str = Field(default='furniture',min_length=1,max_length=80)
+    movable: bool = True
+    floor_supported_confirmed: bool = False

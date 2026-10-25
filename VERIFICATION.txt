@@ -383,3 +383,42 @@ Adaptive extraction verification (2026-10-25, side conversation):
 - No claim of live Gemini verification on a ten-minute walkthrough: its provider
   orchestration was exercised with an explicit offline client; real video decoding
   and API persistence were exercised with a generated ten-minute test clip.
+
+2026-10-25 FIDELITY PASS
+- Added quality-aware 2fps candidate decoding (bounded1200), up to96 selected views,
+  targeted quarter-second detail reinspection up to1600px, and strict complete-JSON
+  handling. Automatic camera tracking now uses the same isolated geometry worker
+  as explicit reconstruction; source/catalog-matched completed results can be reused.
+- Real demo2 direct COLMAP run on72 selected views:37 registered,3161 sparse points,
+  3 components, mean reprojection error0.69px. Explicit browser->API reconstruction
+  on96 selected views:96 registered,9375 filtered points,1 component,0.73px.
+  More registered views here demonstrate coverage improvement, not metric accuracy.
+- Live detailed job-e2206769977e4e3186e2df784c33a91a completed193.91s, saved
+  scene-b76d6333a6404450bb0b3dfa230ca491 with107 evidence frames (96 selected+11
+  targeted views),17 objects. Its first automatic tracking pass used the earlier
+  72-view implementation (34 registered,2149 points,4 components); later unified
+  worker/cache integration was verified against the actual96-view result separately.
+- This candidate has a descending stair/atrium footprint conflict and overlaps.
+  No accurate reconstruction claim is made. Live Argon BEV/source critique confirmed
+  that unresolved stair landing, curved balustrade and furniture spacing need evidence.
+- A server refresh interrupted another user demo2 job; its upload was preserved and
+  job-693164b12c6e40d19da6aadc7213f93e was restarted, completed207.47s and saved
+  scene-1dea385cc8364ac186052354d3bc2af5. Restart helper now defers on active extractions.
+- Browser tested: quality analysis, geometry job queued->completed, sparse viewer,
+  and persisted geometry recovery after server restart. Screenshot:
+  runtime/roomlab/fidelity-camera-cloud.png. Original lobby revision3 preserved.
+- Geometry floor/object fitting tests cover measured scaling, plane residual,
+  crossing outlines, missing points, source freshness, separate proposals and
+  floor-frame OBB size/height. RoomPlan fixture tests cover canonical wall order,
+  zero-thickness surfaces, invalid rigid transforms, multilevel/open/curved rooms.
+  No real LiDAR capture/export was supplied; device compatibility is unverified.
+- Independent accuracy API tests exclude the fitted anchor and wrap angle residuals.
+  Isolated QA browser fixture (not a real scan) entered2.8m for a3.0m wall, received
+  MAE/max error0.200m and restored it after reload. No fictitious measurements were
+  applied to actual scenes. Screenshot: runtime/roomlab/fidelity-measurement-qa.png.
+- Refiner tests reject dropped architecture and preserve unresolved topology.
+  Metric geometry and complete scene coverage remain dependent on actual measurements
+  and user-reviewed landmarks. No automatic gravity, floor or metric scale inferred.
+- Final automated checks:85 backend tests passed (one dependency deprecation warning),
+  13 frontend tests passed. TypeScript/Vite production build passed; existing large
+  bundle warning remains. No physical measurements were fabricated for demo2.
