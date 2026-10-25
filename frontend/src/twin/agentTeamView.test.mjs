@@ -31,6 +31,15 @@ test('claim rows show agent claimed vs checker verified, with mismatches flagged
   assert.equal(claimsLine(verification), '1 of 2 sandbox claims reproduced by the local checker');
 });
 
+test('per-claim provenance: only numbers that came out of sandbox code are labelled sandbox', () => {
+  const verification = { verified: 2, total: 2, source: 'sandbox', sandbox_matched: 1, mismatches: [], checks: [
+    check({ provenance: 'sandbox' }), check({ index: 1, scenario: 'stuck_closed:D2', provenance: 'agent' }),
+  ] };
+  const rows = claimRows(verification);
+  assert.deepEqual(rows.map(row => row.sandboxEstimate), [true, false]);
+  assert.equal(claimsLine(verification), '2 of 2 claims reproduced by the local checker (1 computed in the sandbox)');
+});
+
 test('without a full check list only the named mismatches become rows; the line still counts every claim', () => {
   const verification = { verified: 3, total: 4, source: 'agent', mismatches: [check({ scenario: 'jam:D2@0.50', reproduced: false, claimed_completed_crossings: 20, local_completed_crossings: 15, reason: 'crossings_mismatch' })] };
   const rows = claimRows(verification);

@@ -40,6 +40,7 @@ export const CLAIM_REASONS: Record<string, string> = {
   candidate_hash_mismatch: 'The claim was about a different door state than the one recommended.',
   scenario_unrecognized: 'The scenario was not one the checker understands.',
   unknown_fault_door: 'The scenario named a door that does not exist.',
+  local_plan_invalid: 'The checker rejected that door state, so its number does not count.',
 };
 export const claimReasonCopy = (reason: string | null | undefined): string => reason ? CLAIM_REASONS[reason] ?? 'The checker could not reproduce this claim.' : '';
 
@@ -58,6 +59,8 @@ export const FOLLOWUP_PARENT_FINISHING = 'parent_finishing';
 export function followupError(status: number, code: string): string {
   if (status === 404) return 'The earlier run is no longer available. Ask the agent team again.';
   if (status === 409 && code === FOLLOWUP_PARENT_FINISHING) return 'The earlier agent is still wrapping up. Retrying…';
+  if (status === 409 && code === 'parent_geometry_changed') return 'The venue changed since this investigation. Ask the agent team again.';
+  if (status === 409 && code === 'followup_in_progress') return 'A follow-up is already running in this sandbox. Try again in a few seconds.';
   if (status === 409) return 'The agent team is still working. Ask the follow-up when it finishes.';
   if (status === 429) return 'An agent team is already working. Try again in a moment.';
   if (status === 403) return 'Local runs are disabled on this server.';

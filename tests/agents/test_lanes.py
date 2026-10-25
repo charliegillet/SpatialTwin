@@ -101,7 +101,12 @@ async def test_two_live_lanes_run_in_parallel_and_compose(service, venue, evalua
     strategist, robustness = result.lanes["strategist"], result.lanes["robustness"]
     assert strategist["effective"] == robustness["effective"] == "live"
     assert robustness["recommended_door_states"] == ROBUST and robustness["fallback_if_jammed"] == FALLBACK
-    assert robustness["verification"] == {"verified": 5, "total": 5, "source": "sandbox", "mismatches": []}
+    # The fake sandbox ran code, but its output carries none of the claimed crossing counts: lane-level "sandbox"
+    # (code ran), per-claim "agent" (see test_review_fixes for the per-claim cases).
+    assert {k: v for k, v in robustness["verification"].items() if k != "checks"} == {
+        "verified": 5, "total": 5, "source": "sandbox", "sandbox_matched": 0, "mismatches": []}
+    assert len(robustness["verification"]["checks"]) == 5
+    assert all(check["reproduced"] for check in robustness["verification"]["checks"])
     assert robustness["recommended_ties_checked_best"] is True and robustness["agrees_with_checker"] is False
     assert "Both give 125 modeled crossings" in robustness["agreement_note"]
     assert robustness["stream"]["used"] and robustness["stream"]["steps"] == 4
