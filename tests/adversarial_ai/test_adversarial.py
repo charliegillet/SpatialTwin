@@ -63,6 +63,40 @@ def test_adversarial_duplicate_idempotency_rejected(state_manager):
     assert "Duplicate idempotency key" in err or "Stale scenario revision" in err
 
 
+def test_clear_blockage_restores_nominal_flow(state_manager):
+    """
+    Verify that clearing a blockage unblocks the target, advances scenario revision,
+    and restores nominal flow conservation.
+    """
+    from backend.app.contracts import ClearBlockageCommand
+    rev = state_manager.get_current_context().scenario_revision
+
+    # Block P2
+    cmd_block = ApplyBlockageCommand(
+        scenario_id="facility-demo",
+        expected_scenario_revision=rev,
+        idempotency_key=f"block-{uuid.uuid4()}",
+        target_type=EntityType.PORTAL,
+        target_id=TargetId.P2,
+    )
+    s1, _, env1 = state_manager.apply_blockage(cmd_block)
+    assert s1
+    assert "P2" in state_manager.blocked_portals
+
+    # Clear P2
+    cmd_clear = ClearBlockageCommand(
+        scenario_id="facility-demo",
+        expected_scenario_revision=rev + 1,
+        idempotency_key=f"clear-{uuid.uuid4()}",
+        target_type=EntityType.PORTAL,
+        target_id=TargetId.P2,
+    )
+    s2, _, env2 = state_manager.clear_blockage(cmd_clear)
+    assert s2
+    assert "P2" not in state_manager.blocked_portals
+    assert env2.completed_crossings == 120  # All 120 safely evacuated in nominal baseline!
+
+
 @pytest.mark.asyncio
 async def test_adversarial_command_ack_does_not_commit_open_state():
     """

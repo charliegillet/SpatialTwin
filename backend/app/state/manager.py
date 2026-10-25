@@ -13,6 +13,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional, Set, Tuple
 from backend.app.contracts import (
     AlternativeId,
     ApplyBlockageCommand,
+    ClearBlockageCommand,
     ComputationStatus,
     EntityType,
     EvaluationEnvelope,
@@ -174,6 +175,47 @@ class StateManager:
         envelope = self._solve_and_publish_current()
 
         # 7. Broadcast update
+        self.broadcast_event("scenario_updated", self.get_current_snapshot())
+
+        return True, None, envelope
+
+    def clear_blockage(self, cmd: ClearBlockageCommand) -> Tuple[bool, Optional[str], Optional[EvaluationEnvelope]]:
+        if cmd.expected_scenario_revision != self.context.scenario_revision:
+            return (
+                False,
+                f"Stale scenario revision: expected {cmd.expected_scenario_revision}, current {self.context.scenario_revision}",
+                None,
+            )
+
+        pair = (cmd.target_type.value, cmd.target_id.value)
+        if pair not in SUPPORTED_TARGET_PAIRS:
+            return False, f"Target {pair} is not in allowlisted stage targets {SUPPORTED_TARGET_PAIRS}", None
+
+        saved = self.store.save_event(
+            scenario_id=cmd.scenario_id,
+            scenario_revision=self.context.scenario_revision,
+            event_type="CLEAR_BLOCKAGE",
+            payload=cmd.model_dump(),
+            idempotency_key=cmd.idempotency_key,
+            created_at_iso=self._now_iso(),
+        )
+        if not saved:
+            return False, f"Duplicate idempotency key rejected: {cmd.idempotency_key}", None
+
+        if cmd.target_type == EntityType.PORTAL:
+            self.blocked_portals.discard(cmd.target_id.value)
+        else:
+            self.blocked_boundaries.discard(cmd.target_id.value)
+
+        self.context = RunContext(
+            geometry_revision=self.context.geometry_revision,
+            scenario_revision=self.context.scenario_revision + 1,
+            physical_revision=self.context.physical_revision,
+            parameters_revision=self.context.parameters_revision,
+            solver_version=self.context.solver_version,
+        )
+
+        envelope = self._solve_and_publish_current()
         self.broadcast_event("scenario_updated", self.get_current_snapshot())
 
         return True, None, envelope

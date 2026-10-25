@@ -289,6 +289,14 @@ class ApplyBlockageCommand(BaseModel):
     source: Literal["grounding_proposal", "manual_override", "replay"] = "grounding_proposal"
 
 
+class ClearBlockageCommand(BaseModel):
+    scenario_id: str = "facility-demo"
+    expected_scenario_revision: int
+    idempotency_key: str
+    target_type: EntityType
+    target_id: TargetId
+
+
 class ResetScenarioCommand(BaseModel):
     scenario_id: str = "facility-demo"
     expected_scenario_revision: int

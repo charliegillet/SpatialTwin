@@ -35,6 +35,21 @@ export async function sendCommand(
   return res.json();
 }
 
+export async function clearBlockage(
+  scenarioId: string,
+  expectedRevision: number,
+  targetType: 'portal' | 'boundary',
+  targetId: 'P1' | 'P2' | 'B2'
+): Promise<any> {
+  return sendCommand(scenarioId, {
+    type: 'CLEAR_BLOCKAGE',
+    expected_scenario_revision: expectedRevision,
+    idempotency_key: `clear-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+    target_type: targetType,
+    target_id: targetId,
+  });
+}
+
 export async function interpretGrounding(
   scenarioId: string,
   options: {

@@ -24,6 +24,7 @@ from backend.app.contracts import (
     AlternativeId,
     ApplyBlockageCommand,
     Capture,
+    ClearBlockageCommand,
     EntityType,
     GateTarget,
     OperatorPhysicalApprovalCommand,
@@ -106,6 +107,24 @@ async def handle_command(scenario_id: str, payload: Dict[str, Any]) -> Dict[str,
         await hardware_bridge.update_display()
         return {
             "status": "applied",
+            "snapshot": state_manager.get_current_snapshot(),
+            "plan": envelope.model_dump() if envelope else None,
+        }
+
+    elif cmd_type == "CLEAR_BLOCKAGE":
+        cmd = ClearBlockageCommand(
+            scenario_id=scenario_id,
+            expected_scenario_revision=payload.get("expected_scenario_revision", 1),
+            idempotency_key=payload.get("idempotency_key", f"clear-{os.urandom(4).hex()}"),
+            target_type=EntityType(payload.get("target_type", "portal")),
+            target_id=TargetId(payload.get("target_id", "P2")),
+        )
+        success, err, envelope = state_manager.clear_blockage(cmd)
+        if not success:
+            raise HTTPException(status_code=400, detail=err)
+        await hardware_bridge.update_display()
+        return {
+            "status": "cleared",
             "snapshot": state_manager.get_current_snapshot(),
             "plan": envelope.model_dump() if envelope else None,
         }
