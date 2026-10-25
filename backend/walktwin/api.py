@@ -18,9 +18,7 @@ Run from the repo root::
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import inspect
-import json
 import logging
 import math
 import os
@@ -141,35 +139,10 @@ def _default_score_geometry(graph: VenueGraph, sfm: dict, alignment: dict,
     return score_geometry(graph, s, _alignment_obj(alignment), video=video, heldout_t_s=heldout)
 
 
-def _alignment_hash(params: dict) -> str:
-    # Same recipe as walktwin.sfm._alignment_hash (asserted by test_api).
-    def r(x):
-        if isinstance(x, bool):
-            return x
-        if isinstance(x, (list, tuple)):
-            return [r(v) for v in x]
-        return round(float(x), 4) + 0.0
-    data = {k: r(v) for k, v in params.items()}
-    return hashlib.sha256(json.dumps(data, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-
-
 def _scale_alignment(alignment: dict, f: float) -> dict:
-    """D3: the alignment for a graph scaled by ``f`` about the origin (apply_anchor).
-
-    TODO(F4 merge): replace with ``to_jsonable(sfm.scale_alignment(_alignment_obj(a), f))``;
-    this private copy has the same math and the same hash recipe.
-    """
-    reflected = bool(alignment.get("_reflected", False))
-    params = {
-        "scale": alignment["scale"] * f, "yaw_rad": alignment["yaw_rad"],
-        "tx": alignment["tx"] * f, "ty": alignment["ty"] * f,
-        "floor_normal": [float(v) for v in alignment["floor_normal"]],
-        "floor_offset": alignment["floor_offset"],
-        "residual_m": alignment["residual_m"] * f,
-        "eye_height_m": alignment["eye_height_m"] * f,
-    }
-    return {**params, "hash": _alignment_hash({**params, "reflected": reflected}),
-            "_reflected": reflected}
+    """D3: the alignment for a graph scaled by ``f`` about the origin (apply_anchor)."""
+    from .sfm import scale_alignment
+    return to_jsonable(scale_alignment(_alignment_obj(alignment), f))
 
 
 async def _default_extract(client, video, *, mode, deadline_s, anchor_hint=None):

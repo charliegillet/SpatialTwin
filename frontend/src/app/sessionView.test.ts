@@ -57,7 +57,8 @@ describe('session start and the saved-run badge (I8)', () => {
 
 describe('server-owned anchor (C2, D2)', () => {
   it('reads pending_anchor, falling back to anchor on old data', () => {
-    expect(pendingAnchor(snap())).toBeNull()
+    expect(pendingAnchor(snap())).toMatchObject({ door_id: 'D1', measured_width_m: 1.75 })
+    expect(pendingAnchor(snap((r) => { r.pending_anchor = null }))).toBeNull()
     expect(pendingAnchor(snap((r) => { r.pending_anchor = { door_id: 'D4', measured_width_m: 0.91 } }))?.door_id).toBe('D4')
     expect(pendingAnchor(snap((r) => { delete r.pending_anchor; r.anchor = { door_id: 'D1', measured_width_m: 1.7 } }))?.door_id).toBe('D1')
   })
@@ -81,8 +82,11 @@ describe('server-owned anchor (C2, D2)', () => {
     expect(anchorStatus(s)).toMatchObject({ state: 'not_applied' })
     expect(anchorStatus(s)!.text).toMatch(/not applied/)
   })
+  it('is applied in the generated session: the tape-measured door took the accepted graph', () => {
+    expect(anchorStatus(snap())).toMatchObject({ door_id: 'D1', state: 'applied' })
+  })
   it('is null without any anchor', () => {
-    expect(anchorStatus(snap())).toBeNull()
+    expect(anchorStatus(snap((r) => { r.pending_anchor = null; r.accepted_graph.anchor = null }))).toBeNull()
   })
 })
 
@@ -90,7 +94,7 @@ describe('hero figure (M9)', () => {
   const s = snap()
   const run = s.current_run!
   it('shows the figure for a checked run', () => {
-    expect(heroState(s, run, false)).toMatchObject({ figure: '95 of 130 reach a modeled exit in 120 s · checked', tag: 'checker verified', checked: true })
+    expect(heroState(s, run, false)).toMatchObject({ figure: '73 of 130 reach a modeled exit in 120 s · checked', tag: 'checker verified', checked: true })
   })
   it('withholds the figure when the check failed', () => {
     const f = snap((r) => { r.current_check.ok = false; r.current_check.violations = ['conservation'] })

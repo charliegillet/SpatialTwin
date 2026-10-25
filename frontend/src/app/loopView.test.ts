@@ -84,16 +84,18 @@ describe('geometry choices for past flashes (I2)', () => {
     const s = snap()
     const cs = geometryChoices(s, s.accepted_revision!)
     expect(cs.map((c) => c.label)).toEqual(['Before the loop', 'Round 1', 'Round 2', 'Accepted graph'])
-    expect(cs.map((c) => c.current)).toEqual([false, false, true, true])
+    // the anchor rescaled the accepted graph, so only the accepted row is this revision
+    expect(cs.map((c) => c.current)).toEqual([false, false, false, true])
     expect(pickGeometry(cs, null)!.label).toBe('Accepted graph')
     expect(pickGeometry(cs, '0')!.geometry.illegal_crossings).toHaveLength(5)
     expect(pickGeometry(cs, 'gone')!.label).toBe('Accepted graph')
     expect(pickGeometry(geometryChoices(s, null), null)).toBeNull()
   })
-  it('flags rows measured under another alignment', () => {
+  it('flags rows measured under another alignment: the anchor moved the frame', () => {
     const s = snap()
-    const anchored = { ...s, alignment: { ...s.alignment!, hash: 'a-anchored' } }
-    expect(geometryChoices(anchored, null).every((c) => c.otherFrame)).toBe(true)
-    expect(geometryChoices(s, null).some((c) => c.otherFrame)).toBe(false)
+    // rounds were scored unanchored; only the accepted row used the anchored alignment
+    expect(geometryChoices(s, null).map((c) => c.otherFrame)).toEqual([true, true, true, false])
+    const unanchored = { ...s, alignment: { ...s.alignment!, hash: 'a-fixture' } }  // the unanchored fit's hash
+    expect(geometryChoices(unanchored, null).map((c) => c.otherFrame)).toEqual([false, false, false, true])
   })
 })

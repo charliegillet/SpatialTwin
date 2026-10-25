@@ -26,6 +26,7 @@ from walktwin.agent import (Investigation, InterventionResult, LedgerEntry, Reco
                             allowed_interventions, limiting_doors)
 from walktwin.api import Services, get_services
 from walktwin.checker import check_run
+from walktwin.critique import CritiqueResult
 from walktwin.contracts import FlowParams, Scenario, VenueGraph
 from walktwin.extract import ExtractionResult
 from walktwin.flow import solve
@@ -117,19 +118,54 @@ class Offline:
             return [*out, RenderedView(t_s=None, path=top, kind="top")]
 
         held = [5.5, 20.5, 33.0, 44.5]
-        c = [Crossing(11.0, 3.0, 5.4, "Z1.west"), Crossing(31.0, 15.0, 2.6, "Z1.east"),
+        c = [Crossing(2.0, 9.0, 0.2, "Z1.south"), Crossing(11.0, 3.0, 5.4, "Z1.west"),
+             Crossing(24.0, 8.0, 4.0, "Z4.north"), Crossing(31.0, 15.0, 2.6, "Z1.east"),
              Crossing(46.5, 6.0, 8.0, "Z1.north")]
+        crit1 = CritiqueResult.model_validate({
+            "status": "completed", "interaction_id": "int-critique-1", "receipt": None, "error": None,
+            "discrepancies": [
+                {"t_s": 2.0, "element_id": "Z1", "description": "The hall's south wall in the video sits further out than the render."},
+                {"t_s": 11.5, "element_id": None, "description": "The walker steps through the west wall of the hall; the video shows an opening there."},
+                {"t_s": 24.0, "element_id": "Z4", "description": "Chairs and tables are visible in the green room; the twin has it empty."},
+                {"t_s": 31.0, "element_id": "D3", "description": "D3 appears to be propped open."},
+                {"t_s": 47.0, "element_id": "D9", "description": "A narrow door near the north corridor is not in the twin."}],
+            "ops": [
+                {"op": "update_zone", "id": "Z4", "furniture_seen": True, "cite_t_s": 24.0,
+                 "reason": "Furniture visible in the green room at 0:24."},
+                {"op": "update_door", "id": "D3", "state": "open", "cite_t_s": 31.0,
+                 "reason": "Door held open in the frame at 0:31."},
+                {"op": "update_door", "id": "D9", "state": "closed", "cite_t_s": 47.0,
+                 "reason": "Narrow door near the north corridor."}],
+            "dropped_ops": [[3, "add_door.door.position: Field required"]]})
+        crit2 = CritiqueResult.model_validate({
+            "status": "completed", "interaction_id": "int-critique-2", "receipt": None, "error": None,
+            "discrepancies": [{"t_s": 38.0, "element_id": "D4", "description": "D4 looks narrower than the twin's estimate."}],
+            "ops": [
+                {"op": "update_door", "id": "D4", "clear_width": {"low_m": 0.95, "high_m": 1.0, "basis": "estimated"},
+                 "cite_t_s": 38.0, "reason": "Frame at 0:38 shows a single-leaf door."},
+                {"op": "remove_door", "id": "D6", "cite_t_s": 50.0, "reason": "No door visible at the north end."}],
+            "dropped_ops": []})
         its = [
+            Iteration(index=0, graph_revision=graph.revision, discrepancy_count=0, applied=[],
+                      rejected=[], findings=check_graph(graph, DURATION_S),
+                      geometry=GeometryScore("a-fixture", c, 0.52, 0.41, 9.8, 0.31, held),
+                      renders=renders("r0"), receipt=None, stop_reason=None, kind="baseline"),
             Iteration(index=1, graph_revision=g1.revision, discrepancy_count=5, applied=[0, 1],
                       rejected=[(2, "unknown id D9")], findings=check_graph(g1, DURATION_S),
-                      geometry=GeometryScore("a-fixture", c, 0.61, 0.29, 7.4, 0.48, held),
-                      renders=renders("r1"), receipt=None, stop_reason=None),
+                      geometry=GeometryScore("a-fixture", c[1:4], 0.61, 0.29, 7.4, 0.48, held),
+                      renders=renders("r1"), receipt=None, stop_reason=None, critique=crit1),
             Iteration(index=2, graph_revision=g2.revision, discrepancy_count=1, applied=[0],
                       rejected=[(1, "measured_regression")], findings=check_graph(g2, DURATION_S),
-                      geometry=GeometryScore("a-fixture", c[2:], 0.74, 0.16, 4.1, 0.63, held),
-                      renders=renders("r2"), receipt=None, stop_reason="max_iterations"),
+                      geometry=GeometryScore("a-fixture", c[4:], 0.74, 0.16, 4.1, 0.63, held),
+                      renders=renders("r2"), receipt=None, stop_reason="max_iterations", critique=crit2),
         ]
         return g2, its
+
+    @staticmethod
+    def score_geometry(graph: VenueGraph, sfm: dict, alignment: dict, video: PreparedVideo) -> GeometryScore:
+        """The accepted graph rescored under the accepted-frame alignment (no real video to decode)."""
+        c = [Crossing(46.5, 6.0, 8.0, "Z1.north")]
+        return GeometryScore(alignment["hash"], c, 0.78, 0.14, 3.6, 0.66, [5.5, 20.5, 33.0, 44.5])
 
     async def prepare_environment(self, client) -> str:
         return "env-fixture"
@@ -189,7 +225,7 @@ def _generate(tmp_path: Path) -> dict:
     services = Services(
         runtime_root=tmp_path / "runtime", base_url="http://127.0.0.1:9",
         make_client=lambda: object(), prepare_video=off.prepare_video, run_sfm=off.run_sfm,
-        fit_alignment=off.fit_alignment, to_graph_xy=off.to_graph_xy, extract=off.extract,
+        fit_alignment=off.fit_alignment, score_geometry=off.score_geometry, to_graph_xy=off.to_graph_xy, extract=off.extract,
         refine=off.refine, prepare_environment=off.prepare_environment,
         investigate=off.investigate, render_topdown=off.render_topdown)
     services.store.new_id = staticmethod(lambda: FIXED_ID)  # stable ids in the fixture
@@ -215,10 +251,18 @@ def _generate(tmp_path: Path) -> dict:
             s = wait(lambda s: s["draft_revision"] and idle(s))
             r = c.post(f"/api/sessions/{FIXED_ID}/refine", json={"expected_revision": s["draft_revision"]})
             assert r.status_code == 202, r.text
-            s = wait(lambda s: len(s["iterations"]) == 2 and idle(s))
+            s = wait(lambda s: len(s["iterations"]) == 3 and idle(s))
+            assert [it["kind"] for it in s["iterations"]] == ["baseline", "round", "round"]
+            # a tape-measured door (server-owned anchor) before accept: the accepted
+            # iteration and the anchored alignment must appear in the snapshot
+            r = c.post(f"/api/sessions/{FIXED_ID}/anchor", json={
+                "expected_revision": s["draft_revision"], "door_id": "D1", "measured_width_m": 1.75})
+            assert r.status_code == 200, r.text
+            assert c.get(f"/api/sessions/{FIXED_ID}").json()["pending_anchor"]["door_id"] == "D1"
             r = c.post(f"/api/sessions/{FIXED_ID}/accept", json={"expected_revision": s["draft_revision"]})
             assert r.status_code == 200, r.text
-            s = wait(lambda s: idle(s) and len(s["investigations"]) == 3)
+            # precompute keeps one investigate slot free for judge requests: 2 of the 3
+            s = wait(lambda s: idle(s) and len(s["investigations"]) == 2)
             r = c.post(f"/api/sessions/{FIXED_ID}/scenario", json={
                 "expected_revision": s["accepted_revision"],
                 "hazards": [{"door_id": "D2", "kind": "fire", "from_s": 0}]})
@@ -259,22 +303,14 @@ def _shape(v):
     return type(v).__name__ if not isinstance(v, (int, float)) or isinstance(v, bool) else "number"
 
 
-# Fields from the final-fix lanes (D1-D6) that the committed fixture already carries, by
-# hand, before the backend lanes merge. The controller regenerates the fixture after
-# integration; until then a fresh snapshot may lack them.
-PENDING_FIELDS = {"kind", "critique", "sfm_preview", "pending_anchor", "copy_flags"}
-
-
 def _mismatches(fresh, committed, path="") -> list[str]:
     """Where the committed fixture's shape does not match a fresh snapshot's. A null on
-    either side matches anything (nullable fields), and pending fields may be missing."""
+    either side matches anything (nullable fields)."""
     if fresh == "NoneType" or committed == "NoneType":
         return []
     if isinstance(fresh, dict) and isinstance(committed, dict):
         out = []
         for k in sorted({*fresh, *committed}):
-            if k not in fresh and k in PENDING_FIELDS:
-                continue
             if k not in fresh or k not in committed:
                 out.append(f"{path}.{k}: only in {'committed' if k in committed else 'fresh'}")
                 continue
@@ -290,6 +326,13 @@ def test_frontend_snapshot_fixture(tmp_path):
     assert snap["ready_investigation_id"] is not None
     assert snap["current_check"]["run_id"] == snap["current_run"]["run_id"]
     assert len(snap["ghost_path"]) > 10
+    assert snap["sfm_preview"] and len(snap["sfm_preview"]["points"]) > 10
+    assert [it["kind"] for it in snap["iterations"]] == ["baseline", "round", "round", "accepted"]
+    assert snap["alignment_unanchored"] and snap["alignment"]["hash"] != snap["alignment_unanchored"]["hash"]
+    assert snap["iterations"][-1]["geometry"]["alignment_hash"] == snap["alignment"]["hash"]
+    assert snap["created_at"]
+    rec = next(i["recommendation"] for i in snap["investigations"] if i["recommendation"])
+    assert "copy_flags" in rec
     assert all(r.get("url") for it in snap["iterations"] for r in it["renders"])
     if os.environ.get("WALKTWIN_WRITE_FIXTURE") == "1":
         OUT.parent.mkdir(parents=True, exist_ok=True)
@@ -299,11 +342,11 @@ def test_frontend_snapshot_fixture(tmp_path):
     assert not bad, f"re-run with WALKTWIN_WRITE_FIXTURE=1: {bad[:10]}"
 
 
-def test_shape_check_tolerates_pending_fields_only():
+def test_shape_check_flags_drift_in_either_direction():
     fresh = _shape({"iterations": [{"index": 1, "critique": None}], "x": 1})
-    ok = _shape({"iterations": [{"index": 0, "kind": "baseline", "critique": None},
-                                {"index": 1, "kind": "round", "critique": {"ops": []}}],
-                 "x": 2, "sfm_preview": None})
-    assert _mismatches(fresh, ok) == []
+    same = _shape({"iterations": [{"index": 0, "critique": None},
+                                  {"index": 1, "critique": {"ops": []}}], "x": 2})
+    assert _mismatches(fresh, same) == []
     assert _mismatches(fresh, _shape({"iterations": [], "x": 1, "surprise": 1})) == [".surprise: only in committed"]
+    assert _mismatches(_shape({"x": 1, "new": 1}), _shape({"x": 1})) == [".new: only in fresh"]
     assert _mismatches(fresh, _shape({"iterations": [], "x": "1"})) == [".x: str vs fresh number"]
