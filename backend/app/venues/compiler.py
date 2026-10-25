@@ -236,6 +236,50 @@ def _nearest_segment(point: Tuple[float, float], segments: Sequence[Segment], mi
     return best
 
 
+# Words a posted map prints on every exit (and sometimes on the stair room itself): not a name anyone can tell apart.
+GENERIC_LABELS = frozenset({"", "EXIT", "EXITS", "EMERGENCY EXIT", "FIRE EXIT", "STAIR", "STAIRS", "EXIT STAIR", "STAIRWAY"})
+
+
+def _generic(text: str) -> bool:
+    return text.strip().upper().rstrip(".!") in GENERIC_LABELS
+
+
+def _compass(x: float, y: float, extent: Tuple[float, float]) -> str:
+    """Where a point sits in the building, in thirds: "North-east", "West", "Central"."""
+    width, height = extent
+    ns = "North" if y > height * 2 / 3 else "South" if y < height / 3 else ""
+    ew = "east" if x > width * 2 / 3 else "west" if x < width / 3 else ""
+    return f"{ns}-{ew}" if ns and ew else (ns or ew.capitalize() or "Central")
+
+
+def _name_generic_places(exits: List[dict], rooms: Dict[str, Any], polygons: Dict[str, Any], zone_id: Dict[str, str],
+                         extent: Tuple[float, float], report: CompileReport) -> None:
+    """A map that prints "EXIT" on the stair room leaves exits (and rooms) all called "EXIT", and an announcement
+    would say "use the exit or exit". Such names become compass names from where they sit ("North-east exit stair");
+    a room holding an exit takes that exit's name. Each rename is reported."""
+    used: Dict[str, int] = {}
+
+    def unique(base: str) -> str:
+        used[base] = used.get(base, 0) + 1
+        return base if used[base] == 1 else f"{base} {used[base]}"
+
+    for item in exits:
+        if _generic(item["name"]) or _generic(item["name"].removesuffix(" exit")):
+            noun = {"stair": "exit stair", "window": "escape window"}.get(item.get("kind") or "door", "exit")
+            new = unique(f"{_compass(item['position'][0], item['position'][1], extent)} {noun}")
+            report.edits.append(f"exit {item['id']}: printed name {item['name']!r} is on every exit; named {new!r}")
+            item["name"] = new
+    by_zone = {item["zone"]: item["name"] for item in exits}
+    for key, room in list(rooms.items()):
+        if not _generic(room.name):
+            continue
+        xs = [x for x, _ in polygons[key]]
+        ys = [y for _, y in polygons[key]]
+        new = by_zone.get(zone_id[key]) or unique(f"{_compass((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2, extent)} room")
+        report.edits.append(f"room {key}: printed name {room.name!r} names nothing; called {new!r}")
+        rooms[key] = room.model_copy(update={"name": new})
+
+
 def _place(point: Tuple[float, float], seg: Segment, width: float) -> Tuple[Tuple[float, float], float]:
     """Project ``point`` on ``seg`` and clamp so a gap of ``width`` stays inside; shrinks the width if it cannot fit."""
     axis, at, lo, hi = seg
@@ -681,8 +725,7 @@ def compile_draft(draft: VenueDraftV1, image: SourceImage, *, venue_id: str,
         # Signs label every exit "EXIT"; announcements need to tell them apart, so a bare label names the exit after
         # its room ("North Exit Stair") instead.
         printed = ex.label.strip()
-        generic = printed.upper().rstrip(".!") in ("", "EXIT", "EXITS", "EMERGENCY EXIT", "FIRE EXIT", "STAIR", "STAIRS",
-                                                   "EXIT STAIR", "STAIRWAY")
+        generic = _generic(printed)
         label = printed if not generic else ("Escape window" if window else
                                              room.name if "exit" in room.name.lower() else f"{room.name} exit")
         # "stair" means exactly this: inside its room, not in a wall (graph_checks and the 3D walls rely on it).
@@ -743,6 +786,8 @@ def compile_draft(draft: VenueDraftV1, image: SourceImage, *, venue_id: str,
         led_map[element] = (cursor, cursor + LED_PIXELS_PER_ELEMENT - 1)
         cursor += LED_PIXELS_PER_ELEMENT
 
+    _name_generic_places(venue_exits, rooms, polygons, zone_id, extent, report)
+
     kinds = draft.image_kind.replace("_", " ")
     label = f"{name}: " if name else ""
     text = provenance or (
@@ -768,3 +813,45 @@ def compile_draft(draft: VenueDraftV1, image: SourceImage, *, venue_id: str,
     except (ValidationError, ValueError) as exc:
         return CompileResult(None, report, f"invalid_venue: {str(exc).splitlines()[0][:120]}")
     return CompileResult(venue, report, None)
+
+
+# ---- image frame (read-only; the 3D map underlay, backend/app/venues/underlay.py) ------------------------------
+class ImageFrame:
+    """Image pixels -> venue metres for one compile: the affine above, with the scale that compile actually used.
+
+    ``X = (x_px - origin_x_px) * metres_per_px`` and ``Y = (origin_y_px - y_px) * metres_per_px`` (image y grows
+    down, venue y grows north). Snapping moves each wall by at most a snap tolerance from this map, never more.
+    """
+
+    __slots__ = ("origin_x_px", "origin_y_px", "metres_per_px", "width_px", "height_px")
+
+    def __init__(self, origin_x_px: float, origin_y_px: float, metres_per_px: float, width_px: int, height_px: int):
+        self.origin_x_px = origin_x_px
+        self.origin_y_px = origin_y_px
+        self.metres_per_px = metres_per_px
+        self.width_px = width_px
+        self.height_px = height_px
+
+    def to_m(self, x_px: float, y_px: float) -> Tuple[float, float]:
+        return (x_px - self.origin_x_px) * self.metres_per_px, (self.origin_y_px - y_px) * self.metres_per_px
+
+    def corners_m(self) -> List[Tuple[float, float]]:
+        """The image's top-left, top-right, bottom-right and bottom-left corners in venue metres."""
+        w, h = self.width_px, self.height_px
+        return [self.to_m(0, 0), self.to_m(w, 0), self.to_m(w, h), self.to_m(0, h)]
+
+
+def image_frame(draft: VenueDraftV1, image: SourceImage, *,
+                building_width_m: Optional[float] = None) -> Optional[ImageFrame]:
+    """The pixel -> metre map ``compile_draft(draft, image, building_width_m=...)`` uses, or None without a scale.
+
+    The scale is asked of ``compile_draft`` itself (it is pure and cheap), so this map can never drift from the
+    compiler's own choice between the operator width, the drawn reference and the declared default. The origin is
+    the frame's west and south edges over every drawn box, voids included, exactly as in ``compile_draft``.
+    """
+    result = compile_draft(draft, image, venue_id="image-frame", building_width_m=building_width_m)
+    mpp = result.report.metres_per_px
+    if not mpp or not math.isfinite(mpp) or mpp <= 0:
+        return None
+    frame = _Frame(image, draft)
+    return ImageFrame(frame.minx_px, frame.maxy_px, mpp, image.width_px, image.height_px)

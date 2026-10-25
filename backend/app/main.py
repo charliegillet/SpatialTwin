@@ -46,6 +46,7 @@ from backend.app.signs import build_signs_router, forwarded_from_remote, scoped_
 from backend.app.review.routes import build_review_router
 from backend.app.venues.camera import build_camera_router
 from backend.app.venues.routes import router as venues_router
+from backend.app.venues.underlay import build_underlay_router
 from backend.app.venues.agent import build_door_agent_router
 from backend.app.ai.managed.adapter import ManagedAgentAdapter
 from backend.app.ai.requests import CommandRequest, GateApprovalRequest, GroundingRequest, InvestigationRequest, InvestigationCancellationRequest
@@ -250,6 +251,8 @@ def require_context(value: Any) -> RunContext:
 app.include_router(build_review_router(
     state_manager, lambda: "simulator" if hardware_bridge.is_simulator else "physical_serial"))
 app.include_router(venues_router)
+# The source photo under an accepted venue (loopback only; the venue owner's map never reaches a phone).
+app.include_router(build_underlay_router())
 app.include_router(build_camera_router(grounding_adapter, fixtures_enabled))
 # Real2Sim: Gemini 4 Argon reads a floor plan; a local compiler, graph checks and an operator's Accept make it a venue.
 real2sim_router = build_real2sim_router(grounding_adapter, fixtures_enabled)
