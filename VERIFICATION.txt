@@ -117,3 +117,29 @@ Verification:
   canvas and HTML labels mounted fixed it; repeat transitions and label toggles
   produced no new console errors after the rebuilt asset was loaded.
 - Final screenshot: runtime/roomlab/demo-final-reviewed.png (ignored local artifact).
+
+LIGHT WORKSPACE REDESIGN — 2026-10-25
+
+Implemented a warm light theme guided by the user's supplied MagicPath screenshots:
+one tabbed sidebar (Source, Objects, Scale, Analysis), a larger neutral canvas,
+compact floating tools, restrained green primary actions, and an overflow menu.
+Scene checks and structural layers use disclosure controls. Source evidence and
+measurement limitations remain accessible. Analysis endpoints and uncertainty
+previews appear contextually. The renderer uses neutral materials and a light grid.
+
+Browser checks on the existing real-demo scene, revision 2:
+- Source video and 19 evidence frames restored.
+- Source/Objects/Scale/Analysis tabs work, including arrow-key tab navigation.
+- Adding a chair opens its inspector and activates Save changes; undo removes it
+  and restores Export room. No new geometry edits were persisted to the demo scene.
+- Fixed a stale selected/calibration reference exposed by undoing object creation.
+- Analysis still returns UNSCALED without a measured reference.
+- JSON export downloaded the real scene revision 2; overflow menu exposes import,
+  export, synthetic sample, discard edits and model connection status.
+- Orbit, plan, WebGL-independent fallback and label controls remain functional.
+- 390 x 844 viewport check: page width 385 px with viewport width 390 px, no
+  horizontal overflow. Camera now accounts for narrow viewport aspect ratios.
+- Viewport restored to default after testing. No captured browser console errors.
+- Frontend unit tests: 3 passed. TypeScript and production build passed.
+- Backend behavior was not changed by this redesign; no new provider call was made.
+- Final screenshot: runtime/roomlab/roomlab-light-final.png (ignored local artifact).

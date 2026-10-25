@@ -1,4 +1,4 @@
-import React from 'react';
+import React from "react";
 import {
   Upload,
   Sparkles,
@@ -8,14 +8,21 @@ import {
   Download,
   FolderOpen,
   Compass,
-  Grid,
-  Plus,
+  Grid2X2,
   RotateCcw,
-} from 'lucide-react';
-import type { Config } from './api';
-import type { ViewMode } from './editorState';
+  MoreHorizontal,
+  MousePointer2,
+  Layers3,
+  Armchair,
+  Table2,
+  ChevronDown,
+  ScanLine,
+} from "lucide-react";
+import type { Config } from "./api";
+import type { ViewMode } from "./editorState";
 
 interface RoomToolbarProps {
+  onInspect: () => void;
   config: Config | null;
   sceneName: string;
   sceneRevision: number | null;
@@ -42,194 +49,254 @@ interface RoomToolbarProps {
   onToggleCSpace: () => void;
 }
 
-export const RoomToolbar: React.FC<RoomToolbarProps> = ({
-  config,
-  sceneName,
-  sceneRevision,
-  geometrySource,
-  isConfigured,
-  dirty,
-  canUndo,
-  canRedo,
-  isUploading,
-  isExtracting,
-  isSaving,
-  viewMode,
-  showCSpace,
-  onSelectVideoFile,
-  onUseSampleVideo,
-  onUndo,
-  onRedo,
-  onDiscardEdits,
-  onSaveScene,
-  onExportJson,
-  onImportJsonFile,
-  onAddObject,
-  onChangeViewMode,
-  onToggleCSpace,
-}) => {
-  const videoInputRef = React.useRef<HTMLInputElement>(null);
-  const jsonInputRef = React.useRef<HTMLInputElement>(null);
-
+export const RoomToolbar: React.FC<RoomToolbarProps> = (p) => {
+  const videoRef = React.useRef<HTMLInputElement>(null),
+    jsonRef = React.useRef<HTMLInputElement>(null);
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const menuRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    if (!menuOpen) return;
+    const close = (e: PointerEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node))
+        setMenuOpen(false);
+    };
+    const escape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [menuOpen]);
   return (
-    <header className="rl-toolbar" role="banner">
-      <div className="rl-toolbar-brand">
-        <div className="rl-logo-badge">RL</div>
-        <div>
-          <div className="rl-brand-row">
-            <h1 className="rl-title">RoomLab</h1>
-            <span className={`rl-chip ${isConfigured ? 'rl-chip--ok' : 'rl-chip--warn'}`}>
-              {isConfigured ? `Gemini ready · ${config?.model ?? 'gemini-4-argon'}` : 'Gemini not configured'}
-            </span>
-            {sceneRevision !== null && (
-              <span className="rl-chip">
-                Rev {sceneRevision} · {geometrySource ?? 'model_estimate'}
-              </span>
-            )}
-            {dirty && <span className="rl-chip rl-chip--dirty">Unsaved Local Edits</span>}
+    <>
+      <header className="rl-toolbar" role="banner">
+        <div className="rl-toolbar-brand">
+          <div className="rl-logo-badge">
+            <ScanLine size={23} strokeWidth={1.7} />
           </div>
-          <p className="rl-subtitle">
-            {sceneName || 'Video to Editable 3D Room · Evidence-Linked Draft, Scale Calibration & Clearance'}
-          </p>
+          <div>
+            <h1 className="rl-title">
+              RoomLab <ChevronDown size={13} />
+            </h1>
+            <span className="rl-brand-note">A new perspective.</span>
+          </div>
         </div>
-      </div>
-
-      <div className="rl-toolbar-actions">
-        <input
-          ref={videoInputRef}
-          type="file"
-          accept="video/mp4,video/webm,video/quicktime"
-          style={{ display: 'none' }}
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) onSelectVideoFile(file);
-            e.target.value = '';
-          }}
-        />
-        <button
-          type="button"
-          className="rl-btn rl-btn--primary"
-          disabled={isUploading || isExtracting}
-          onClick={() => videoInputRef.current?.click()}
-        >
-          <Upload size={15} />
-          <span>{isUploading ? 'Decoding Video…' : 'Upload Room Video'}</span>
-        </button>
-
-        {config?.sample_video_url && (
-          <button
-            type="button"
-            className="rl-btn"
-            disabled={isUploading || isExtracting}
-            onClick={onUseSampleVideo}
-            title="Load synthetic sample clip and run live Gemini extraction"
-          >
-            <Sparkles size={15} />
-            <span>Try Synthetic Clip</span>
-          </button>
-        )}
-
-        <div className="rl-divider" />
-
-        <div className="rl-btn-group" role="group" aria-label="View mode">
-          <button
-            type="button"
-            className={`rl-btn ${viewMode === 'orbit' ? 'rl-btn--active' : ''}`}
-            onClick={() => onChangeViewMode('orbit')}
-          >
-            <Compass size={14} />
-            <span>3D Orbit</span>
-          </button>
-          <button
-            type="button"
-            className={`rl-btn ${viewMode === 'top' ? 'rl-btn--active' : ''}`}
-            onClick={() => onChangeViewMode('top')}
-          >
-            <Grid size={14} />
-            <span>Top Plan</span>
-          </button>
-          <button
-            type="button"
-            className={`rl-btn ${showCSpace ? 'rl-btn--active' : ''}`}
-            onClick={onToggleCSpace}
-            title="Toggle 2D Configuration-Space obstacle & path overlay"
-          >
-            <span>C-Space Overlay</span>
-          </button>
+        <div className="rl-document-title">
+          <span>{p.sceneName || "Untitled room"}</span>
+          <small>
+            {p.sceneRevision ? "Revision " + p.sceneRevision : "New workspace"}
+          </small>
         </div>
-
-        <div className="rl-divider" />
-
-        <div className="rl-btn-group" role="group" aria-label="Add object">
-          <button type="button" className="rl-btn" onClick={() => onAddObject('table')} title="Add Table">
-            <Plus size={14} />
-            <span>+ Table</span>
-          </button>
-          <button type="button" className="rl-btn" onClick={() => onAddObject('chair')} title="Add Chair">
-            <span>+ Chair</span>
-          </button>
-        </div>
-
-        <div className="rl-divider" />
-
-        <div className="rl-btn-group" role="group" aria-label="History and persistence">
-          <button type="button" className="rl-btn" disabled={!canUndo} onClick={onUndo} title="Undo edit">
-            <Undo2 size={14} />
-          </button>
-          <button type="button" className="rl-btn" disabled={!canRedo} onClick={onRedo} title="Redo edit">
-            <Redo2 size={14} />
-          </button>
-          {dirty && (
-            <button
-              type="button"
-              className="rl-btn"
-              onClick={onDiscardEdits}
-              title="Revert unsaved local changes to authoritative revision"
-            >
-              <RotateCcw size={14} />
-            </button>
-          )}
-          <button
-            type="button"
-            className={`rl-btn ${dirty ? 'rl-btn--accent' : ''}`}
-            disabled={!dirty || isSaving || sceneRevision === null}
-            onClick={onSaveScene}
-          >
-            <Save size={14} />
-            <span>{isSaving ? 'Saving…' : 'Save Revision'}</span>
-          </button>
-          <button
-            type="button"
-            className="rl-btn"
-            disabled={sceneRevision === null}
-            onClick={onExportJson}
-            title="Export current RoomSceneV1 JSON"
-          >
-            <Download size={14} />
-            <span>Export JSON</span>
-          </button>
+        <div className="rl-toolbar-actions">
           <input
-            ref={jsonInputRef}
+            ref={videoRef}
             type="file"
-            accept="application/json,.json"
-            style={{ display: 'none' }}
+            accept="video/mp4,video/webm,video/quicktime"
+            hidden
             onChange={(e) => {
               const file = e.target.files?.[0];
-              if (file) onImportJsonFile(file);
-              e.target.value = '';
+              if (file) p.onSelectVideoFile(file);
+              e.target.value = "";
             }}
           />
+          <input
+            ref={jsonRef}
+            type="file"
+            accept="application/json,.json"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) p.onImportJsonFile(file);
+              e.target.value = "";
+            }}
+          />
+          <span className="rl-save-state">
+            <span
+              className={`rl-status-dot ${p.dirty ? "rl-status-dot--dirty" : ""}`}
+            />
+            {p.isSaving
+              ? "Saving…"
+              : p.dirty
+                ? "Unsaved"
+                : p.sceneRevision === null
+                  ? "New room"
+                  : "All changes saved"}
+          </span>
           <button
-            type="button"
-            className="rl-btn"
-            onClick={() => jsonInputRef.current?.click()}
-            title="Import a saved RoomSceneV1 JSON file"
+            className="rl-btn rl-upload-button"
+            aria-label="Upload video"
+            disabled={p.isUploading || p.isExtracting}
+            onClick={() => videoRef.current?.click()}
           >
-            <FolderOpen size={14} />
-            <span>Import JSON</span>
+            <Upload size={15} />
+            {p.isUploading ? "Decoding…" : "Upload video"}
           </button>
+          {p.dirty ? (
+            <button
+              className="rl-btn rl-btn--primary"
+              disabled={p.isSaving}
+              onClick={p.onSaveScene}
+            >
+              <Save size={15} />
+              Save changes
+            </button>
+          ) : (
+            <button
+              className="rl-btn rl-btn--primary"
+              disabled={p.sceneRevision === null}
+              onClick={p.onExportJson}
+            >
+              <Download size={15} />
+              Export room
+            </button>
+          )}
+          <div className="rl-overflow-wrap" ref={menuRef}>
+            <button
+              className="rl-icon-btn"
+              aria-label="More actions"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((v) => !v)}
+            >
+              <MoreHorizontal size={20} />
+            </button>
+            {menuOpen && (
+              <div
+                className="rl-overflow-menu"
+                aria-label="More workspace actions"
+              >
+                <span className="rl-menu-label">WORKSPACE</span>
+                <button
+                  onClick={() => {
+                    jsonRef.current?.click();
+                    setMenuOpen(false);
+                  }}
+                >
+                  <FolderOpen size={15} />
+                  Import room JSON
+                </button>
+                <button
+                  disabled={p.sceneRevision === null}
+                  onClick={() => {
+                    p.onExportJson();
+                    setMenuOpen(false);
+                  }}
+                >
+                  <Download size={15} />
+                  Export JSON
+                </button>
+                {p.config?.sample_video_url && (
+                  <button
+                    disabled={p.isUploading || p.isExtracting}
+                    onClick={() => {
+                      p.onUseSampleVideo();
+                      setMenuOpen(false);
+                    }}
+                  >
+                    <Sparkles size={15} />
+                    Try synthetic clip
+                  </button>
+                )}
+                <button
+                  disabled={!p.dirty}
+                  onClick={() => {
+                    p.onDiscardEdits();
+                    setMenuOpen(false);
+                  }}
+                >
+                  <RotateCcw size={15} />
+                  Discard unsaved edits
+                </button>
+                <div className="rl-menu-foot">
+                  <span className="rl-status-dot" />
+                  {p.isConfigured
+                    ? "Gemini connected"
+                    : "Gemini not configured"}
+                  <small>{p.config?.model}</small>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
-    </header>
+      </header>
+      <nav className="rl-floating-tools" aria-label="Canvas tools">
+        <button
+          className="rl-icon-btn"
+          aria-label="Inspect objects"
+          title="Inspect objects"
+          onClick={p.onInspect}
+        >
+          <MousePointer2 size={19} />
+        </button>
+        <span className="rl-tool-separator" />
+        <button
+          className={`rl-icon-btn ${p.viewMode === "orbit" ? "is-active" : ""}`}
+          aria-label="3D Orbit"
+          aria-pressed={p.viewMode === "orbit"}
+          title="3D orbit"
+          onClick={() => p.onChangeViewMode("orbit")}
+        >
+          <Compass size={19} />
+        </button>
+        <button
+          className={`rl-icon-btn ${p.viewMode === "top" ? "is-active" : ""}`}
+          aria-label="Top Plan"
+          aria-pressed={p.viewMode === "top"}
+          title="Top plan"
+          onClick={() => p.onChangeViewMode("top")}
+        >
+          <Grid2X2 size={18} />
+        </button>
+        <button
+          className={`rl-icon-btn ${p.showCSpace ? "is-active" : ""}`}
+          aria-label="Clearance overlay"
+          aria-pressed={p.showCSpace}
+          title="Clearance overlay"
+          onClick={p.onToggleCSpace}
+        >
+          <Layers3 size={19} />
+        </button>
+        <span className="rl-tool-separator" />
+        <button
+          className="rl-icon-btn"
+          aria-label="Add table"
+          title="Add table"
+          disabled={p.sceneRevision === null}
+          onClick={() => p.onAddObject("table")}
+        >
+          <Table2 size={19} />
+        </button>
+        <button
+          className="rl-icon-btn"
+          aria-label="Add chair"
+          title="Add chair"
+          disabled={p.sceneRevision === null}
+          onClick={() => p.onAddObject("chair")}
+        >
+          <Armchair size={19} />
+        </button>
+        <span className="rl-tool-separator" />
+        <button
+          className="rl-icon-btn"
+          aria-label="Undo edit"
+          title="Undo"
+          disabled={!p.canUndo}
+          onClick={p.onUndo}
+        >
+          <Undo2 size={18} />
+        </button>
+        <button
+          className="rl-icon-btn"
+          aria-label="Redo edit"
+          title="Redo"
+          disabled={!p.canRedo}
+          onClick={p.onRedo}
+        >
+          <Redo2 size={18} />
+        </button>
+      </nav>
+    </>
   );
 };

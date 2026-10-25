@@ -1,7 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { Ruler, CheckCircle2, AlertCircle } from 'lucide-react';
-import type { CalibrateRequest, RoomSceneV1 } from './contracts.generated';
-import { deriveWallsFromFloor, wallLengthMeters, type SelectionTarget } from './editorState';
+import React, { useEffect, useState } from "react";
+import { Ruler, CheckCircle2, AlertCircle } from "lucide-react";
+import type { CalibrateRequest, RoomSceneV1 } from "./contracts.generated";
+import {
+  deriveWallsFromFloor,
+  wallLengthMeters,
+  type SelectionTarget,
+} from "./editorState";
 
 interface CalibrationPanelProps {
   scene: RoomSceneV1 | null;
@@ -21,31 +25,39 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({
   const walls = scene ? deriveWallsFromFloor(scene) : [];
   const objects = scene?.objects ?? [];
 
-  const [anchorId, setAnchorId] = useState<string>('');
-  const [dimension, setDimension] = useState<'wall_length' | 'object_width' | 'object_depth'>('wall_length');
-  const [measuredM, setMeasuredM] = useState<string>('3.50');
-  const [toleranceM, setToleranceM] = useState<string>('0.02');
+  const [anchorId, setAnchorId] = useState<string>("");
+  const [dimension, setDimension] = useState<
+    "wall_length" | "object_width" | "object_depth"
+  >("wall_length");
+  const [measuredM, setMeasuredM] = useState<string>("3.50");
+  const [toleranceM, setToleranceM] = useState<string>("0.02");
 
   const [useHoldout, setUseHoldout] = useState<boolean>(false);
-  const [holdoutAnchorId, setHoldoutAnchorId] = useState<string>('');
-  const [holdoutDimension, setHoldoutDimension] = useState<'wall_length' | 'object_width' | 'object_depth'>('object_width');
-  const [holdoutMeasuredM, setHoldoutMeasuredM] = useState<string>('1.40');
+  const [holdoutAnchorId, setHoldoutAnchorId] = useState<string>("");
+  const [holdoutDimension, setHoldoutDimension] = useState<
+    "wall_length" | "object_width" | "object_depth"
+  >("object_width");
+  const [holdoutMeasuredM, setHoldoutMeasuredM] = useState<string>("1.40");
 
   useEffect(() => {
     if (!scene) return;
-    if (selectedTarget?.kind === 'wall') {
+    if (selectedTarget?.kind === "wall") {
       setAnchorId(selectedTarget.id);
-      setDimension('wall_length');
+      setDimension("wall_length");
       const w = walls.find((item) => item.id === selectedTarget.id);
       if (w) setMeasuredM(wallLengthMeters(w).toFixed(2));
-    } else if (selectedTarget?.kind === 'object') {
+    } else if (selectedTarget?.kind === "object") {
       setAnchorId(selectedTarget.id);
-      setDimension('object_width');
+      setDimension("object_width");
       const o = objects.find((item) => item.id === selectedTarget.id);
       if (o) setMeasuredM(o.width_m.toFixed(2));
-    } else if (!anchorId && walls.length > 0) {
+    } else if (
+      (!anchorId ||
+        ![...walls, ...objects].some((item) => item.id === anchorId)) &&
+      walls.length > 0
+    ) {
       setAnchorId(walls[0].id);
-      setDimension('wall_length');
+      setDimension("wall_length");
       setMeasuredM(wallLengthMeters(walls[0]).toFixed(2));
     }
   }, [scene?.scene_id, selectedTarget]);
@@ -56,12 +68,12 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({
   const anchorOptions = [
     ...walls.map((w) => ({
       id: w.id,
-      kind: 'wall' as const,
+      kind: "wall" as const,
       label: `${w.id} (Wall · est ${wallLengthMeters(w).toFixed(2)}m)`,
     })),
     ...objects.map((o) => ({
       id: o.id,
-      kind: 'object' as const,
+      kind: "object" as const,
       label: `${o.label} (${o.id} · est ${o.width_m.toFixed(2)}×${o.depth_m.toFixed(2)}m)`,
     })),
   ];
@@ -77,7 +89,11 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({
     const req: CalibrateRequest = {
       expected_revision: scene.scene_revision ?? 1,
       anchor_id: anchorId,
-      dimension: selectedIsWall ? 'wall_length' : dimension === 'wall_length' ? 'object_width' : dimension,
+      dimension: selectedIsWall
+        ? "wall_length"
+        : dimension === "wall_length"
+          ? "object_width"
+          : dimension,
       measured_m: val,
       tolerance_m: Number.isFinite(tol) && tol >= 0 ? tol : 0.01,
     };
@@ -88,9 +104,9 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({
         const holdoutIsWall = walls.some((w) => w.id === holdoutAnchorId);
         req.holdout_anchor_id = holdoutAnchorId;
         req.holdout_dimension = holdoutIsWall
-          ? 'wall_length'
-          : holdoutDimension === 'wall_length'
-            ? 'object_width'
+          ? "wall_length"
+          : holdoutDimension === "wall_length"
+            ? "object_width"
             : holdoutDimension;
         req.holdout_measured_m = hVal;
       }
@@ -102,7 +118,7 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({
     <section className="rl-panel" aria-label="Scale calibration">
       <div className="rl-panel-header">
         <span className="rl-panel-title">
-          <Ruler size={15} /> Metric Scale Calibration
+          <Ruler size={15} /> Set the scale
         </span>
         {cal ? (
           <span className="rl-badge rl-badge--ok">
@@ -116,19 +132,24 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({
       </div>
 
       <p className="rl-muted-note">
-        One measured anchor scales the estimated draft hypothesis. It confirms only the measured dimension, not unobserved walls or other objects.
+        One measured anchor scales the estimated draft hypothesis. It confirms
+        only the measured dimension, not unobserved walls or other objects.
       </p>
 
       {cal && (
         <div className="rl-cal-summary">
           <div>
-            <strong>Anchor:</strong> {cal.anchor_id} ({cal.dimension}) = {cal.measured_m.toFixed(2)}m ±{' '}
-            {(cal.tolerance_m ?? 0.01).toFixed(2)}m (was {cal.original_estimate_m.toFixed(2)}m)
+            <strong>Anchor:</strong> {cal.anchor_id} ({cal.dimension}) ={" "}
+            {cal.measured_m.toFixed(2)}m ±{" "}
+            {(cal.tolerance_m ?? 0.01).toFixed(2)}m (was{" "}
+            {cal.original_estimate_m.toFixed(2)}m)
           </div>
           {cal.holdout_residual_m != null && (
             <div>
-              <strong>Held-out check:</strong> predicted {cal.holdout_predicted_m?.toFixed(2)}m vs measured{' '}
-              {cal.holdout_measured_m?.toFixed(2)}m (residual {cal.holdout_residual_m >= 0 ? '+' : ''}
+              <strong>Held-out check:</strong> predicted{" "}
+              {cal.holdout_predicted_m?.toFixed(2)}m vs measured{" "}
+              {cal.holdout_measured_m?.toFixed(2)}m (residual{" "}
+              {cal.holdout_residual_m >= 0 ? "+" : ""}
               {cal.holdout_residual_m.toFixed(3)}m)
             </div>
           )}
@@ -144,9 +165,9 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({
               const nextId = e.target.value;
               setAnchorId(nextId);
               if (walls.some((w) => w.id === nextId)) {
-                setDimension('wall_length');
-              } else if (dimension === 'wall_length') {
-                setDimension('object_width');
+                setDimension("wall_length");
+              } else if (dimension === "wall_length") {
+                setDimension("object_width");
               }
             }}
           >
@@ -162,8 +183,10 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({
           <label className="rl-field">
             <span>Object Axis</span>
             <select
-              value={dimension === 'wall_length' ? 'object_width' : dimension}
-              onChange={(e) => setDimension(e.target.value as 'object_width' | 'object_depth')}
+              value={dimension === "wall_length" ? "object_width" : dimension}
+              onChange={(e) =>
+                setDimension(e.target.value as "object_width" | "object_depth")
+              }
             >
               <option value="object_width">Width (X axis)</option>
               <option value="object_depth">Depth (Z axis)</option>
@@ -203,7 +226,9 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({
             checked={useHoldout}
             onChange={(e) => setUseHoldout(e.target.checked)}
           />
-          <span>Include independent held-out dimension check (does not fit scale)</span>
+          <span>
+            Include independent held-out dimension check (does not fit scale)
+          </span>
         </label>
 
         {useHoldout && (
@@ -230,7 +255,12 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({
                 <select
                   value={holdoutDimension}
                   onChange={(e) =>
-                    setHoldoutDimension(e.target.value as 'wall_length' | 'object_width' | 'object_depth')
+                    setHoldoutDimension(
+                      e.target.value as
+                        | "wall_length"
+                        | "object_width"
+                        | "object_depth",
+                    )
                   }
                 >
                   <option value="wall_length">Wall length</option>
@@ -257,14 +287,18 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({
           type="submit"
           className="rl-btn rl-btn--primary rl-btn--full"
           disabled={isCalibrating || dirty}
-          title={dirty ? 'Save or revert local edits before running server scale calibration' : undefined}
+          title={
+            dirty
+              ? "Save or revert local edits before running server scale calibration"
+              : undefined
+          }
         >
           <span>
             {dirty
-              ? 'Save Local Edits First to Calibrate'
+              ? "Save Local Edits First to Calibrate"
               : isCalibrating
-                ? 'Applying Scale…'
-                : 'Apply Measured Scale Anchor'}
+                ? "Applying Scale…"
+                : "Apply Measured Scale Anchor"}
           </span>
         </button>
       </form>

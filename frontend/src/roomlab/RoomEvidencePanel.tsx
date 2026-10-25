@@ -1,6 +1,18 @@
-import React from 'react';
-import { Film, Play, XCircle, Image as ImageIcon, CheckCircle2, AlertTriangle } from 'lucide-react';
-import type { EvidenceFrame, JobRecord, MediaRecord, RoomSceneV1 } from './contracts.generated';
+import React from "react";
+import {
+  Film,
+  Play,
+  XCircle,
+  Image as ImageIcon,
+  CheckCircle2,
+  AlertTriangle,
+} from "lucide-react";
+import type {
+  EvidenceFrame,
+  JobRecord,
+  MediaRecord,
+  RoomSceneV1,
+} from "./contracts.generated";
 
 interface RoomEvidencePanelProps {
   media: MediaRecord | null;
@@ -33,7 +45,7 @@ export const RoomEvidencePanel: React.FC<RoomEvidencePanelProps> = ({
     <section className="rl-panel" aria-label="Video and frame evidence">
       <div className="rl-panel-header">
         <span className="rl-panel-title">
-          <Film size={15} /> Source Video & Frame Evidence
+          <Film size={15} /> Your walkthrough
         </span>
         {media && (
           <span className="rl-badge">
@@ -60,10 +72,16 @@ export const RoomEvidencePanel: React.FC<RoomEvidencePanelProps> = ({
               onClick={onExtractRoom}
             >
               <Play size={14} />
-              <span>{isExtracting ? 'Extracting with Gemini 4 Argon…' : 'Extract Editable 3D Room'}</span>
+              <span>
+                {isExtracting ? "Building your room…" : "Create editable room"}
+              </span>
             </button>
             {isExtracting && job && (
-              <button type="button" className="rl-btn rl-btn--danger" onClick={onCancelJob}>
+              <button
+                type="button"
+                className="rl-btn rl-btn--danger"
+                onClick={onCancelJob}
+              >
                 <XCircle size={14} />
                 <span>Cancel</span>
               </button>
@@ -72,9 +90,13 @@ export const RoomEvidencePanel: React.FC<RoomEvidencePanelProps> = ({
         </div>
       ) : (
         <div className="rl-empty-card">
-          <p>Upload an MP4, WebM, or QuickTime room walkthrough clip (≤120s, 256 MiB), or import a saved RoomSceneV1 JSON.</p>
+          <p>
+            Bring in a room walkthrough. MP4, MOV or WebM, up to 2 minutes and
+            256 MiB. You can also import a saved room.
+          </p>
           <p className="rl-muted-note">
-            Tip: Walk/translate smoothly across the room with overlapping views rather than rotating in place.
+            Walk slowly with overlapping views. A moving viewpoint captures more
+            depth than a stationary pan.
           </p>
         </div>
       )}
@@ -83,20 +105,29 @@ export const RoomEvidencePanel: React.FC<RoomEvidencePanelProps> = ({
         <div className={`rl-job-banner rl-job-banner--${job.status}`}>
           <div className="rl-job-row">
             <strong>Extraction Job: {job.status.toUpperCase()}</strong>
-            {job.latency_ms != null && <span>{(job.latency_ms / 1000).toFixed(2)}s</span>}
+            {job.latency_ms != null && (
+              <span>{(job.latency_ms / 1000).toFixed(2)}s</span>
+            )}
           </div>
-          {job.model && <div className="rl-job-meta">Model: {job.model} · Provenance: live</div>}
+          {job.model && (
+            <div className="rl-job-meta">
+              Model: {job.model} · Provenance: live
+            </div>
+          )}
           {job.error && (
             <div className="rl-job-error">
               <AlertTriangle size={14} /> <span>{job.error}</span>
             </div>
           )}
           {job.warnings && job.warnings.length > 0 && (
-            <ul className="rl-job-warnings">
-              {job.warnings.map((w, idx) => (
-                <li key={idx}>{w}</li>
-              ))}
-            </ul>
+            <details>
+              <summary>{job.warnings.length} review notes</summary>
+              <ul className="rl-job-warnings">
+                {job.warnings.map((w, idx) => (
+                  <li key={idx}>{w}</li>
+                ))}
+              </ul>
+            </details>
           )}
         </div>
       )}
@@ -105,7 +136,7 @@ export const RoomEvidencePanel: React.FC<RoomEvidencePanelProps> = ({
         <div className="rl-frames-section">
           <div className="rl-frames-header">
             <span>
-              <ImageIcon size={13} /> Timestamped Evidence Frames ({frames.length})
+              <ImageIcon size={13} /> Evidence frames ({frames.length})
             </span>
             {highlightedSet.size > 0 && (
               <span className="rl-badge rl-badge--accent">
@@ -122,13 +153,19 @@ export const RoomEvidencePanel: React.FC<RoomEvidencePanelProps> = ({
                 <button
                   key={frame.frame_id}
                   type="button"
-                  className={`rl-frame-thumb ${isLinked ? 'rl-frame-thumb--linked' : ''} ${
-                    isActive ? 'rl-frame-thumb--active' : ''
+                  className={`rl-frame-thumb ${isLinked ? "rl-frame-thumb--linked" : ""} ${
+                    isActive ? "rl-frame-thumb--active" : ""
                   }`}
-                  onClick={() => onSelectFrame(isActive ? null : frame.frame_id)}
+                  onClick={() =>
+                    onSelectFrame(isActive ? null : frame.frame_id)
+                  }
                   title={`${frame.frame_id} at ${frame.timestamp_s.toFixed(2)}s`}
                 >
-                  <img src={frame.url} alt={`Frame at ${frame.timestamp_s}s`} loading="lazy" />
+                  <img
+                    src={frame.url}
+                    alt={`Frame at ${frame.timestamp_s}s`}
+                    loading="lazy"
+                  />
                   <div className="rl-frame-caption">
                     <span>{frame.timestamp_s.toFixed(1)}s</span>
                     {isLinked && <CheckCircle2 size={11} />}
@@ -142,9 +179,14 @@ export const RoomEvidencePanel: React.FC<RoomEvidencePanelProps> = ({
             <div className="rl-frame-lightbox">
               <div className="rl-frame-lightbox-bar">
                 <span>
-                  {activeFrame.frame_id} · t={activeFrame.timestamp_s.toFixed(2)}s
+                  {activeFrame.frame_id} · t=
+                  {activeFrame.timestamp_s.toFixed(2)}s
                 </span>
-                <button type="button" className="rl-btn rl-btn--xs" onClick={() => onSelectFrame(null)}>
+                <button
+                  type="button"
+                  className="rl-btn rl-btn--xs"
+                  onClick={() => onSelectFrame(null)}
+                >
                   Close
                 </button>
               </div>
@@ -155,14 +197,14 @@ export const RoomEvidencePanel: React.FC<RoomEvidencePanelProps> = ({
       )}
 
       {scene?.notes && scene.notes.length > 0 && (
-        <div className="rl-notes-box">
-          <h4>Model Assumptions & Visibility Notes</h4>
+        <details className="rl-notes-box">
+          <summary>Scene notes & assumptions</summary>
           <ul>
             {scene.notes.map((n, i) => (
               <li key={i}>{n}</li>
             ))}
           </ul>
-        </div>
+        </details>
       )}
     </section>
   );
