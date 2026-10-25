@@ -20,6 +20,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import os
 import re
 import string
 import time
@@ -130,11 +131,24 @@ class SweepClaim(_Frozen):
     label: Literal["sandbox, unverified"] = UNVERIFIED
 
 
+BANNED_WORDS = ("safe", "compliant", "survive", "evacuated")
+# Whole words only, case-insensitive: "unsafe", "safely" and "safeguard" are not flags.
+_BANNED_RE = re.compile(r"\b(" + "|".join(BANNED_WORDS) + r")\b", re.IGNORECASE)
+
+
+def copy_flags(rationale: str, caveats: list[str]) -> list[str]:
+    """Banned words found in the agent's text, lowercase, deduplicated, in the order of
+    ``BANNED_WORDS``. The text itself is never edited; the UI shows these as flags."""
+    found = {m.group(1).lower() for m in _BANNED_RE.finditer(" \n".join([rationale, *caveats]))}
+    return [w for w in BANNED_WORDS if w in found]
+
+
 class Recommendation(_Frozen):
     intervention_id: str | None
     claimed_reached_exit: int | None
     rationale: str = Field(max_length=600)
     caveats: list[str] = Field(max_length=5)
+    copy_flags: list[str] = Field(default_factory=list)
     sweep_summary: list[SweepClaim] = Field(default_factory=list,
                                             max_length=MAX_SWEEP_SUMMARY)
 
@@ -394,11 +408,13 @@ class _Session:
             if n is not None and isinstance(sid, str) and sid:
                 sweep.append(SweepClaim(intervention_id=sid[:80], claimed_reached_exit=n))
         sweep = sweep[:MAX_SWEEP_SUMMARY]  # malformed items dropped before the cap
+        rationale = str(args.get("rationale") or "")[:600]
+        kept_caveats = [str(c)[:300] for c in caveats if c][:5]
         self.recommendation = Recommendation(
             intervention_id=iid,
             claimed_reached_exit=_as_int(args.get("claimed_reached_exit")),
-            rationale=str(args.get("rationale") or "")[:600],
-            caveats=[str(c)[:300] for c in caveats if c][:5],
+            rationale=rationale, caveats=kept_caveats,
+            copy_flags=copy_flags(rationale, kept_caveats),
             sweep_summary=sweep)
         return {"recorded": True, "sweep_summary_kept": len(sweep),
                 "note": "WalkTwin decides the verdict from checker-verified figures; "
@@ -657,21 +673,40 @@ def mount_sources() -> list[dict]:
     return sources
 
 
-async def prepare_environment(client, *, cache_path: Path | None = None,
+def key_hash(api_key: str | None) -> str:
+    """Short hash of the API key; the key itself is never written to disk."""
+    return hashlib.sha256((api_key or "").encode()).hexdigest()[:16]
+
+
+def _is_unknown_environment(exc: BaseException) -> bool:
+    for attr in ("code", "status_code", "status"):
+        if getattr(exc, attr, None) == 404:
+            return True
+    msg = str(exc).lower()
+    return "unknown environment" in msg or bool(re.search(r"\b404\b", msg))
+
+
+async def prepare_environment(client, *, runtime_root: Path | None = None,
+                              force: bool = False, api_key: str | None = None,
                               deadline_s: float = 600, poll_s: float = 3.0) -> str:
     """Create the remote environment once and cache its id in runtime/agent_env.json.
 
     Network on (PyPI allowlist) for ``pip install networkx pydantic``. Inline sources
     have no read-only flag in google-genai 2.33.0; the docs recommend read-only
     repository mounts for tamper resistance, so the inputs and hook files are
-    audit-hooked instead. The cache is keyed on the mounted content.
+    audit-hooked instead. The cache (``<runtime_root>/agent_env.json``, default
+    ``runtime/``) is keyed on a hash of the API key and the mounted digest, since an
+    environment belongs to one account. ``force`` skips the cache and rewrites it.
     """
-    cache_path = Path(cache_path or RUNTIME_DIR / "agent_env.json")
+    cache_path = Path(runtime_root or RUNTIME_DIR) / "agent_env.json"
+    khash = key_hash(api_key if api_key is not None else os.environ.get("GEMINI_API_KEY"))
     sources = mount_sources()
     digest = hashlib.sha256(json.dumps(sources, sort_keys=True).encode()).hexdigest()[:16]
     try:
         cached = json.loads(cache_path.read_text())
-        if cached.get("environment_id") and cached.get("mount_digest") == digest:
+        if (not force and cached.get("environment_id")
+                and cached.get("mount_digest") == digest
+                and cached.get("key_hash") == khash):
             return str(cached["environment_id"])
     except (OSError, ValueError):
         pass
@@ -687,7 +722,7 @@ async def prepare_environment(client, *, cache_path: Path | None = None,
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     cache_path.write_text(json.dumps({
         "environment_id": env_id, "interaction_id": receipt.interaction_id,
-        "mount_digest": digest, "created_at": _now(), "network": PYPI_ALLOWLIST,
+        "mount_digest": digest, "key_hash": khash, "created_at": _now(), "network": PYPI_ALLOWLIST,
         "receipt": receipt.model_dump(mode="json")}, indent=2))
     return str(env_id)
 
@@ -706,14 +741,16 @@ async def investigate(client, graph: VenueGraph, scenario: Scenario, params: Flo
                       deadline_s: float = DEFAULT_DEADLINE_S, max_rounds: int = 4,
                       poll_s: float = 3.0, sessions_dir: Path | None = None,
                       investigation_id: str | None = None,
-                      network: Any = None) -> Investigation:
+                      network: Any = None,
+                      runtime_root: Path | None = None) -> Investigation:
     """Raises ``ValueError("bad_investigation_id")`` unless the id matches
     ``inv-[A-Za-z0-9-]{1,40}``, and ``ValueError("stale_ledger")`` when resuming
     ``investigation_id`` against a different graph revision, scenario hash or params."""
     started = time.monotonic()
     inv_id = (new_investigation_id() if investigation_id is None
               else check_investigation_id(investigation_id))
-    sessions_dir = Path(sessions_dir or RUNTIME_DIR / "sessions")
+    runtime_root = Path(runtime_root or RUNTIME_DIR)
+    sessions_dir = Path(sessions_dir or runtime_root / "sessions")
     network = network if network is not None else _offline_network()
     net_mode = network_mode_of(network)
 
@@ -731,6 +768,13 @@ async def investigate(client, graph: VenueGraph, scenario: Scenario, params: Flo
                     network_mode=net_mode, current_run=current_run,
                     current_check=current_check)
     sess.persist()
+    if not sess.allowed:  # nothing to sweep: no provider call, no invented answer
+        return Investigation(
+            investigation_id=inv_id, graph_revision=graph.revision,
+            scenario_hash=scenario.hash, status="completed", interaction_id=None,
+            environment_id=environment_id, ledger=[], sandbox_runs=0, results=[],
+            recommendation=None, best=None, disagreement=None, hook_denials=0,
+            receipt=None, error="no_allowed_interventions", network_mode=net_mode)
 
     text = build_prompt(graph, scenario, params, investigation_id=inv_id,
                         current_reached=current_run.reached_exit, total=current_run.total,
@@ -763,6 +807,7 @@ async def investigate(client, graph: VenueGraph, scenario: Scenario, params: Flo
     env_id: str | None = environment_id
     receipts: list[Receipt] = []
     resumed = False
+    reprepared = False
     rounds = 0
     while status is None:
         remaining = deadline_s - (time.monotonic() - started)
@@ -783,6 +828,20 @@ async def investigate(client, graph: VenueGraph, scenario: Scenario, params: Flo
             last_id = (m.group(1) if m and m.group(1) != "None" else None) or last_id
             break
         except Exception as exc:  # noqa: BLE001 - live failures stay failures
+            if rounds == 1 and not reprepared and _is_unknown_environment(exc):
+                # Stale cached environment (expired or another account): re-prepare once.
+                reprepared = True
+                try:
+                    env_id = await prepare_environment(
+                        client, runtime_root=runtime_root, force=True, poll_s=poll_s)
+                except Exception as prep_exc:  # noqa: BLE001
+                    status = "failed"
+                    error = (f"{type(exc).__name__}: {exc}; re-prepare failed: "
+                             f"{type(prep_exc).__name__}: {prep_exc}")
+                    break
+                kwargs["environment"] = {**kwargs["environment"], "environment_id": env_id}
+                rounds -= 1
+                continue
             status, error = "failed", f"{type(exc).__name__}: {exc}"
             break
         receipts.append(receipt)
@@ -796,7 +855,8 @@ async def investigate(client, graph: VenueGraph, scenario: Scenario, params: Flo
         if st == "completed":
             status = "completed"
         elif st == "requires_action":
-            answers = sess.answer_client_calls(interaction)
+            # The local solver and checker are CPU-bound: keep them off the event loop.
+            answers = await asyncio.to_thread(sess.answer_client_calls, interaction)
             if answers:
                 kwargs = {**cont, "input": answers}
             else:
