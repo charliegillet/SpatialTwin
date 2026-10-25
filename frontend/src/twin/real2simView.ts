@@ -93,10 +93,12 @@ export function readBuildingWidth(text: string): NumberRead {
 }
 
 /** Why Accept is disabled, or null when it may be pressed. Blockers come from the server preview; the local rules cover the form. */
-export function acceptDisabledReason(input: { stage: Real2SimStage; blockers: readonly string[]; headcountError?: string; widthError?: string }): string | null {
+export function acceptDisabledReason(input: { stage: Real2SimStage; blockers: readonly string[]; headcountError?: string; widthError?: string; unreachableResolved?: boolean }): string | null {
   if (input.stage === 'accepting') return 'Accepting…';
   if (input.stage !== 'ready') return 'The draft is not ready yet';
-  if (input.blockers.length) return input.blockers.map(blockerLabel).join('. ');
+  // Unreachable rooms the operator left out no longer block; the server re-runs every check at Accept.
+  const blockers = input.unreachableResolved ? input.blockers.filter(code => code !== 'room_unreachable') : input.blockers;
+  if (blockers.length) return blockers.map(blockerLabel).join('. ');
   return input.headcountError || input.widthError || null;
 }
 

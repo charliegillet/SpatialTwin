@@ -167,17 +167,20 @@ function AcceptForm({ r2s }: { r2s: Real2SimController }) {
   const [selected, setSelected] = useState<string[]>([]);
   const [headcount, setHeadcount] = useState('');
   const [width, setWidth] = useState('');
+  const [leftOut, setLeftOut] = useState<string[]>([]);
+  const unreachable = view.unreachable_rooms;
+  const leaving = leftOut.filter(key => unreachable.some(room => room.key === key));
   // A conflict refresh can change the candidate list; selections that no longer exist are dropped.
   const chosen = reconcileSelection(selected, view.controllable_door_candidates, max);
   const headcountRead = readHeadcount(headcount);
   const widthRead = readBuildingWidth(width);
   const reason = acceptDisabledReason({
-    stage: state.stage, blockers: view.accept_blockers,
+    stage: state.stage, blockers: view.accept_blockers, unreachableResolved: unreachable.length > 0 && leaving.length === unreachable.length,
     headcountError: headcountRead.ok ? undefined : headcountRead.message, widthError: widthRead.ok ? undefined : widthRead.message,
   });
   const submit = () => {
     if (reason || !headcountRead.ok || !widthRead.ok) return;
-    r2s.accept({ controllableDoors: chosen, headcount: headcountRead.value, buildingWidthM: widthRead.value, makeActive: true });
+    r2s.accept({ controllableDoors: chosen, headcount: headcountRead.value, buildingWidthM: widthRead.value, makeActive: true, leftOutRooms: leaving });
   };
   return <form className="r2s-accept" onSubmit={event => { event.preventDefault(); submit(); }} aria-label="Accept this building">
     {view.controllable_door_candidates.length > 0 && <fieldset className="r2s-doors">
@@ -191,6 +194,14 @@ function AcceptForm({ r2s }: { r2s: Real2SimController }) {
           <span>{rooms}<small> door {door.key}{door.symbol ? ` · ${door.symbol}` : ''}</small></span>
         </label>;
       })}
+    </fieldset>}
+    {unreachable.length > 0 && <fieldset className="r2s-doors">
+      <legend>Rooms with no door on the map <span className="twin-quiet">(the checks found no way out of them)</span></legend>
+      {unreachable.map(room => <label key={room.key} className={`r2s-door${leaving.includes(room.key) ? ' is-on' : ''}`}>
+        <input type="checkbox" checked={leaving.includes(room.key)} aria-label={`Leave ${room.name} out of the walkable floor`}
+          onChange={() => setLeftOut(current => current.includes(room.key) ? current.filter(key => key !== room.key) : [...current, room.key])} />
+        <span>Leave <strong>{room.name}</strong> out of the walkable floor<small> · said in the venue's provenance</small></span>
+      </label>)}
     </fieldset>}
     <div className="r2s-fields">
       <label className="r2s-field">Headcount (optional)

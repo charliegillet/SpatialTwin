@@ -141,6 +141,10 @@ test('Accept is disabled with a reason while blockers exist or the draft is not 
   assert.equal(acceptDisabledReason({ ...ok, stage: 'accepting' }), 'Accepting…');
   assert.match(acceptDisabledReason({ ...ok, blockers: ['room_unreachable', 'compile:no_exit_survived'] }), /cannot reach any exit. No exit could be placed/);
   assert.equal(acceptDisabledReason({ ...ok, headcountError: 'bad' }), 'bad');
+  // Leaving every unreachable room out lifts only that blocker; anything else still blocks.
+  assert.equal(acceptDisabledReason({ ...ok, blockers: ['room_unreachable'], unreachableResolved: true }), null);
+  assert.match(acceptDisabledReason({ ...ok, blockers: ['room_unreachable', 'compile:no_exit_survived'], unreachableResolved: true }), /No exit could be placed/);
+  assert.match(acceptDisabledReason({ ...ok, blockers: ['room_unreachable'], unreachableResolved: false }), /cannot reach any exit/);
   assert.equal(blockerLabel('status:extracting'), 'Still reading the drawing');
   assert.equal(blockerLabel('weird_code'), 'Check failed: weird code');
 });

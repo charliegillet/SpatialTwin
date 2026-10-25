@@ -38,7 +38,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, AsyncIterator, Callable, Dict, Iterable, List, Optional
+from typing import Any, AsyncIterator, Callable, Dict, Iterable, List, Optional, Sequence
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -759,7 +759,11 @@ class Real2SimService:
         if checks.get("compile_error"):
             blockers.append(f"compile:{str(checks['compile_error']).split(':')[0]}")
         blockers += sorted({issue["code"] for issue in checks.get("issues", []) if issue.get("severity") == "error"})
-        return {**record, "controllable_door_candidates": candidates,
+        zone_to_key = {venue_id: key for key, venue_id in element_ids.items()}
+        unreachable = sorted({zone_to_key[zone] for issue in checks.get("issues", []) if issue.get("code") == "room_unreachable"
+                              for zone in issue.get("element_ids", []) if zone in zone_to_key})
+        unreachable_rooms = [{"key": key, "name": rooms.get(key, key)} for key in unreachable]
+        return {**record, "controllable_door_candidates": candidates, "unreachable_rooms": unreachable_rooms,
                 "max_controllable_doors": MAX_CONTROLLABLE_DOORS, "accept_blockers": blockers,
                 "last_event_id": log.last_id if log is not None else None}
 
@@ -798,7 +802,8 @@ class Real2SimService:
 
     async def accept(self, draft_id: Any, *, expected_revision: int, controllable_doors: List[str],
                      headcount: Optional[int] = None, building_width_m: Optional[float] = None,
-                     venue_id: Optional[str] = None, make_active: bool = True) -> Dict[str, Any]:
+                     venue_id: Optional[str] = None, make_active: bool = True,
+                     left_out_rooms: Sequence[str] = ()) -> Dict[str, Any]:
         record = await asyncio.to_thread(self._record, draft_id)
         if record["status"] != "ready" or not record.get("draft"):
             raise Real2SimError("draft_not_ready", 409, status=record["status"])
@@ -813,6 +818,17 @@ class Real2SimService:
         unknown = sorted(key for key in controllable_doors if key not in door_keys)
         if unknown:
             raise Real2SimError("unknown_controllable_door", 422, keys=unknown)
+        # Posted maps often draw tenant rooms with no door. The operator may leave such a room out of the walkable floor;
+        # the compiler then treats it like a void (no zone, no doors, not an outside wall) and the checks re-run.
+        left_out = sorted(set(left_out_rooms))
+        room_names = {room.key: room.name for room in draft.rooms}
+        if any(key not in room_names for key in left_out):
+            raise Real2SimError("unknown_room", 422, keys=[key for key in left_out if key not in room_names])
+        if left_out and len(left_out) >= len([room for room in draft.rooms if room.kind != "void"]):
+            raise Real2SimError("no_room_left", 422)
+        if left_out:
+            draft = draft.model_copy(update={"rooms": [room.model_copy(update={"kind": "void"}) if room.key in left_out
+                                                       else room for room in draft.rooms]})
         source = record["source"]
         if venue_id is None:
             label = record.get("name") or draft.title or None
@@ -830,9 +846,14 @@ class Real2SimService:
         name = record.get("name") or draft.title or None
 
         def compile_and_check() -> tuple[CompileResult, List[GraphIssue]]:
-            result = self._compile(draft, image, venue_id=venue_id, controllable_doors=list(controllable_doors),
-                                   headcount=headcount, building_width_m=building_width_m, name=name,
-                                   provenance=provenance_text)
+            options = dict(venue_id=venue_id, controllable_doors=list(controllable_doors), headcount=headcount,
+                           building_width_m=building_width_m, name=name)
+            result = self._compile(draft, image, provenance=provenance_text, **options)
+            if left_out and result.venue is not None:
+                # Said in the venue's own provenance, so the twin never hides that the operator changed the reading.
+                note = (" Operator left out " + ", ".join(room_names[key] for key in left_out)
+                        + " (drawn with no door) from the walkable floor.")
+                result = self._compile(draft, image, provenance=result.venue.provenance + note, **options)
             return result, (list(self._check(result.venue)) if result.venue is not None else [])
 
         try:
@@ -848,7 +869,7 @@ class Real2SimService:
                    if key not in ("draft_id", "revision", "status", "created_at", "updated_at")}
         accepted = {"venue_id": venue_id, "geometry_revision": venue.geometry_revision, "accepted_at": _now(),
                     "controllable_doors": list(controllable_doors), "headcount": headcount,
-                    "building_width_m": building_width_m, "make_active": make_active,
+                    "building_width_m": building_width_m, "make_active": make_active, "left_out_rooms": left_out,
                     "report": json.loads(json.dumps(dataclasses.asdict(result.report))),
                     "issues": [issue.to_json() for issue in issues]}
         payload["accepted"] = accepted
@@ -861,7 +882,7 @@ class Real2SimService:
             "checks": {"issues": accepted["issues"], **summary(issues)},
             "critique_rounds": record.get("rounds", []), "draft": record["draft"],
             "defaults": result.report.defaults, "controllable_doors": list(controllable_doors),
-            "headcount": headcount, "building_width_m": building_width_m,
+            "headcount": headcount, "building_width_m": building_width_m, "left_out_rooms": left_out,
         }
         try:
             stored = await asyncio.to_thread(self._registry().accept_draft, record["draft_id"], expected_revision,
