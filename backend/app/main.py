@@ -37,6 +37,7 @@ from backend.app.ai.grounding.adapter import GroundingAdapter
 from backend.app.ai.grounding import video as video_module
 from backend.app.ai.grounding.video import IMAGE_FALLBACK_ERROR, ground_video, video_enabled
 from backend.app.ai.managed.model_probe import resolve_model
+from backend.app.ai.real2sim.routes import build_real2sim_router
 from backend.app.ai.receipts import last_live_receipt
 from backend.app.hazard.model import HazardToolError, ToolContext
 from backend.app.hazard.tools import execute_hazard_tool
@@ -105,6 +106,8 @@ async def lifespan(app: FastAPI):
             await hardware_bridge.stop()
         finally:
             try:
+                # Real2Sim readings use the grounding adapter's client: stop them before it closes.
+                await real2sim_router.real2sim_service.aclose()
                 await grounding_adapter.aclose()
             finally:
                 await managed_agent_adapter.aclose()
@@ -242,6 +245,9 @@ app.include_router(build_review_router(
     state_manager, lambda: "simulator" if hardware_bridge.is_simulator else "physical_serial"))
 app.include_router(venues_router)
 app.include_router(build_camera_router(grounding_adapter, fixtures_enabled))
+# Real2Sim: Gemini 4 Argon reads a floor plan; a local compiler, graph checks and an operator's Accept make it a venue.
+real2sim_router = build_real2sim_router(grounding_adapter, fixtures_enabled)
+app.include_router(real2sim_router)
 app.include_router(build_door_agent_router(managed_agent_adapter, _investigation_slots, fixtures_enabled))
 # Server-side incident mirror and the virtual door controller (no hardware): local only, no provider calls.
 app.include_router(build_incident_router())
