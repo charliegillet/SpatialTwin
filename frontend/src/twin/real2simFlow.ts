@@ -76,7 +76,7 @@ export interface Real2SimDeps {
   pollMs?: number;
 }
 
-export interface AcceptOptions { controllableDoors: string[]; headcount?: number; buildingWidthM?: number; makeActive?: boolean }
+export interface AcceptOptions { controllableDoors: string[]; headcount?: number; buildingWidthM?: number; makeActive?: boolean; leftOutRooms?: string[] }
 
 const STREAM_EVENTS = ['status', 'thought', 'draft', 'checks', 'round', 'done', 'error'] as const;
 const RANK: Record<Real2SimStage, number> = { idle: 0, uploading: 1, extracting: 2, checking: 3, critiquing: 4, ready: 5, accepting: 6, accepted: 7, failed: 7 };
@@ -268,6 +268,7 @@ export function createReal2SimFlow(deps: Real2SimDeps) {
         expected_revision: state.revision, controllable_doors: options.controllableDoors, make_active: options.makeActive ?? true,
         ...(options.headcount !== undefined ? { headcount: options.headcount } : {}),
         ...(options.buildingWidthM !== undefined ? { building_width_m: options.buildingWidthM } : {}),
+        ...(options.leftOutRooms?.length ? { left_out_rooms: options.leftOutRooms } : {}),
       };
       publish({ stage: 'accepting', acceptError: null, acceptNotice: null });
       try {

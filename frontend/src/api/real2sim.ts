@@ -48,6 +48,8 @@ export interface DraftView {
   accepted: { venue_id: string } | null;
   /** The preview compile (default doors, before the operator's choices), for the 3D stage. Null when it did not compile. */
   preview: VenueV2 | null;
+  /** Rooms the checks found with no door path to an exit (by draft key), which the operator may leave out at Accept. */
+  unreachable_rooms: { key: string; name: string }[];
 }
 
 export interface SavedRun {
@@ -65,6 +67,7 @@ export type VideoMime = typeof VIDEO_MIMES[number];
 
 export interface AcceptRequest {
   expected_revision: number; controllable_doors: string[]; headcount?: number; building_width_m?: number; make_active: boolean;
+  left_out_rooms?: string[];
 }
 export interface AcceptResponse {
   venue_id: string; venue_revision: number; draft_revision: number; active_revision: number | null;
@@ -238,6 +241,8 @@ export function parseDraftView(raw: unknown): DraftView {
     controllable_door_candidates: (raw.controllable_door_candidates as unknown[]).map(parseCandidate),
     max_controllable_doors: isInt(raw.max_controllable_doors) ? raw.max_controllable_doors : MAX_CONTROLLABLE_DOORS,
     accept_blockers: strings(raw.accept_blockers, 'blocker list'), accepted, preview: previewVenue(raw.compile),
+    unreachable_rooms: Array.isArray(raw.unreachable_rooms) ? raw.unreachable_rooms.filter(isRecord)
+      .filter(item => typeof item.key === 'string').map(item => ({ key: item.key as string, name: str(item.name) ?? (item.key as string) })) : [],
   };
 }
 

@@ -52,6 +52,8 @@ class AcceptRequest(BaseModel):
     building_width_m: Optional[float] = Field(default=None, gt=0, le=500)
     venue_id: Optional[str] = Field(default=None, pattern=VENUE_ID_PATTERN)
     make_active: bool = True
+    # Draft room keys the operator leaves out of the walkable floor (a room the map draws without any door).
+    left_out_rooms: List[str] = Field(default_factory=list, max_length=8)
 
 
 class FurniturePiece(BaseModel):
@@ -207,7 +209,7 @@ def build_real2sim_router(adapter: GroundingAdapter, fixtures_enabled: Callable[
                 draft_id, expected_revision=request.expected_revision,
                 controllable_doors=list(request.controllable_doors), headcount=request.headcount,
                 building_width_m=request.building_width_m, venue_id=request.venue_id,
-                make_active=request.make_active)
+                make_active=request.make_active, left_out_rooms=list(request.left_out_rooms))
         except Real2SimError as error:
             raise _http(error) from None
 
