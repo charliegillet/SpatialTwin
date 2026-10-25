@@ -6,6 +6,7 @@ Configured with WAL mode for fast concurrent reads and safe serialized writes.
 from __future__ import annotations
 import json
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -19,12 +20,17 @@ class SQLiteStore:
         self.db_path = db_path
         self._init_db()
 
-    def _get_connection(self) -> sqlite3.Connection:
+    @contextmanager
+    def _get_connection(self):
         conn = sqlite3.connect(self.db_path, timeout=10.0)
         conn.execute("PRAGMA journal_mode = WAL;")
         conn.execute("PRAGMA synchronous = NORMAL;")
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _init_db(self) -> None:
         with self._get_connection() as conn:
@@ -75,6 +81,21 @@ class SQLiteStore:
                     result_json TEXT NOT NULL,
                     created_at_iso TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS grounding_results (
+                    proposal_id TEXT PRIMARY KEY,
+                    capture_id TEXT NOT NULL,
+                    result_json TEXT NOT NULL,
+                    created_at_iso TEXT NOT NULL,
+                    reviewed_command_id TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS ai_evaluations (
+                    request_id TEXT PRIMARY KEY,
+                    context_hash TEXT NOT NULL,
+                    alternative_id TEXT NOT NULL,
+                    envelope_json TEXT NOT NULL
+                );
             """)
 
     def save_event(
@@ -105,6 +126,13 @@ class SQLiteStore:
                         created_at_iso,
                     ),
                 )
+                if event_type == "APPLY_BLOCKAGE" and payload.get("proposal_id"):
+                    cursor = conn.execute(
+                        "UPDATE grounding_results SET reviewed_command_id = ? WHERE proposal_id = ? AND reviewed_command_id IS NULL",
+                        (idempotency_key, payload["proposal_id"]),
+                    )
+                    if cursor.rowcount != 1:
+                        raise ValueError("Proposal is missing or already reviewed")
                 return True
             except sqlite3.IntegrityError:
                 # Duplicate idempotency key
@@ -150,8 +178,53 @@ class SQLiteStore:
         with self._get_connection() as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO investigations (investigation_id, status, result_json, created_at_iso)
+                INSERT OR IGNORE INTO investigations (investigation_id, status, result_json, created_at_iso)
                 VALUES (?, ?, ?, ?)
                 """,
                 (investigation_id, status, result_json, created_at_iso),
             )
+
+    def get_investigation(self, investigation_id: str) -> Optional[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT result_json FROM investigations WHERE investigation_id = ?", (investigation_id,)).fetchone()
+            return json.loads(row["result_json"]) if row else None
+
+    def save_capture(self, capture: Dict[str, Any], created_at_iso: str) -> bool:
+        """Retain original image and capture-time metadata; never replace an ID."""
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "INSERT OR IGNORE INTO observations VALUES (?, ?, ?, ?, ?)",
+                (capture["capture_id"], capture["source_kind"], capture["source_geometry_revision"],
+                 json.dumps(capture, sort_keys=True), created_at_iso),
+            )
+            return cursor.rowcount == 1
+
+    def save_grounding_result(self, proposal_id: str, capture_id: str, result: Dict[str, Any], created_at_iso: str) -> None:
+        with self._get_connection() as conn:
+            conn.execute(
+                "INSERT INTO grounding_results (proposal_id, capture_id, result_json, created_at_iso) VALUES (?, ?, ?, ?)",
+                (proposal_id, capture_id, json.dumps(result), created_at_iso),
+            )
+
+    def get_grounding_result(self, proposal_id: str) -> Optional[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT * FROM grounding_results WHERE proposal_id = ?", (proposal_id,)).fetchone()
+            if row:
+                return {"result": json.loads(row["result_json"]), "reviewed_command_id": row["reviewed_command_id"],
+                        "capture_id": row["capture_id"], "created_at_iso": row["created_at_iso"]}
+        return None
+
+    def get_capture(self, capture_id: str) -> Optional[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT metadata_json FROM observations WHERE capture_id = ?", (capture_id,)).fetchone()
+            return json.loads(row["metadata_json"]) if row else None
+
+    def get_evaluation(self, request_id: str) -> Optional[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT * FROM ai_evaluations WHERE request_id = ?", (request_id,)).fetchone()
+            return dict(row) if row else None
+
+    def save_evaluation(self, request_id: str, context_hash: str, alternative_id: str, envelope_json: str) -> None:
+        with self._get_connection() as conn:
+            conn.execute("INSERT INTO ai_evaluations VALUES (?, ?, ?, ?)",
+                         (request_id, context_hash, alternative_id, envelope_json))

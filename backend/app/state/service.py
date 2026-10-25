@@ -5,6 +5,7 @@ Never mutates authoritative state, never executes physical actuation.
 """
 
 from __future__ import annotations
+import threading
 from typing import Any, Dict, List, Optional
 from backend.app.contracts import (
     AlternativeId,
@@ -20,11 +21,16 @@ class ScenarioService:
     def __init__(self, state_manager: StateManager):
         self.state_manager = state_manager
         self.planner = FlowPlanner(self.state_manager.venue_graph)
+        self._evaluation_lock = threading.RLock()
 
     def get_reviewed_context(self, context: Optional[RunContext] = None) -> Dict[str, Any]:
         """
         Returns the active reviewed context, allowed alternatives, and target catalog.
         """
+        with self.state_manager._state_lock:
+            return self._reviewed_context(context)
+
+    def _reviewed_context(self, context):
         current_ctx = self.state_manager.get_current_context()
         if context and not current_ctx.is_current(context):
             return {
@@ -55,7 +61,15 @@ class ScenarioService:
         Evaluates an immutable copy of the context with the declared alternative.
         Does NOT mutate application state or trigger physical actuation.
         """
-        current_ctx = self.state_manager.get_current_context()
+        with self._evaluation_lock:
+            return self._evaluate_once(context, alternative_id, request_id)
+
+    def _evaluate_once(self, context: RunContext, alternative_id: AlternativeId, request_id: str) -> EvaluationEnvelope:
+        with self.state_manager._state_lock:
+            current_ctx = self.state_manager.get_current_context()
+            blocked_portals = set(self.state_manager.blocked_portals)
+            blocked_boundaries = set(self.state_manager.blocked_boundaries)
+            physical_open = self.state_manager.physical_gate_state.value == "OPEN"
         # Verify context currentness
         if not current_ctx.is_current(context):
             raise ValueError(
@@ -64,14 +78,22 @@ class ScenarioService:
                 f"Current context: scen={current_ctx.scenario_revision}, phys={current_ctx.physical_revision}"
             )
 
-        # Solve on immutable snapshot
+        cached = self.state_manager.store.get_evaluation(request_id)
+        if cached:
+            if cached["context_hash"] != context.context_hash or cached["alternative_id"] != alternative_id.value:
+                raise ValueError("Evaluation request ID reused with different inputs")
+            return EvaluationEnvelope.model_validate_json(cached["envelope_json"])
+
         envelope = self.planner.solve(
             base_context=context,
             alternative_id=alternative_id,
-            blocked_portals=self.state_manager.blocked_portals,
-            blocked_boundaries=self.state_manager.blocked_boundaries,
-            p3_physical_open=(self.state_manager.physical_gate_state.value == "OPEN"),
+            blocked_portals=blocked_portals,
+            blocked_boundaries=blocked_boundaries,
+            p3_physical_open=physical_open,
         )
+
+        if not context.is_current(self.state_manager.get_current_context()):
+            raise ValueError("Context changed during numerical evaluation")
 
         # Persist candidate run in store
         self.state_manager.store.save_run(
@@ -84,6 +106,8 @@ class ScenarioService:
             envelope_json=envelope.model_dump_json(),
             created_at_iso=self.state_manager._now_iso(),
         )
+
+        self.state_manager.store.save_evaluation(request_id, context.context_hash, alternative_id.value, envelope.model_dump_json())
 
         return envelope
 

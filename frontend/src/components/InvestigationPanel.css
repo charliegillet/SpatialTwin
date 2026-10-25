@@ -639,3 +639,43 @@
     animation: none;
   }
 }
+.investigation-mode-switch {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  margin: -2px 0 18px;
+  border: 1px solid #2d3c35;
+  border-radius: 6px;
+  background: #111c18;
+}
+.investigation-mode-switch button {
+  flex: 1;
+  border: 0;
+  border-radius: 3px;
+  padding: 7px 9px;
+  background: transparent;
+  color: #91a69b;
+  font-size: 10px;
+}
+.investigation-mode-switch button[aria-pressed=true] { color: #d1edbe; background: #2b3e2b; }
+.investigation-header { flex-wrap: wrap; padding-top: 12px; padding-bottom: 12px; }
+.investigation-provider-label { white-space: normal; line-height: 1.5; }
+.investigation-live-progress { margin-top: 14px; border-top: 1px solid #2b3931; padding-top: 12px; }
+.investigation-cancel { width: 100%; border: 1px solid #5d6250; border-radius: 5px; background: #202a21; color: #e4dac0; padding: 8px 10px; font-size: 10px!important; }
+.investigation-cancel:not(:disabled):hover { background: #333a28; }
+.investigation-progress-note { color: #96aa9b; font-size: 10px; line-height: 1.6; }
+.investigation-progress-list { list-style: none; padding: 0; margin: 10px 0 14px; color: #a8bdae; font: 9px/1.6 'IBM Plex Mono', monospace; }
+.investigation-progress-list li { display: flex; gap: 10px; margin: 7px 0; }
+.investigation-progress-list li > span { min-width: 37px; color: #788d7f; }
+.investigation-progress-list li > div { overflow-wrap: anywhere; }
+.investigation-evidence { margin-top: 12px; color: #acbfae; font-size: 10px; line-height: 1.7; }
+.investigation-evidence-section { border-top: 1px solid #2b3931; padding: 10px 0; }
+.investigation-evidence-section > summary { color: #bed3bd; cursor: pointer; font-size: 10px; }
+.investigation-evidence-section p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.investigation-tool-list { padding: 0 0 0 15px; margin: 10px 0; }
+.investigation-tool-list li { padding: 7px 0; }
+.investigation-tool-list li > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; }
+.investigation-tool-list strong { font-weight: 500; overflow-wrap: anywhere; }
+.investigation-tool-list small { display: block; color: #849c8a; overflow-wrap: anywhere; }
+.investigation-tool-list details { margin-top: 7px; }
+.investigation-tool-list pre { max-height: 250px; overflow: auto; background: #0b1210; border: 1px solid #2b3931; border-radius: 4px; padding: 9px; white-space: pre-wrap; overflow-wrap: anywhere; font: 9px/1.6 'IBM Plex Mono', monospace; }

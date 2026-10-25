@@ -8,6 +8,9 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 import json
+import threading
+from functools import wraps
+from uuid import uuid4
 from typing import Any, AsyncGenerator, Dict, List, Optional, Set, Tuple
 
 from backend.app.contracts import (
@@ -27,8 +30,17 @@ from backend.app.planner.model import get_default_venue_graph
 from backend.app.state.store import SQLiteStore
 
 
+def synchronized(method):
+    @wraps(method)
+    def locked(self, *args, **kwargs):
+        with self._state_lock:
+            return method(self, *args, **kwargs)
+    return locked
+
+
 class StateManager:
     def __init__(self, store: Optional[SQLiteStore] = None):
+        self._state_lock = threading.RLock()
         self.store = store or SQLiteStore()
         self.venue_graph = get_default_venue_graph()
         self.planner = FlowPlanner(self.venue_graph)
@@ -40,6 +52,7 @@ class StateManager:
             physical_revision=1,
             parameters_revision="params-v1",
             solver_version="spatialtwin-flow-v1.0",
+            state_epoch=uuid4().hex,
         )
 
         # Active blockage sets
@@ -47,7 +60,7 @@ class StateManager:
         self.blocked_boundaries: Set[str] = set()
 
         # Physical gate state (confirmed by independent endpoint switches)
-        self.physical_gate_state = GateObservedState.CLOSED
+        self.physical_gate_state = GateObservedState.UNKNOWN
         self.last_hardware_boot_id: Optional[str] = None
         self.last_gate_epoch: int = 0
         self.last_hardware_seq: int = 0
@@ -89,9 +102,11 @@ class StateManager:
 
         return envelope
 
+    @synchronized
     def get_current_context(self) -> RunContext:
         return self.context
 
+    @synchronized
     def get_current_snapshot(self) -> Dict[str, Any]:
         return {
             "context": self.context.model_dump(),
@@ -130,7 +145,31 @@ class StateManager:
             except asyncio.QueueFull:
                 pass
 
+    @synchronized
     def apply_blockage(self, cmd: ApplyBlockageCommand) -> Tuple[bool, Optional[str], Optional[EvaluationEnvelope]]:
+        if cmd.expected_context and not self.context.is_current(cmd.expected_context):
+            return False, "Stale full context", None
+        if cmd.proposal_id:
+            record = self.store.get_grounding_result(cmd.proposal_id)
+            if not record or record["reviewed_command_id"] or not cmd.reviewed or not cmd.expected_context:
+                return False, "A current unreviewed saved proposal and explicit review are required", None
+            result = record["result"]
+            if result.get("provenance") == "live":
+                capture = self.store.get_capture(record["capture_id"])
+                try:
+                    timestamp = datetime.fromisoformat(capture["timestamp_iso"].replace("Z", "+00:00"))
+                    age = (datetime.now(timezone.utc) - timestamp).total_seconds()
+                    if age > 120 or age < -5:
+                        return False, "Live capture expired; capture and review again", None
+                except (TypeError, KeyError, ValueError):
+                    return False, "Live capture metadata is unavailable", None
+            proposal = result.get("proposal")
+            if (result.get("status") != "completed" or result.get("provenance") not in ("live", "fixture")
+                or not proposal or proposal.get("status") != "matched"
+                or proposal.get("selected_entity_type") != cmd.target_type.value
+                or proposal.get("selected_entity_id") != cmd.target_id.value
+                or not self.context.is_current(RunContext.model_validate(proposal["source_context"]))):
+                return False, "Proposal evidence does not authorize this reviewed target", None
         # 1. Expected revision check
         if cmd.expected_scenario_revision != self.context.scenario_revision:
             return (
@@ -169,6 +208,7 @@ class StateManager:
             physical_revision=self.context.physical_revision,
             parameters_revision=self.context.parameters_revision,
             solver_version=self.context.solver_version,
+            state_epoch=self.context.state_epoch,
         )
 
         # 6. Solve and publish
@@ -179,7 +219,10 @@ class StateManager:
 
         return True, None, envelope
 
+    @synchronized
     def clear_blockage(self, cmd: ClearBlockageCommand) -> Tuple[bool, Optional[str], Optional[EvaluationEnvelope]]:
+        if cmd.expected_context and not self.context.is_current(cmd.expected_context):
+            return False, "Stale full context", None
         if cmd.expected_scenario_revision != self.context.scenario_revision:
             return (
                 False,
@@ -213,6 +256,7 @@ class StateManager:
             physical_revision=self.context.physical_revision,
             parameters_revision=self.context.parameters_revision,
             solver_version=self.context.solver_version,
+            state_epoch=self.context.state_epoch,
         )
 
         envelope = self._solve_and_publish_current()
@@ -220,7 +264,10 @@ class StateManager:
 
         return True, None, envelope
 
+    @synchronized
     def reset_scenario(self, cmd: ResetScenarioCommand) -> Tuple[bool, Optional[str], Optional[EvaluationEnvelope]]:
+        if cmd.expected_context and not self.context.is_current(cmd.expected_context):
+            return False, "Stale full context", None
         if cmd.expected_scenario_revision != self.context.scenario_revision:
             return (
                 False,
@@ -248,6 +295,7 @@ class StateManager:
             physical_revision=self.context.physical_revision,
             parameters_revision=self.context.parameters_revision,
             solver_version=self.context.solver_version,
+            state_epoch=self.context.state_epoch,
         )
 
         envelope = self._solve_and_publish_current()
@@ -255,6 +303,7 @@ class StateManager:
 
         return True, None, envelope
 
+    @synchronized
     def update_physical_observation(
         self,
         new_state: GateObservedState,
@@ -271,8 +320,9 @@ class StateManager:
         self.last_hardware_seq = seq
         self.last_gate_epoch = gate_epoch
 
-        # If gate position changed between confirmed states (e.g. CLOSED -> OPEN)
-        if (old_state != new_state) and (new_state in (GateObservedState.OPEN, GateObservedState.CLOSED)):
+        # Availability changes immediately in transit/unknown/fault as well.
+        # Any change invalidates investigations based on the previous physical revision.
+        if old_state != new_state:
             # Advance physical revision
             self.context = RunContext(
                 geometry_revision=self.context.geometry_revision,
@@ -280,6 +330,7 @@ class StateManager:
                 physical_revision=self.context.physical_revision + 1,
                 parameters_revision=self.context.parameters_revision,
                 solver_version=self.context.solver_version,
+                state_epoch=self.context.state_epoch,
             )
 
             envelope = self._solve_and_publish_current()

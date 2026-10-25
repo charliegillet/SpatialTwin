@@ -1,0 +1,25 @@
+SpatialTwin AI audit — actual offline results captured 24 October 2026.
+These results come from three individually executed probe cells. The companion
+script preserves them together; it has not been re-run as a combined script.
+HTTP sends were replaced with fake responses and socket connections disabled.
+No provider request, actual credential, database, device or serial operation.
+
+SDK_VERSION= 2.33.0
+DIRECT_BODY= {"generation_config": {"thinking_level": "low"}, "input": [{"content": [{"text": "Offline serialization audit", "type": "text"}, {"data": "AA==", "mime_type": "image/jpeg", "type": "image"}], "type": "user_input"}], "model": "gemini-4-argon", "response_format": {"mime_type": "application/json", "type": "text"}}
+OUTPUT_TEXT= {}
+USAGE_TYPE= Usage
+USAGE_GET_SUPPORTED= False
+PROJECT_USAGE_EXPRESSION_ERROR= AttributeError 'Usage' object has no attribute 'get'
+MANAGED_BODY= {"agent": "antigravity-preview-09-2026", "agent_config": {"max_total_tokens": "20000", "model": "gemini-4-argon", "type": "antigravity"}, "environment": "remote", "input": [{"content": [{"text": "Offline serialization audit", "type": "text"}], "type": "user_input"}], "tools": []}
+AGENT_CONFIG_SERIALIZED= {"max_total_tokens": "20000", "model": "gemini-4-argon", "type": "antigravity"}
+MOCKED_HTTP_REQUEST_COUNT= 2
+
+DUPLICATE_AND_ZERO_DEADLINE= {"tool_executions": 4, "ledger_ids": ["same-provider-call", "same-provider-call", "same-provider-call", "same-provider-call"], "result_status": "incomplete", "recommendation": "KEEP_CURRENT", "provider_calls": 5}
+ONE_TURN_CALL_CAP= {"tool_executions": 6, "result_status": "completed"}
+LIFECYCLE= {"provider_status": "failed", "reported_status": "incomplete", "recommendation": "KEEP_CURRENT", "errors": []}
+LIFECYCLE= {"provider_status": "cancelled", "reported_status": "incomplete", "recommendation": "KEEP_CURRENT", "errors": []}
+LIFECYCLE= {"provider_status": "in_progress", "reported_status": "incomplete", "recommendation": "KEEP_CURRENT", "errors": []}
+LIFECYCLE= {"provider_status": "incomplete", "reported_status": "incomplete", "recommendation": "KEEP_CURRENT", "errors": []}
+MALFORMED_GROUNDING= {"status": "matched", "target": "P2", "provenance": "fixture", "evidence": "[FIXTURE] Circular BLOCKED token clearly visible on pad T_P2 (Portal P2 East)"}
+CONTEXT_PARAMETER_MISMATCH_ACCEPTED= True
+INCOMPLETE_STALE_GROUNDING= {"input_provider_status": "incomplete", "input_operation": "OPEN_ALL_EXITS", "stale_capture_geometry": "older-geometry", "proposal_geometry": "offline", "output_operation": "SET_UNAVAILABLE", "status": "matched", "provenance": "live", "box_2d": [-15, 2000], "candidate_ids": ["portal:P1", "invented:D99"], "semantic_validation": [true, []]}

@@ -7,6 +7,11 @@ hardware serial bridge, and live SSE event streams.
 
 from __future__ import annotations
 import asyncio
+import base64
+import binascii
+import hashlib
+import importlib.metadata
+from uuid import uuid4
 from contextlib import asynccontextmanager
 import json
 import logging
@@ -17,9 +22,13 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 
 from backend.app.ai.grounding.adapter import GroundingAdapter
 from backend.app.ai.managed.adapter import ManagedAgentAdapter
+from backend.app.ai.requests import CommandRequest, GateApprovalRequest, GroundingRequest, InvestigationRequest, InvestigationCancellationRequest
 from backend.app.contracts import (
     AlternativeId,
     ApplyBlockageCommand,
@@ -27,8 +36,11 @@ from backend.app.contracts import (
     ClearBlockageCommand,
     EntityType,
     GateTarget,
+    InvestigationResult,
+    InvestigationStatus,
     OperatorPhysicalApprovalCommand,
     ResetScenarioCommand,
+    RunContext,
     TargetId,
 )
 from backend.app.hardware.bridge import HardwareBridge
@@ -44,15 +56,30 @@ scenario_service = ScenarioService(state_manager)
 hardware_bridge = HardwareBridge(state_manager)
 grounding_adapter = GroundingAdapter()
 managed_agent_adapter = ManagedAgentAdapter(scenario_service)
+active_investigations: Dict[str, tuple[asyncio.Task, RunContext]] = {}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting SpatialTwin Backend Server...")
-    await hardware_bridge.start()
-    yield
-    logger.info("Shutting down SpatialTwin Backend Server...")
-    await hardware_bridge.stop()
+    try:
+        await hardware_bridge.start()
+        yield
+    finally:
+        logger.info("Shutting down SpatialTwin Backend Server...")
+        running = [task for task, _ in active_investigations.values() if not task.done()]
+        for task in running:
+            if not task.cancelling():
+                task.cancel()
+        if running:
+            await asyncio.gather(*running, return_exceptions=True)
+        try:
+            await hardware_bridge.stop()
+        finally:
+            try:
+                await grounding_adapter.aclose()
+            finally:
+                await managed_agent_adapter.aclose()
 
 
 app = FastAPI(
@@ -64,11 +91,31 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=os.environ.get("SPATIALTWIN_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8000,http://127.0.0.1:8000").split(","),
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(request: Request, exc: RequestValidationError):
+    # Do not echo image bytes or arbitrary request values.
+    return JSONResponse(status_code=422, content={"detail": "Invalid request", "fields": [list(e["loc"]) for e in exc.errors()]})
+
+
+def fixtures_enabled() -> bool:
+    return os.environ.get("SPATIALTWIN_MODE", "demo") != "production"
+
+
+def require_context(value: Any) -> RunContext:
+    try:
+        ctx = RunContext.model_validate(value)
+    except ValidationError:
+        raise HTTPException(422, "A valid full expected_context is required")
+    if not state_manager.get_current_context().is_current(ctx):
+        raise HTTPException(409, "Stale full context; refresh and review again")
+    return ctx
 
 
 @app.get("/health")
@@ -80,6 +127,12 @@ def health() -> Dict[str, Any]:
         "serial_port": hardware_bridge.port if not hardware_bridge.is_simulator else "MOCK_SIMULATOR",
         "current_context": state_manager.get_current_context().model_dump(),
         "physical_gate_state": state_manager.physical_gate_state.value,
+        "ai": {
+            "direct": {"configured": grounding_adapter.is_live_configured(), "verified": False},
+            "managed": {"configured": managed_agent_adapter.is_live_configured(), "verified": False},
+            "fixtures_enabled": fixtures_enabled(),
+            "sdk_version": importlib.metadata.version("google-genai"),
+        },
     }
 
 
@@ -89,7 +142,9 @@ def get_scenario(scenario_id: str) -> Dict[str, Any]:
 
 
 @app.post("/api/scenarios/{scenario_id}/commands")
-async def handle_command(scenario_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_command(scenario_id: str, payload: CommandRequest) -> Dict[str, Any]:
+    payload = payload.model_dump(mode="json")
+    require_context(payload.get("expected_context"))
     cmd_type = payload.get("type", "APPLY_BLOCKAGE")
 
     if cmd_type == "APPLY_BLOCKAGE":
@@ -100,7 +155,16 @@ async def handle_command(scenario_id: str, payload: Dict[str, Any]) -> Dict[str,
             target_type=EntityType(payload.get("target_type", "portal")),
             target_id=TargetId(payload.get("target_id", "P2")),
             source=payload.get("source", "manual_override"),
+            expected_context=RunContext.model_validate(payload["expected_context"]),
+            proposal_id=payload.get("proposal_id"),
+            reviewed=payload.get("reviewed") is True,
         )
+        if cmd.source == "grounding_proposal" and (not cmd.proposal_id or not cmd.reviewed):
+            raise HTTPException(422, "Saved proposal_id and explicit review are required")
+        if cmd.proposal_id:
+            record = state_manager.store.get_grounding_result(cmd.proposal_id)
+            if record and record["result"].get("provenance") == "fixture" and not fixtures_enabled():
+                raise HTTPException(403, "Fixtures are disabled in production mode")
         success, err, envelope = state_manager.apply_blockage(cmd)
         if not success:
             raise HTTPException(status_code=400, detail=err)
@@ -118,6 +182,7 @@ async def handle_command(scenario_id: str, payload: Dict[str, Any]) -> Dict[str,
             idempotency_key=payload.get("idempotency_key", f"clear-{os.urandom(4).hex()}"),
             target_type=EntityType(payload.get("target_type", "portal")),
             target_id=TargetId(payload.get("target_id", "P2")),
+            expected_context=RunContext.model_validate(payload["expected_context"]),
         )
         success, err, envelope = state_manager.clear_blockage(cmd)
         if not success:
@@ -134,6 +199,7 @@ async def handle_command(scenario_id: str, payload: Dict[str, Any]) -> Dict[str,
             scenario_id=scenario_id,
             expected_scenario_revision=payload.get("expected_scenario_revision", 1),
             idempotency_key=payload.get("idempotency_key", f"reset-{os.urandom(4).hex()}"),
+            expected_context=RunContext.model_validate(payload["expected_context"]),
         )
         success, err, envelope = state_manager.reset_scenario(cmd)
         if not success:
@@ -150,34 +216,52 @@ async def handle_command(scenario_id: str, payload: Dict[str, Any]) -> Dict[str,
 
 
 @app.post("/api/scenarios/{scenario_id}/grounding")
-async def interpret_grounding(scenario_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    ctx = state_manager.get_current_context()
-    thinking_level = payload.get("thinking_level", "low")
+async def interpret_grounding(scenario_id: str, payload: GroundingRequest) -> Dict[str, Any]:
+    ctx = require_context(payload.source_context)
+    if payload.mode == "fixture":
+        if not fixtures_enabled():
+            raise HTTPException(403, "Fixtures are disabled in production mode")
+        if payload.fixture_target is None or payload.source_kind != "fixture" or payload.image_base64:
+            raise HTTPException(422, "Choose an explicit fixture target without camera data")
+    elif payload.fixture_target is not None or payload.source_kind == "fixture":
+        raise HTTPException(422, "Live requests cannot contain fixture controls")
+    image_digest = None
+    if payload.image_base64:
+        try:
+            raw = base64.b64decode(payload.image_base64, validate=True)
+        except (ValueError, binascii.Error):
+            raise HTTPException(422, "Invalid capture encoding")
+        image_digest = hashlib.sha256(raw).hexdigest()
+        if payload.image_sha256 and image_digest != payload.image_sha256:
+            raise HTTPException(422, "Capture digest mismatch")
     capture = Capture(
-        capture_id=payload.get("capture_id", f"cap-{os.urandom(4).hex()}"),
-        timestamp_iso=state_manager._now_iso(),
-        source_kind=payload.get("source_kind", "tabletop_camera"),
+        capture_id=payload.capture_id,
+        timestamp_iso=payload.timestamp_iso,
+        source_kind=payload.source_kind,
         source_geometry_revision=ctx.geometry_revision,
         expected_scenario_revision=ctx.scenario_revision,
         expected_physical_revision=ctx.physical_revision,
-        image_base64=payload.get("image_base64"),
-        notes=payload.get("target_override"),
+        source_context=ctx,
+        dimensions=payload.dimensions,
+        image_sha256=image_digest,
+        image_base64=payload.image_base64,
     )
-
-    force_target = payload.get("force_target")
-    proposal, provenance = await grounding_adapter.interpret_capture(
+    if not state_manager.store.save_capture(capture.model_dump(mode="json"), state_manager._now_iso()):
+        raise HTTPException(409, "Capture ID already exists; recapture with a fresh ID")
+    result = await grounding_adapter.interpret_capture(
         capture=capture,
         context=ctx,
-        force_target=force_target,
-        thinking_level=thinking_level,
+        force_target=payload.fixture_target if payload.mode == "fixture" else None,
+        thinking_level=payload.thinking_level,
+        deadline_seconds=payload.deadline_seconds,
     )
-
-    return {
-        "proposal": proposal.model_dump(),
-        "provenance": provenance,
-        "is_live_api": provenance == "live",
-        "thinking_level": thinking_level,
-    }
+    if result.proposal and not ctx.is_current(state_manager.get_current_context()):
+        result.proposal = None
+        result.status = "failed"
+        result.errors.append("stale_context")
+    result.proposal_id = f"proposal-{uuid4().hex}"
+    state_manager.store.save_grounding_result(result.proposal_id, capture.capture_id, result.model_dump(mode="json"), state_manager._now_iso())
+    return result.model_dump(mode="json")
 
 
 @app.get("/api/scenarios/{scenario_id}/matrix")
@@ -223,21 +307,37 @@ def get_scenario_matrix(scenario_id: str) -> Dict[str, Any]:
 
 
 @app.post("/api/scenarios/{scenario_id}/investigate")
-async def run_investigation(scenario_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    ctx = state_manager.get_current_context()
-    inv_id = payload.get("investigation_id")
-    result = await managed_agent_adapter.investigate_scenario(
-        context=ctx,
-        investigation_id=inv_id,
-        deadline_seconds=payload.get("deadline_seconds", 30.0),
-    )
+async def run_investigation(scenario_id: str, payload: InvestigationRequest) -> Dict[str, Any]:
+    ctx = require_context(payload.expected_context)
+    if payload.mode == "local" and not fixtures_enabled():
+        raise HTTPException(403, "Local demo investigations are disabled in production mode")
+    inv_id = payload.investigation_id
+    if inv_id in active_investigations:
+        raise HTTPException(409, "Investigation already running; inspect progress or cancel it")
+    task = asyncio.create_task(managed_agent_adapter.investigate_scenario(
+        context=ctx, investigation_id=inv_id, deadline_seconds=payload.deadline_seconds, mode=payload.mode,
+    ))
+    active_investigations[inv_id] = (task, ctx)
+    try:
+        result = await task
+    finally:
+        if active_investigations.get(inv_id, (None,))[0] is task:
+            active_investigations.pop(inv_id, None)
 
-    state_manager.store.save_investigation(
-        investigation_id=result.investigation_id,
-        status=result.status.value,
-        result_json=result.model_dump_json(),
-        created_at_iso=state_manager._now_iso(),
-    )
+    # A concurrent nonowner/conflicting request may return a transient failure.
+    # Only the durable owning run may create the approval/evidence index.
+    canonical = await managed_agent_adapter.get_saved_result(result.investigation_id)
+    if canonical is not None and canonical.base_context.is_current(state_manager.get_current_context()):
+        state_manager.store.save_investigation(
+            investigation_id=canonical.investigation_id,
+            status=canonical.status.value,
+            result_json=canonical.model_dump_json(),
+            created_at_iso=state_manager._now_iso(),
+        )
+
+    if result.status == InvestigationStatus.COMPLETED and not result.base_context.is_current(state_manager.get_current_context()):
+        result = result.model_copy(update={"status": InvestigationStatus.FAILED, "recommended_alternative": None,
+            "errors": [*result.errors, "stale_context"]})
 
     return {
         "investigation": result.model_dump(),
@@ -245,20 +345,89 @@ async def run_investigation(scenario_id: str, payload: Dict[str, Any]) -> Dict[s
     }
 
 
+@app.get("/api/scenarios/{scenario_id}/investigations/{investigation_id}/progress")
+async def investigation_progress(scenario_id: str, investigation_id: str):
+    result = await managed_agent_adapter.get_saved_result(investigation_id)
+    progress = await managed_agent_adapter.get_progress(investigation_id)
+    if investigation_id not in active_investigations and result is None:
+        raise HTTPException(404, "Investigation not found")
+    return {"investigation_id": investigation_id,
+        "status": result.status.value if result else "running",
+        "provider_progress": progress,
+        "investigation": result.model_dump(mode="json") if result else None}
+
+
+@app.post("/api/scenarios/{scenario_id}/investigations/{investigation_id}/cancel")
+async def cancel_investigation(scenario_id: str, investigation_id: str, payload: InvestigationCancellationRequest):
+    active = active_investigations.get(investigation_id)
+    if active:
+        task, original_context = active
+        if not original_context.is_current(payload.expected_context):
+            raise HTTPException(409, "Cancellation context does not match the investigation")
+        # Give a newly scheduled owner its first turn before cancellation; this
+        # lets the adapter persist a cancellation rather than dying before entry.
+        await asyncio.sleep(0)
+        if not task.done():
+            if not task.cancelling():
+                task.cancel()
+            return {"status": "cancellation_requested"}
+    result = await managed_agent_adapter.get_saved_result(investigation_id)
+    if result is None:
+        raise HTTPException(404, "Investigation not found")
+    if not result.base_context.is_current(payload.expected_context):
+        raise HTTPException(409, "Cancellation context does not match the investigation")
+    return {"status": "already_finished", "investigation": result.model_dump(mode="json")}
+
+
+@app.get("/api/scenarios/{scenario_id}/captures/{capture_id}")
+def get_capture_evidence(scenario_id: str, capture_id: str):
+    capture = state_manager.store.get_capture(capture_id)
+    if capture is None:
+        raise HTTPException(404, "Capture not found")
+    return {"capture": capture}
+
+
 @app.post("/api/hardware/operator-approve")
-async def operator_approve_gate(payload: Dict[str, Any]) -> Dict[str, Any]:
+async def operator_approve_gate(payload: GateApprovalRequest) -> Dict[str, Any]:
     """
     Operator physical approval flow:
     Requires human confirmation before motor movement begins.
     """
+    payload = payload.model_dump(mode="json")
     candidate = payload.get("candidate_alternative", "OPEN_P3")
-    target_enum = GateTarget.OPEN if candidate == "OPEN_P3" else GateTarget.CLOSED
+    ctx = require_context(payload.get("expected_context"))
+    if candidate != "OPEN_P3":
+        raise HTTPException(422, "Only the reviewed OPEN_P3 candidate can use this approval endpoint")
+    raw = state_manager.store.get_investigation(payload.get("investigation_id", ""))
+    if not raw:
+        raise HTTPException(409, "A saved current completed investigation is required")
+    investigation = InvestigationResult.model_validate(raw)
+    if (investigation.status.value != "completed" or investigation.errors
+        or investigation.provenance not in ("live", "local")
+        or not investigation.base_context.is_current(ctx)
+        or investigation.recommended_alternative != AlternativeId.OPEN_P3
+        or (investigation.provenance == "local" and not fixtures_enabled())):
+        raise HTTPException(409, "Investigation does not authorize the current candidate")
+    candidates = {item.alternative_id: item for item in investigation.candidate_envelopes}
+    opened = candidates.get(AlternativeId.OPEN_P3)
+    keep = candidates.get(AlternativeId.KEEP_CURRENT)
+    if (not opened or not keep or not opened.is_publishable or not keep.is_publishable
+        or not opened.base_context.is_current(ctx) or not keep.base_context.is_current(ctx)
+        or opened.run_id != payload.get("candidate_run_id")
+        or (opened.initial_population, opened.horizon_seconds, opened.time_step_seconds) !=
+           (keep.initial_population, keep.horizon_seconds, keep.time_step_seconds)
+        or opened.completed_crossings <= keep.completed_crossings):
+        raise HTTPException(409, "Candidate must have a checked improvement under equal conditions")
+    target_enum = GateTarget.OPEN
 
-    # Check that context matches
-    ctx = state_manager.get_current_context()
-    expected_scen = payload.get("expected_scenario_revision", ctx.scenario_revision)
-    if expected_scen != ctx.scenario_revision:
-        raise HTTPException(status_code=400, detail="Cannot actuate gate on stale scenario context")
+    approval_id = payload.get("idempotency_key")
+    if not isinstance(approval_id, str) or not 1 <= len(approval_id) <= 128:
+        raise HTTPException(422, "An approval idempotency_key is required")
+    if not state_manager.store.save_event("facility-demo", ctx.scenario_revision, "PHYSICAL_APPROVAL",
+        {"context": ctx.model_dump(), "investigation_id": investigation.investigation_id,
+         "candidate_run_id": opened.run_id, "candidate_hash": opened.candidate_hash},
+        approval_id, state_manager._now_iso()):
+        raise HTTPException(409, "Approval already submitted; inspect observed state before a new request")
 
     # Send hardware command
     success, cmd_id = await hardware_bridge.request_gate_target(target_enum)

@@ -63,28 +63,55 @@ def test_semantic_validation_rejects_applied_entity_in_ambiguous(context):
 
 @pytest.mark.asyncio
 async def test_fixture_proposals_for_all_supported_targets(context, capture):
-    grounding = GroundingAdapter(api_key="none")
+    grounding = GroundingAdapter(api_key="")
 
     # Test P1
-    p1_prop, _ = await grounding.interpret_capture(capture, context, force_target="P1")
+    p1_result = await grounding.interpret_capture(capture, context, force_target="P1")
+    assert p1_result.provenance == "fixture"
+    assert p1_result.status == "completed"
+    p1_prop = p1_result.proposal
     assert p1_prop.status == GroundingStatus.MATCHED
     assert p1_prop.selected_entity_id == "P1"
     assert p1_prop.validate_semantic_soundness()[0]
 
     # Test P2
-    p2_prop, _ = await grounding.interpret_capture(capture, context, force_target="P2")
+    p2_prop = (await grounding.interpret_capture(capture, context, force_target="P2")).proposal
     assert p2_prop.status == GroundingStatus.MATCHED
     assert p2_prop.selected_entity_id == "P2"
     assert p2_prop.validate_semantic_soundness()[0]
 
     # Test B2
-    b2_prop, _ = await grounding.interpret_capture(capture, context, force_target="B2")
+    b2_prop = (await grounding.interpret_capture(capture, context, force_target="B2")).proposal
     assert b2_prop.status == GroundingStatus.MATCHED
     assert b2_prop.selected_entity_id == "B2"
     assert b2_prop.validate_semantic_soundness()[0]
 
     # Test Ambiguous
-    amb_prop, _ = await grounding.interpret_capture(capture, context, force_target="ambiguous")
+    amb_prop = (await grounding.interpret_capture(capture, context, force_target="ambiguous")).proposal
     assert amb_prop.status == GroundingStatus.AMBIGUOUS
     assert amb_prop.selected_entity_id is None
     assert amb_prop.validate_semantic_soundness()[0]
+
+    no_match = await grounding.interpret_capture(capture, context, force_target="no_match")
+    assert no_match.provenance == "fixture"
+    assert no_match.proposal.status == GroundingStatus.NO_MATCH
+    assert no_match.proposal.candidate_ids == []
+    assert no_match.proposal.selected_entity_type is None
+    assert no_match.proposal.selected_entity_id is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("target", ["P3", "B1", "portal:P1", "", "typo"])
+async def test_invalid_fixture_targets_never_default_to_p2(context, capture, target):
+    result = await GroundingAdapter(api_key="").interpret_capture(capture, context, force_target=target)
+    assert result.status == "failed"
+    assert result.proposal is None
+    assert result.errors == ["invalid_fixture_target"]
+
+
+@pytest.mark.asyncio
+async def test_fixture_source_requires_explicit_selection(context, capture):
+    result = await GroundingAdapter(api_key="").interpret_capture(capture, context)
+    assert result.status == "unavailable"
+    assert result.proposal is None
+    assert result.errors == ["explicit_fixture_target_required"]

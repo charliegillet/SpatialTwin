@@ -1,18 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowUpRight, Camera, Check, CircleAlert, Image, LoaderCircle, ScanLine, Unplug, Video } from 'lucide-react';
-import type { GroundingProposalV1 } from '../types';
+import type { CaptureRequest, GroundingProposalV1, GroundingResult, RunContext, ThinkingLevel } from '../types';
+import { canApplyGrounding, groundingLabel } from '../ai/policy';
+import { captureEvidence } from '../ai/evidence';
+import { ExecutionReceipt } from './ExecutionReceipt';
 import './ObservationPanel.css';
 
 export interface ObservationPanelProps {
   proposal: GroundingProposalV1 | null;
-  provenance: string | null;
+  result: GroundingResult | null;
+  currentContext?: RunContext;
+  liveConfigured: boolean;
+  fixturesEnabled: boolean;
   isLoading: boolean;
   isApplying: boolean;
   isProposalCurrent: boolean;
   isAvailable?: boolean;
   appliedCaptureId?: string | null;
   error: string | null;
-  onCapture: (imageBase64?: string, fixtureTarget?: 'P1' | 'P2' | 'B2') => Promise<void>;
+  onCapture: (capture: CaptureRequest) => Promise<void>;
   onApply: () => Promise<void>;
   onClearProposal?: () => void;
 }
@@ -69,9 +75,10 @@ function TabletopPreview({ target }: { target: FixtureTarget }) {
   );
 }
 
-export function ObservationPanel({ proposal, provenance, isLoading, isApplying, isProposalCurrent, isAvailable = true, appliedCaptureId, error, onCapture, onApply, onClearProposal }: ObservationPanelProps) {
+export function ObservationPanel({ proposal, result, currentContext, liveConfigured, fixturesEnabled, isLoading, isApplying, isProposalCurrent, isAvailable = true, appliedCaptureId, error, onCapture, onApply, onClearProposal }: ObservationPanelProps) {
   const [source, setSource] = useState<'demo' | 'camera'>('demo');
   const [fixtureTarget, setFixtureTarget] = useState<FixtureTarget>('P2');
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('low');
   const [cameraState, setCameraState] = useState<CameraState>('idle');
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -142,7 +149,10 @@ export function ObservationPanel({ proposal, provenance, isLoading, isApplying, 
   async function capture() {
     setActionError(null);
     try {
-      if (source === 'demo') { await onCapture(undefined, fixtureTarget); return; }
+      if (!currentContext) throw new Error('Wait for a current scenario before capturing.');
+      const sourceRequest = requestRef.current;
+      const metadata = { capture_id: crypto.randomUUID(), timestamp_iso: new Date().toISOString(), source_context: { ...currentContext }, thinking_level: thinkingLevel };
+      if (source === 'demo') { await onCapture({ ...metadata, dimensions: [600, 275], source_kind: 'fixture', mode: 'fixture', fixture_target: fixtureTarget }); return; }
       const video = videoRef.current;
       if (!video || video.readyState < 2 || !video.videoWidth || cameraState !== 'connected') throw new Error('Wait for the camera image before capturing.');
       const canvas = document.createElement('canvas');
@@ -153,24 +163,26 @@ export function ObservationPanel({ proposal, provenance, isLoading, isApplying, 
       context.drawImage(video, 0, 0);
       const data = canvas.toDataURL('image/jpeg', .9);
       setSnapshot(data);
-      await onCapture(data.slice(data.indexOf(',') + 1));
+      const evidence = await captureEvidence({ ...metadata, dimensions: [canvas.width, canvas.height], source_kind: 'tabletop_camera', mode: 'live', image_base64: data.slice(data.indexOf(',') + 1) });
+      if (sourceRequest !== requestRef.current) return;
+      await onCapture(evidence);
     } catch (cause) { setActionError(cause instanceof Error ? cause.message : 'The capture could not be interpreted.'); }
   }
 
   const typedTarget = proposal?.selected_entity_type && proposal.selected_entity_id ? `${proposal.selected_entity_type}:${proposal.selected_entity_id}` : null;
   const validTarget = typedTarget !== null && ['portal:P1', 'portal:P2', 'boundary:B2'].includes(typedTarget) && !!proposal?.candidate_ids.includes(typedTarget);
   const isApplied = !!proposal && appliedCaptureId === proposal.capture_id && validTarget;
-  const canApply = !!proposal && proposal.status === 'matched' && proposal.operation === 'SET_UNAVAILABLE' && validTarget && isProposalCurrent && isAvailable && !isApplied && !isLoading && !isApplying;
+  const canApply = canApplyGrounding(result, currentContext) && isProposalCurrent && isAvailable && !isApplied && !isLoading && !isApplying;
   const reviewState = !proposal ? 'idle' : isApplied ? 'applied' : !isProposalCurrent ? 'stale' : proposal.status;
   const reviewTitle = reviewState === 'applied' ? `${typedTarget} · closure applied` : reviewState === 'stale' ? 'Scenario changed · capture again' : reviewState === 'matched' && validTarget ? `${typedTarget} · proposed closure` : reviewState === 'ambiguous' ? 'Needs your choice' : reviewState === 'no_match' ? 'No target matched' : proposal ? 'Invalid target · capture again' : 'Observe. Review. Apply.';
-  const provenanceLabel = provenance === 'live' ? 'Live model result' : provenance === 'fixture' ? 'Fixture result' : provenance;
+  const provenanceLabel = groundingLabel(result);
   const visibleError = actionError || error;
 
   return (
     <section className="observation-panel" aria-labelledby="observation-title">
       <header className="observation-header">
         <div className="observation-heading"><span className="observation-camera-icon"><Camera size={16} /></span><div><h2 id="observation-title">Camera 01 <span>/ Physical tabletop</span></h2><p>Observe the board. Review the proposed change.</p></div></div>
-        <div className="observation-source-switch" aria-label="Observation source"><button type="button" aria-pressed={source === 'demo'} onClick={() => changeSource('demo')}><Image size={12} />Demo</button><button type="button" aria-pressed={source === 'camera'} onClick={() => changeSource('camera')}><Video size={12} />Live camera</button></div>
+        <div className="observation-source-switch" aria-label="Observation source"><button type="button" aria-pressed={source === 'demo'} onClick={() => changeSource('demo')}><Image size={12} />Fixture</button><button type="button" aria-pressed={source === 'camera'} onClick={() => changeSource('camera')}><Video size={12} />Camera</button></div>
       </header>
 
       <div className={`observation-viewport observation-viewport-${source}`}>
@@ -185,15 +197,17 @@ export function ObservationPanel({ proposal, provenance, isLoading, isApplying, 
 
       <div className="observation-capture-bar">
         {source === 'demo' ? <label className="observation-fixture-select"><span>DEMO TARGET</span><select value={fixtureTarget} onChange={event => { setFixtureTarget(event.target.value as FixtureTarget); setActionError(null); onClearProposal?.(); }} disabled={isLoading}><option value="P1">P1 · {fixtureNames.P1}</option><option value="P2">P2 · {fixtureNames.P2}</option><option value="B2">B2 · {fixtureNames.B2}</option></select></label> : <p className="observation-capture-hint">{snapshot ? 'Captured image held for review' : 'Only the selected still is analyzed'}</p>}
-        <button className="observation-capture-button" type="button" onClick={capture} disabled={!isAvailable || isLoading || isApplying || (source === 'camera' && (!frameReady || cameraState !== 'connected'))}>{isLoading ? <LoaderCircle size={14} className="observation-spin" /> : <ScanLine size={14} />}{!isAvailable ? 'Backend offline' : isLoading ? 'Interpreting…' : source === 'demo' ? 'Load demo proposal' : 'Capture & interpret'}{!isLoading && <ArrowUpRight size={13} />}</button>
+        <button className="observation-capture-button" type="button" onClick={capture} disabled={!isAvailable || isLoading || isApplying || (source === 'demo' && !fixturesEnabled) || (source === 'camera' && (!liveConfigured || !frameReady || cameraState !== 'connected'))}>{isLoading ? <LoaderCircle size={14} className="observation-spin" /> : <ScanLine size={14} />}{!isAvailable ? 'Backend offline' : isLoading ? 'Interpreting…' : source === 'demo' ? 'Load fixture proposal' : 'Capture · Gemini'}{!isLoading && <ArrowUpRight size={13} />}</button>
       </div>
+      <div className="observation-execution-options">{source === 'camera' ? <><label>Thinking<select aria-label="Gemini thinking level" value={thinkingLevel} onChange={event => setThinkingLevel(event.target.value as ThinkingLevel)} disabled={isLoading}><option value="low">Low · quick review</option><option value="medium">Medium</option><option value="high">High</option></select></label><span>{liveConfigured ? 'Gemini configured · this still requires a completed response' : 'Gemini unavailable · configure server credentials'}</span></> : <span>{fixturesEnabled ? 'Explicit fixture · no camera inference or Gemini tokens' : 'Fixtures disabled by the server'}</span>}</div>
 
       {visibleError && <div className="observation-error" role="alert"><CircleAlert size={13} /><span>{visibleError}</span></div>}
       <div className={`observation-review observation-review-${reviewState}`} aria-live="polite" aria-busy={isLoading || isApplying}>
         <span className="observation-review-icon">{canApply || isApplied ? <Check size={14} /> : reviewState === 'idle' ? <ScanLine size={14} /> : <CircleAlert size={14} />}</span>
-        <div className="observation-review-content"><div className="observation-review-title">{reviewTitle}{proposal && provenanceLabel && <span className="observation-provenance">{provenanceLabel}</span>}</div><p>{proposal ? proposal.evidence : 'A proposal changes the scenario only after your approval.'}</p></div>
+        <div className="observation-review-content"><div className="observation-review-title">{reviewTitle}{result && <span className="observation-provenance">{provenanceLabel}</span>}</div><p>{proposal ? proposal.evidence : result && result.status !== 'completed' ? 'No proposal was accepted. Retry a fresh capture, or explicitly select a fixture.' : 'A proposal changes the scenario only after your approval.'}</p></div>
         <button className="observation-apply-button" type="button" onClick={async () => { setActionError(null); try { await onApply(); } catch (cause) { setActionError(cause instanceof Error ? cause.message : 'The proposal could not be applied.'); } }} disabled={!canApply}>{isApplying ? <LoaderCircle size={12} className="observation-spin" /> : <Check size={12} />}{isApplied ? 'Applied' : isApplying ? 'Applying…' : 'Apply closure'}</button>
       </div>
+      <ExecutionReceipt result={result} label={provenanceLabel} />
     </section>
   );
 }

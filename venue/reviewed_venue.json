@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "geometry_revision": "geom-shack15-v1",
-  "provenance": "Reviewed 6-zone tabletop schematic for Gemini 4 Argon Hackathon. Declared units: meters and seconds.",
+  "provenance": "Illustrative four-zone tabletop schematic with synthetic population and declared metric assumptions; not a surveyed or approved SHACK15 plan.",
   "parameters_revision": "params-v1",
   "default_horizon_seconds": 40,
   "time_step_seconds": 2,

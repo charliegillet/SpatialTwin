@@ -1,0 +1,277 @@
+{
+  "research_date": "2026-10-24",
+  "baseline_commit": "29b33da149b6c9d7a7e52957079565e8bd202619",
+  "note": "Checksums identify local raw research receipts. They do not certify current building conditions or live provider execution. Raw receipts are ignored by Git. Source URLs are in the audit report.",
+  "receipts": [
+    {
+      "file": ".firecrawl/argon-background.json",
+      "bytes": 37129,
+      "sha256": "e38eadc00dacd7711b594c3c50f36f5369225d40cd7a74d4b88229b2de6ac6a4"
+    },
+    {
+      "file": ".firecrawl/argon-coding-skills.json",
+      "bytes": 21153,
+      "sha256": "f8c67ce46330f6dbba4e5740d886dcc47db41ab65142856260d684abae99d319"
+    },
+    {
+      "file": ".firecrawl/argon-custom-agents.json",
+      "bytes": 81772,
+      "sha256": "7e1960f4ff48856f04a3a7fc07db289cc1d1e30096a15b1eeb0627c441d32cef"
+    },
+    {
+      "file": ".firecrawl/argon-discovery.json",
+      "bytes": 12024,
+      "sha256": "679dff8c4461849e9959d4f91a23b21ac8f883791fb7ee5ab8efaa35f9d81006"
+    },
+    {
+      "file": ".firecrawl/argon-latest-capabilities-search.json",
+      "bytes": 6035,
+      "sha256": "a33c18b260c19990aadfc1046b39bc83e5fccf7344a2d08232a81e28c37e325f"
+    },
+    {
+      "file": ".firecrawl/argon-long-decode.json",
+      "bytes": 22881,
+      "sha256": "5e2edc5d8979b055c0a61b6b6ef01757eaf2f483356ea568e8d6ee7b7a7833af"
+    },
+    {
+      "file": ".firecrawl/argon-managed.json",
+      "bytes": 115989,
+      "sha256": "a246c8e8e28f4e84099b7f1ed4b781e59c9bf439c349abe71d215779c6d659eb"
+    },
+    {
+      "file": ".firecrawl/argon-model.json",
+      "bytes": 10214,
+      "sha256": "a54e514503298a21094abd4bd64139ad77490872ade32b99dee8b9aa07dc7a35"
+    },
+    {
+      "file": ".firecrawl/argon-new.json",
+      "bytes": 26770,
+      "sha256": "51e391839a160c1a0f62b8847a0c96c091dd8ad1e7ba2c57a6675e1355c18c24"
+    },
+    {
+      "file": ".firecrawl/argon-skills-search.json",
+      "bytes": 7016,
+      "sha256": "c6ccb13dd5462657affa999615ce02366d8988372e02799dfe071f3931b89ac6"
+    },
+    {
+      "file": ".firecrawl/argon-streaming.json",
+      "bytes": 85557,
+      "sha256": "a5cd90dd307fbe462d20cc6f97e939d1e7669b6a7310cebfbbe187c9c7e46333"
+    },
+    {
+      "file": ".firecrawl/argon-structured.json",
+      "bytes": 70198,
+      "sha256": "036c5bafc40dc42d04c070b6eb855008beebe86ce7fbdab4a3111e9c8e841714"
+    },
+    {
+      "file": ".firecrawl/argon-video.json",
+      "bytes": 58004,
+      "sha256": "e943c825ebd2ea1fb3e3be4291d58727afa27ca5b9e5de64112cc7a869b1ded6"
+    },
+    {
+      "file": ".firecrawl/dbi-plans.json",
+      "bytes": 4271,
+      "sha256": "5f0b34b1d9dd7526ba14ed683a6d8abef386ac4527985033e09eb3c142a46ef7"
+    },
+    {
+      "file": ".firecrawl/dbi-records-search.json",
+      "bytes": 4934,
+      "sha256": "d086218ab62f816ff4b4ac7e4cfd66ea3a02b86bf12ae142d7ba0a7ff2bb20cf"
+    },
+    {
+      "file": ".firecrawl/ferry-bcv-assets.json",
+      "bytes": 59466,
+      "sha256": "fa48c6c070fddcc52640ffde0849fe91eb5daf22a1e51e91e3ff10d6b99590c5"
+    },
+    {
+      "file": ".firecrawl/ferry-bcv.json",
+      "bytes": 10064,
+      "sha256": "5607f56bf83f011e3aa9de249ab5519fa907368d1e5ef09bb71ce26dd1eb0e8c"
+    },
+    {
+      "file": ".firecrawl/ferry-broker.json",
+      "bytes": 5567,
+      "sha256": "9fcddfb2030a841182b278c1928602854e6011bd301ceb101a7ff0c32a5b1ec1"
+    },
+    {
+      "file": ".firecrawl/ferry-enhancements.json",
+      "bytes": 41362,
+      "sha256": "0d82159ad59910362eb20ba855a450e621c2701de9e4087d1f49439958f65bae"
+    },
+    {
+      "file": ".firecrawl/ferry-page-0.json",
+      "bytes": 15564,
+      "sha256": "049be49b309d0c25d07a63715fa70074aefac7bb325793f484cf9a0a1d80c8ef"
+    },
+    {
+      "file": ".firecrawl/ferry-page-1.json",
+      "bytes": 14471,
+      "sha256": "9eed31b8140c91fad5fda7bcec3c832e7608566aabfe4d8a3949adc2677a38f0"
+    },
+    {
+      "file": ".firecrawl/ferry-page-2.json",
+      "bytes": 1528,
+      "sha256": "9d30f45bd3341feb43e091ae8a80566bd4be135c2c376f0f25fe1795104e3cb7"
+    },
+    {
+      "file": ".firecrawl/ferry-page-3.json",
+      "bytes": 21008,
+      "sha256": "3a4f956028ad26bfa753776e4824cf837fc768b0e7413cfa62e103c864ca2847"
+    },
+    {
+      "file": ".firecrawl/ferry-places.json",
+      "bytes": 19246,
+      "sha256": "c43fa665ff516cd0d4d0ec1b432a2b02d3e1f30955dc62ee452f6e174974f97e"
+    },
+    {
+      "file": ".firecrawl/ferry-port9511.json",
+      "bytes": 37173,
+      "sha256": "0a9c9b68ccffbc9b19d91162466b67bbfa76d2079ba1a4d68df342b075bb24ca"
+    },
+    {
+      "file": ".firecrawl/ferry-portmeeting.json",
+      "bytes": 4418,
+      "sha256": "31af07958a472df923679a7b960746dbbcf7f1108d5257fbc120ef0679be65c7"
+    },
+    {
+      "file": ".firecrawl/ferry-search-0.json",
+      "bytes": 3199,
+      "sha256": "4fb592b4b345feb1e99be4ff6f375ab1a4f76b399953c0219e2b827e7b9cdcd9"
+    },
+    {
+      "file": ".firecrawl/ferry-search-1.json",
+      "bytes": 3976,
+      "sha256": "4d5fb4a4f3f3c547ee6b19457c3348a47e2764771dd0ea04dc3c3233d73bd158"
+    },
+    {
+      "file": ".firecrawl/ferry-search-2.json",
+      "bytes": 2907,
+      "sha256": "f6e7e87ecd373417d2de810cdcf770dbd6c57b5962bcf56bae42a5b63439d0b9"
+    },
+    {
+      "file": ".firecrawl/ferry-search-3.json",
+      "bytes": 2639,
+      "sha256": "2341397e42a58282dd0cfdddfa4fedb55203d992a687aea7b7c0bb855be4d700"
+    },
+    {
+      "file": ".firecrawl/ferry-search-4.json",
+      "bytes": 15749,
+      "sha256": "4b0c2c1358054b899bc5e843146ab2ed3408b63e83487747e71dd7eb3f2b3150"
+    },
+    {
+      "file": ".firecrawl/ferry-search-5.json",
+      "bytes": 4176,
+      "sha256": "b4d94f9dfbf12cff3f512fc7b0bc80dee08bed416ead7f85f153ca897240db4f"
+    },
+    {
+      "file": ".firecrawl/ferry-search-6.json",
+      "bytes": 4447,
+      "sha256": "dceecfa83f0d38c3fd596dd114b075783b86b7442cd95d6db0f0398d578a9058"
+    },
+    {
+      "file": ".firecrawl/ferry-search-7.json",
+      "bytes": 3908,
+      "sha256": "99139d46c0a6023551d5cf5fc88570c9c0c382eb7bd877ee4b55958bd86e86b0"
+    },
+    {
+      "file": ".firecrawl/port-duplicate-plans.json",
+      "bytes": 7419,
+      "sha256": "3d4905996705f19810fe8f836fefb34a2134a5db3205091d40a8b994295008fc"
+    },
+    {
+      "file": ".firecrawl/port-records-search.json",
+      "bytes": 1708,
+      "sha256": "f453119906eadd28516dd06412378cccdb902a41053c956ead53ea2032e3ad3e"
+    },
+    {
+      "file": ".firecrawl/port-records.json",
+      "bytes": 2432,
+      "sha256": "34b1744a55f8d24000d90689980a3b8f49d61b19ce75b0869501b3c958a40d16"
+    },
+    {
+      "file": ".firecrawl/shack15-about.json",
+      "bytes": 5134,
+      "sha256": "910ca288e558f620f44ae6c6506a736d0f68041d0e9ac40bd3f4bde775326834"
+    },
+    {
+      "file": ".firecrawl/shack15-awards.json",
+      "bytes": 10142,
+      "sha256": "176b9f197dacacf5878ba81aa828398f7ac047bd1fe206a10d199ac83be11069"
+    },
+    {
+      "file": ".firecrawl/shack15-events.json",
+      "bytes": 3213,
+      "sha256": "5329b778dda66e422f9f2135fed9fd6c1fb059fd66d7b8fb3b2e3beddaa1f643"
+    },
+    {
+      "file": ".firecrawl/shack15-foundry.json",
+      "bytes": 14738,
+      "sha256": "e462449e70fb0625579d23d4fb2661324fba9ca748c45fd4055470f262428109"
+    },
+    {
+      "file": ".firecrawl/shack15-search-0.json",
+      "bytes": 12724,
+      "sha256": "c2b4212fc7a03a3532546a013a8f6f4b03bbca6f739d650653398892e9c9c48e"
+    },
+    {
+      "file": ".firecrawl/shack15-search-1.json",
+      "bytes": 3294,
+      "sha256": "2ffd15f01743eef773f2ed7282bac43f0ad5c9e86e09a44b40e0e65585303951"
+    },
+    {
+      "file": ".firecrawl/shack15-search-architect-site.json",
+      "bytes": 3377,
+      "sha256": "81a6dd0b5f4ba90405df5af8e119cb1541797bd5622cff59db262d39f2f985fe"
+    },
+    {
+      "file": ".firecrawl/shack15-search-architect.json",
+      "bytes": 3659,
+      "sha256": "731fd6c306e6468028efdfa955fef352df73ac65a3531f34e310f1ec6586483a"
+    },
+    {
+      "file": ".firecrawl/shack15-search-designer.json",
+      "bytes": 7708,
+      "sha256": "0ea7aeb6f4d96a254a0c35d948dcfc6d99ad1a35d02ead2bfc3d39496950dfd2"
+    },
+    {
+      "file": ".firecrawl/shack15-search-drawings.json",
+      "bytes": 7755,
+      "sha256": "93e3bd4ef06f43e3b52150187d2329ede7e4e657b9a482aff8b25a0e468d418e"
+    },
+    {
+      "file": ".firecrawl/shack15-search-gensler.json",
+      "bytes": 3978,
+      "sha256": "b34b933373c9acb44aca8e75f18fcb14fe870e579bb51a439eb067e0019f69ac"
+    },
+    {
+      "file": ".firecrawl/shack15-search-hemminger.json",
+      "bytes": 810,
+      "sha256": "66baaff4e06c791624fae30262d2adef84a59bacd8532a9692d7a592d7b733d2"
+    },
+    {
+      "file": ".firecrawl/shack15-search-official.json",
+      "bytes": 6280,
+      "sha256": "126e8666878869884e7329c0e10ec80b2aa101a7f2b150db930a8ff881fdd96e"
+    },
+    {
+      "file": ".firecrawl/shack15-search-third-floor.json",
+      "bytes": 7111,
+      "sha256": "c2b96f1d0003d171478908d1404419a69220bbebe6f70bf848654c9ef0f5a023"
+    },
+    {
+      "file": ".firecrawl/shack15-sfuva.json",
+      "bytes": 14607,
+      "sha256": "e15dee641c2382f7d71e9ffbda517ad183033cb84928200052171f866ac6bcc3"
+    },
+    {
+      "file": ".firecrawl/shack15-terms.json",
+      "bytes": 26127,
+      "sha256": "8cd51e20cbf1c91ebe999e9ed6218d008990d0dc259a42fa8ee6637afe586911"
+    },
+    {
+      "file": ".firecrawl/shack15-vivas-template.json",
+      "bytes": 5086,
+      "sha256": "2caf5ed28f56b948d2a0e50e31fad7f1b009f73023e3d567f9eae229c15479be"
+    }
+  ]
+}

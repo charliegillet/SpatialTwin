@@ -1,5 +1,7 @@
 # SpatialTwin Setup & Quickstart Guide
 
+**Current AI operation and release gates:** read [production-readiness.md](production-readiness.md). The legacy demo script below describes intended behavior, not proof of live or physical validation. Missing provider credentials return unavailable; fixture/local modes require an explicit choice. `.env` is not loaded automatically.
+
 ## 1. Prerequisites
 
 - Python 3.11+ (CPython 3.13 tested)
@@ -16,13 +18,13 @@
 # From repository root:
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+uv pip sync --python .venv/bin/python requirements.lock
 ```
 
 ### Frontend Setup
 ```bash
 cd frontend
-npm install
+npm ci
 npm run build
 cd ..
 ```
@@ -34,7 +36,7 @@ cd ..
 ### Single-Command Presentation Mode (Serves API + Built UI)
 ```bash
 source .venv/bin/activate
-uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 ```
 Open your browser to: **`http://localhost:8000`**
 
@@ -65,7 +67,9 @@ Open browser to: **`http://localhost:5173`** (proxies `/api` and `/health` to ba
 
 ---
 
-## 5. Two-Minute Judge Demo Script
+## 5. Intended Two-Minute Judge Demo Script
+
+Run only after the corresponding live capture and physical bench gates pass. Numbers below are illustrative model outputs, not observed real-building results. Current UI supports separate live/fixture and live/local actions; use the displayed receipts to identify the source.
 
 1. **Baseline View (0:00 - 0:30)**:
    - Point out 120 synthetic occupants in Main Event Hall with both portals P1 and P2 open.

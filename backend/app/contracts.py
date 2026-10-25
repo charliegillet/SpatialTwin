@@ -9,7 +9,7 @@ import hashlib
 import json
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Tuple
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
 
 # Canonical Target Identifiers
@@ -62,30 +62,42 @@ class GateObservedState(str, Enum):
 # =====================================================================
 
 class RunContext(BaseModel):
-    geometry_revision: str = Field(..., description="Canonical geometry revision, e.g. 'geom-shack15-v1'")
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    geometry_revision: str = Field(..., min_length=1, max_length=128, description="Canonical geometry revision, e.g. 'geom-shack15-v1'")
     scenario_revision: int = Field(..., ge=1, description="Monotonically increasing scenario revision")
     physical_revision: int = Field(..., ge=1, description="Monotonically increasing physical revision")
     parameters_revision: str = Field(default="params-v1", description="Declared capacity and solver parameters revision")
     solver_version: str = Field(default="spatialtwin-flow-v1.0", description="Numerical solver implementation version")
+    state_epoch: str = Field(default="legacy", min_length=1, max_length=128, description="Unique authoritative process session; old evidence cannot become current after restart")
     context_hash: Optional[str] = Field(default=None, description="Canonical SHA256 of context fields")
 
-    def model_post_init(self, __context: Any) -> None:
-        if not self.context_hash:
-            self.context_hash = self.compute_hash()
+    @model_validator(mode="after")
+    def canonical_hash(self) -> RunContext:
+        expected = self.compute_hash()
+        if self.context_hash is not None and self.context_hash != expected:
+            raise ValueError("Context hash does not match its revisions")
+        object.__setattr__(self, "context_hash", expected)
+        return self
 
     def compute_hash(self) -> str:
-        payload = f"{self.geometry_revision}:{self.scenario_revision}:{self.physical_revision}:{self.parameters_revision}:{self.solver_version}"
-        return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+        payload = [self.geometry_revision, self.scenario_revision, self.physical_revision,
+                   self.parameters_revision, self.solver_version, self.state_epoch]
+        return hashlib.sha256(json.dumps(payload, separators=(",", ":")).encode("utf-8")).hexdigest()
 
     def is_current(self, other: RunContext) -> bool:
         return (
             self.geometry_revision == other.geometry_revision
             and self.scenario_revision == other.scenario_revision
             and self.physical_revision == other.physical_revision
+            and self.parameters_revision == other.parameters_revision
+            and self.solver_version == other.solver_version
+            and self.state_epoch == other.state_epoch
+            and self.context_hash == other.context_hash == self.compute_hash() == other.compute_hash()
         )
 
 
 class Capture(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     capture_id: str
     timestamp_iso: str
     source_kind: Literal["tabletop_camera", "annotated_plan", "fixture"]
@@ -95,6 +107,8 @@ class Capture(BaseModel):
     expected_physical_revision: int
     image_base64: Optional[str] = None
     notes: Optional[str] = None
+    source_context: Optional[RunContext] = None
+    image_sha256: Optional[str] = None
 
 
 # =====================================================================
@@ -102,6 +116,7 @@ class Capture(BaseModel):
 # =====================================================================
 
 class GroundingProposalV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     version: str = "1.0.0"
     capture_id: str
     source_context: RunContext
@@ -112,13 +127,21 @@ class GroundingProposalV1(BaseModel):
     operation: Literal["SET_UNAVAILABLE"] = "SET_UNAVAILABLE"
     evidence: str
     thinking_level: Literal["low", "medium", "high"] = "low"
-    box_2d: Optional[List[int]] = Field(
+    box_2d: Optional[List[StrictInt]] = Field(
         default=None,
         description="Normalized [ymin, xmin, ymax, xmax] coordinates on 0-1000 scale"
     )
 
     def validate_semantic_soundness(self) -> Tuple[bool, List[str]]:
         errors = []
+        if len(set(self.candidate_ids)) != len(self.candidate_ids) or any(i not in SUPPORTED_TARGET_IDS for i in self.candidate_ids):
+            errors.append("Candidate IDs must be unique members of the reviewed catalog")
+        if self.box_2d is not None:
+            b = self.box_2d
+            if len(b) != 4 or any(type(v) is not int or not 0 <= v <= 1000 for v in b):
+                errors.append("Bounding box requires four integers between 0 and 1000")
+            elif b[0] >= b[2] or b[1] >= b[3]:
+                errors.append("Bounding box coordinates must be ordered")
         if self.status == GroundingStatus.MATCHED:
             if not self.selected_entity_type or not self.selected_entity_id:
                 errors.append("Matched status requires both selected_entity_type and selected_entity_id")
@@ -130,12 +153,25 @@ class GroundingProposalV1(BaseModel):
                 if typed_id not in self.candidate_ids:
                     errors.append(f"Selected target {typed_id} is not present in candidate_ids {self.candidate_ids}")
         elif self.status == GroundingStatus.AMBIGUOUS:
-            if self.selected_entity_id is not None:
+            if self.selected_entity_id is not None or self.selected_entity_type is not None:
                 errors.append("Ambiguous status must not contain an applied selected_entity_id")
         elif self.status == GroundingStatus.NO_MATCH:
-            if self.selected_entity_id is not None:
+            if self.selected_entity_id is not None or self.selected_entity_type is not None:
                 errors.append("No_match status must not contain an applied selected_entity_id")
         return (len(errors) == 0, errors)
+
+
+class GroundingResult(BaseModel):
+    proposal: Optional[GroundingProposalV1] = None
+    proposal_id: Optional[str] = None
+    provenance: Literal["live", "fixture", "unavailable"] = "unavailable"
+    status: Literal["completed", "failed", "unavailable", "timed_out", "cancelled"] = "unavailable"
+    errors: List[str] = Field(default_factory=list)
+    provider_interaction_id: Optional[str] = None
+    provider_model: Optional[str] = None
+    token_usage: Dict[str, int] = Field(default_factory=dict)
+    latency_ms: float = 0.0
+    sdk_version: Optional[str] = None
 
 
 # =====================================================================
@@ -200,6 +236,8 @@ class InvestigationStatus(str, Enum):
     FAILED = "failed"
     INCOMPLETE = "incomplete"
     CANCELLED = "cancelled"
+    IN_PROGRESS = "in_progress"
+    TIMED_OUT = "timed_out"
 
 
 class ToolCallLedgerEntry(BaseModel):
@@ -223,8 +261,17 @@ class InvestigationResult(BaseModel):
     tool_ledger: List[ToolCallLedgerEntry] = Field(default_factory=list)
     agent_explanation: str
     token_usage: Dict[str, int] = Field(default_factory=dict)
-    deadline_seconds: float = 30.0
+    deadline_seconds: float = 60.0
     errors: List[str] = Field(default_factory=list)
+    provenance: Literal["live", "local", "unavailable"] = "unavailable"
+    provider_interaction_id: Optional[str] = None
+    provider_environment_id: Optional[str] = None
+    provider_model: Optional[str] = None
+    sdk_version: Optional[str] = None
+    latency_ms: float = 0.0
+    replayed: bool = False
+    last_provider_status: Optional[str] = None
+    provider_progress: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 # =====================================================================
@@ -287,6 +334,9 @@ class ApplyBlockageCommand(BaseModel):
     target_type: EntityType
     target_id: TargetId
     source: Literal["grounding_proposal", "manual_override", "replay"] = "grounding_proposal"
+    expected_context: Optional[RunContext] = None
+    proposal_id: Optional[str] = None
+    reviewed: bool = False
 
 
 class ClearBlockageCommand(BaseModel):
@@ -295,12 +345,14 @@ class ClearBlockageCommand(BaseModel):
     idempotency_key: str
     target_type: EntityType
     target_id: TargetId
+    expected_context: Optional[RunContext] = None
 
 
 class ResetScenarioCommand(BaseModel):
     scenario_id: str = "facility-demo"
     expected_scenario_revision: int
     idempotency_key: str
+    expected_context: Optional[RunContext] = None
 
 
 class OperatorPhysicalApprovalCommand(BaseModel):
