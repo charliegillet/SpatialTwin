@@ -15,12 +15,12 @@ import { CutawayView3D } from './components/CutawayView3D';
 import { LedStickVisualizer } from './components/LedStickVisualizer';
 import { ProposalEvidencePanel } from './features/proposal-evidence/ProposalEvidencePanel';
 import { AuditDrawer } from './components/AuditDrawer';
-import { Map, Layers } from 'lucide-react';
+import { Map, Layers, Columns } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [snapshot, setSnapshot] = useState<ScenarioSnapshot | null>(null);
   const [health, setHealth] = useState<HealthStatus | null>(null);
-  const [activeView, setActiveView] = useState<'2d' | '3d'>('2d');
+  const [activeView, setActiveView] = useState<'3d' | '2d' | 'split'>('3d');
   const [selectedTarget, setSelectedTarget] = useState<string | null>(null);
   const [isJudgeMode, setIsJudgeMode] = useState<boolean>(false);
 
@@ -159,46 +159,75 @@ export const App: React.FC = () => {
     await operatorApproveGate('OPEN_P3', snapshot.context.scenario_revision);
   };
 
+  // Quick Judging Demo Presets
+  const handleQuickPreset = async (preset: 'nominal' | 'p2_blocked' | 'b2_blocked') => {
+    if (preset === 'nominal') {
+      await handleReset();
+    } else if (preset === 'p2_blocked') {
+      await handleApplyBlockage('portal', 'P2');
+    } else if (preset === 'b2_blocked') {
+      await handleApplyBlockage('boundary', 'B2');
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-[#090d16] text-slate-100 flex flex-col font-sans">
+    <div className="min-h-screen bg-[#050811] text-slate-100 flex flex-col font-sans bg-blueprint-grid bg-tactical-radial">
       <Header
         snapshot={snapshot}
         health={health}
         onReset={handleReset}
         isJudgeMode={isJudgeMode}
         setIsJudgeMode={setIsJudgeMode}
+        onQuickPreset={handleQuickPreset}
       />
 
-      <main className="flex-1 p-4 lg:p-6 max-w-7xl mx-auto w-full space-y-5">
-        {/* View Switcher Controls */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2 bg-slate-900 p-1 rounded-lg border border-slate-800 text-xs">
-            <button
-              onClick={() => setActiveView('2d')}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md font-medium transition ${
-                activeView === '2d'
-                  ? 'bg-sky-600 text-white shadow'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Map className="h-3.5 w-3.5" />
-              <span>2D Tabletop Plan</span>
-            </button>
+      <main className="flex-1 p-4 lg:p-6 max-w-[1600px] mx-auto w-full space-y-4">
+        {/* Cockpit Control Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-950/80 p-2 rounded-xl border border-slate-800/80 shadow-lg backdrop-blur">
+          {/* Mode Switcher */}
+          <div className="flex items-center space-x-1.5 bg-slate-900/90 p-1 rounded-lg border border-slate-800 text-xs">
             <button
               onClick={() => setActiveView('3d')}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md font-medium transition ${
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md font-semibold transition ${
                 activeView === '3d'
-                  ? 'bg-sky-600 text-white shadow'
+                  ? 'bg-cyan-600 text-white shadow-neon-cyan'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               <Layers className="h-3.5 w-3.5" />
-              <span>2.5D Isometric Cutaway</span>
+              <span>3D Building Cutaway</span>
+            </button>
+            <button
+              onClick={() => setActiveView('2d')}
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md font-semibold transition ${
+                activeView === '2d'
+                  ? 'bg-cyan-600 text-white shadow-neon-cyan'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Map className="h-3.5 w-3.5" />
+              <span>2D Tabletop Blueprint</span>
+            </button>
+            <button
+              onClick={() => setActiveView('split')}
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md font-semibold transition ${
+                activeView === 'split'
+                  ? 'bg-cyan-600 text-white shadow-neon-cyan'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Columns className="h-3.5 w-3.5" />
+              <span>Dual Split View</span>
             </button>
           </div>
 
-          <div className="text-xs text-slate-400 font-mono hidden sm:block">
-            Target: SHACK15 Demo Stage • Unit: meters / seconds
+          <div className="flex items-center space-x-3 text-xs text-slate-400 font-mono">
+            <span className="hidden md:inline-flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+              State: Nominal Conservation ($N=120$)
+            </span>
+            <span className="text-slate-600">•</span>
+            <span>SHACK15 Ferry Building, SF</span>
           </div>
         </div>
 
@@ -206,13 +235,7 @@ export const App: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
           {/* Left Column: Visualizers (7 cols) */}
           <div className="lg:col-span-7 space-y-4">
-            {activeView === '2d' ? (
-              <PlanView2D
-                snapshot={snapshot}
-                onSelectTarget={(t, id) => setSelectedTarget(`${t}:${id}`)}
-                selectedTarget={selectedTarget}
-              />
-            ) : (
+            {activeView === '3d' ? (
               <CutawayView3D
                 snapshot={snapshot}
                 onToggleHazard={handleToggleHazard}
@@ -220,6 +243,27 @@ export const App: React.FC = () => {
                 selectedTarget={selectedTarget}
                 onSelectTarget={setSelectedTarget}
               />
+            ) : activeView === '2d' ? (
+              <PlanView2D
+                snapshot={snapshot}
+                onSelectTarget={(t, id) => setSelectedTarget(`${t}:${id}`)}
+                selectedTarget={selectedTarget}
+              />
+            ) : (
+              <div className="space-y-4">
+                <CutawayView3D
+                  snapshot={snapshot}
+                  onToggleHazard={handleToggleHazard}
+                  onTriggerArgonScan={handleTriggerArgonScan}
+                  selectedTarget={selectedTarget}
+                  onSelectTarget={setSelectedTarget}
+                />
+                <PlanView2D
+                  snapshot={snapshot}
+                  onSelectTarget={(t, id) => setSelectedTarget(`${t}:${id}`)}
+                  selectedTarget={selectedTarget}
+                />
+              </div>
             )}
 
             {/* LED Indicator Stick View */}

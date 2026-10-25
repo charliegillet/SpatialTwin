@@ -6,13 +6,29 @@ export default {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
+        display: ['"Rajdhani"', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'monospace'],
+      },
       colors: {
         twin: {
-          bg: "#090d16",
-          card: "#0f172a",
-          border: "#1e293b",
-          accent: "#38bdf8",
+          bg: "#050811",
+          surface: "#0a0f1d",
+          card: "#0e1526",
+          border: "#1b253b",
+          cyan: "#00f5ff",
+          emerald: "#10b981",
+          amber: "#f59e0b",
+          rose: "#f43f5e",
         }
+      },
+      boxShadow: {
+        'neon-cyan': '0 0 25px -4px rgba(0, 245, 255, 0.4)',
+        'neon-emerald': '0 0 25px -4px rgba(16, 185, 129, 0.4)',
+        'neon-rose': '0 0 25px -4px rgba(244, 63, 94, 0.4)',
+        'neon-amber': '0 0 25px -4px rgba(245, 158, 11, 0.4)',
+        'cockpit': '0 10px 40px -10px rgba(0, 0, 0, 0.7)',
       }
     },
   },
