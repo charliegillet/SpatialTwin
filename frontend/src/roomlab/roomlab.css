@@ -1547,3 +1547,5 @@ input[type="range"] {
 .rl-geometry-cloud-header p, .rl-geometry-cloud-footer { color: #677168; font-size: 11px; }
 .rl-geometry-cloud-footer { position: absolute; bottom: 14px; left: 24px; right: 24px; pointer-events: none; }
 .rl-point-label { background: white; padding: 3px 6px; border-radius: 5px; font-size: 11px; white-space: nowrap; }
+
+.rl-room-layer { width: 100%; height: 100%; }

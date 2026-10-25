@@ -995,6 +995,7 @@ export default function RoomLabWorkspace() {
           </div>
         </aside>
         <section className="rl-center-stage" aria-label="3D Room Viewport">
+          <div className="rl-room-layer" inert={geometryPreview ? true : undefined} aria-hidden={geometryPreview ? true : undefined}>
           <RoomCanvasTools
             viewMode={viewMode}
             showCSpace={showCSpace}
@@ -1054,7 +1055,6 @@ export default function RoomLabWorkspace() {
               clearAnalysisOverlays();
             }}
           />
-          {geometryPreview && <GeometryCloud report={geometryPreview.report} selected={geometrySelected} onSelect={id => setGeometrySelected(old => old.includes(id) ? old.filter(i => i !== id) : [...old, id].slice(0,40))} onClose={() => showGeometry(null)} />}
           <div className="rl-stage-footer">
             <span>
               {scene
@@ -1066,6 +1066,8 @@ export default function RoomLabWorkspace() {
             </span>
             <span>Drag to orbit · scroll to zoom</span>
           </div>
+          </div>
+          {geometryPreview && <GeometryCloud report={geometryPreview.report} selected={geometrySelected} onSelect={id => setGeometrySelected(old => old.includes(id) ? old.filter(i => i !== id) : [...old, id].slice(0,40))} onClose={() => showGeometry(null)} />}
         </section>
       </main>
     </div>
