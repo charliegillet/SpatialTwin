@@ -59,6 +59,12 @@ _CAM_SAME_SIDE_FRAC = 0.9    # cameras on the normal's side of the plane
 _CAM_HEIGHT_MAX_CV = 0.25    # std/median of camera heights above the plane
 _FINAL_BAND_FRAC_OF_EYE = 0.03  # final LS band, fraction of camera height
 _DOWN_MAX_COS = -0.5         # camera "down" (image +y) must point at the floor
+_BELOW_MAX_FRAC = 0.03       # points clearly (> 2 bands) below a floor candidate
+_MIN_FLOOR_INLIERS = 50
+_MIN_FLOOR_FRAC = 0.02
+_TIGHT_MIN_FRAC = 0.6       # inliers within a third of the band
+_LOW_SAMPLE_FRAC = 0.3       # half the triples come from the lowest 30% of points
+_REFLECT_MIN_LATERAL_M = 0.5  # lateral spread needed before a mirror fit is considered
 
 
 @dataclass(frozen=True)
@@ -126,10 +132,15 @@ def _fit_plane_lsq(points: np.ndarray) -> tuple[np.ndarray, float]:
 
 
 def _floor_candidates(pts: np.ndarray, rng: np.random.Generator, k: int,
-                      centers: np.ndarray, down: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
+                      centers: np.ndarray, down: np.ndarray,
+                      low: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
     """k random 3-point planes, oriented toward the cameras, kept only if the
-    cameras sit on one side at a consistent height and image-down faces them."""
-    idx = rng.integers(0, len(pts), size=(k, 3))
+    cameras sit on one side at a consistent height and image-down faces them.
+    Half the triples are drawn from `low` (indices of the lowest points along
+    image-down), so a sparse floor under dense walls still gets sampled."""
+    half = k // 2
+    idx = np.r_[rng.integers(0, len(pts), size=(k - half, 3)),
+                low[rng.integers(0, len(low), size=(half, 3))]]
     a, b, c = pts[idx[:, 0]], pts[idx[:, 1]], pts[idx[:, 2]]
     normals = np.cross(b - a, c - a)
     norms = np.linalg.norm(normals, axis=1)
@@ -168,15 +179,26 @@ def _fit_floor_plane(points: np.ndarray, centers: np.ndarray, downs: np.ndarray)
     down = downs.mean(axis=0)
     down /= max(np.linalg.norm(down), 1e-12)
 
+    depth = (pts - centers.mean(axis=0)) @ down  # larger = lower
+    low = np.argsort(depth)[-max(3, int(_LOW_SAMPLE_FRAC * len(pts))):]
+    min_support = max(_MIN_FLOOR_INLIERS, _MIN_FLOOR_FRAC * len(pts))
+
     best_count, n, d = 0, None, 0.0
     done, needed = 0, _RANSAC_MAX_ITERS
     while done < min(needed, _RANSAC_MAX_ITERS):
-        cand = _floor_candidates(pts, rng, _RANSAC_CHUNK, centers, down)
+        cand = _floor_candidates(pts, rng, _RANSAC_CHUNK, centers, down, low)
         done += _RANSAC_CHUNK
         if cand is None:
             continue
         normals, offsets = cand
-        counts = (np.abs(pts @ normals.T + offsets) < thresh).sum(axis=0)
+        sd = pts @ normals.T + offsets
+        counts = (np.abs(sd) < thresh).sum(axis=0)
+        # tight/band share: a real floor's inliers cluster on the plane; a slice
+        # through walls (or along wall feet) fills the band uniformly
+        tight = (np.abs(sd) < thresh / 3).sum(axis=0) / np.maximum(counts, 1)
+        below = (sd < -2 * thresh).mean(axis=0)
+        counts = np.where((below <= _BELOW_MAX_FRAC) & (counts >= min_support)
+                          & (tight >= _TIGHT_MIN_FRAC), counts, 0)
         i = int(np.argmax(counts))
         if counts[i] > best_count:
             best_count, n, d = int(counts[i]), normals[i], float(offsets[i])
@@ -234,41 +256,72 @@ def _alignment_hash(params: dict) -> str:
     return hashlib.sha256(json.dumps(data, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def _match_keyframes(sfm: SfmResult, graph: VenueGraph) -> list[tuple[int, tuple[float, float]]]:
-    """(frame index, keyframe xy) for the nearest SfM frame within KEYFRAME_MATCH_S."""
+def _match_keyframes(sfm: SfmResult, graph: VenueGraph) -> list[tuple[np.ndarray, tuple[float, float]]]:
+    """(SfM centre at the keyframe time, keyframe xy) pairs.
+
+    The centre is linearly interpolated between the two bracketing SfM frames
+    when both are within KEYFRAME_MATCH_S of the keyframe; otherwise (path ends,
+    or a gap of unregistered frames) the nearest frame within KEYFRAME_MATCH_S
+    is used; otherwise the keyframe is skipped."""
     if not sfm.frames:
         return []
-    ts = np.array([f.t_s for f in sfm.frames])
+    frames = sorted(sfm.frames, key=lambda f: f.t_s)
+    ts = np.array([f.t_s for f in frames])
+    cs = np.array([f.center for f in frames], float)
     pairs = []
     for kf in graph.keyframes:
+        j = int(np.searchsorted(ts, kf.t_s))  # ts[j-1] < t <= ts[j]
+        if 0 < j < len(ts) and ts[j] - kf.t_s <= KEYFRAME_MATCH_S and kf.t_s - ts[j - 1] <= KEYFRAME_MATCH_S:
+            span = ts[j] - ts[j - 1]
+            f = (kf.t_s - ts[j - 1]) / span if span > 0 else 0.0
+            pairs.append(((1 - f) * cs[j - 1] + f * cs[j], (kf.x, kf.y)))
+            continue
         i = int(np.argmin(np.abs(ts - kf.t_s)))
         if abs(ts[i] - kf.t_s) <= KEYFRAME_MATCH_S:
-            pairs.append((i, (kf.x, kf.y)))
+            pairs.append((cs[i], (kf.x, kf.y)))
     return pairs
+
+
+def _rms_residual(s: float, yaw: float, t: np.ndarray, src: np.ndarray, dst: np.ndarray) -> float:
+    return float(np.sqrt(((_apply_2d(s, yaw, t, src) - dst) ** 2).sum(axis=1).mean()))
 
 
 def fit_alignment(sfm: SfmResult, graph: VenueGraph) -> Alignment:
     """Fit the SfM -> graph-floor alignment. Raises ValueError("too_few_matches")
-    with fewer than 2 keyframe/frame pairs, ValueError("no_floor_plane") when no
-    floor is found."""
+    with fewer than 3 keyframe/frame pairs, ValueError("no_floor_plane") when no
+    supported floor is found.
+
+    Both frames are right-handed with the normal up, so a correct fit is proper.
+    A mirrored fit is accepted only if the proper fit fails (residual above
+    RESIDUAL_MAX_M), the mirror at least halves the residual, and the path has
+    real lateral spread (a straight walk cannot distinguish a mirror). A
+    reflected alignment always gets a "disagrees" badge."""
     pairs = _match_keyframes(sfm, graph)
-    if len(pairs) < 2:
+    if len(pairs) < 3:
         raise ValueError("too_few_matches")
     centers = np.array([f.center for f in sfm.frames], float)
     downs = np.array([np.asarray(f.R, float)[:, 1] for f in sfm.frames])
     n, d = _fit_floor_plane(np.asarray(sfm.points, float).reshape(-1, 3), centers, downs)
 
     dst = np.array([xy for _, xy in pairs], float)
-    sel = centers[[i for i, _ in pairs]]
+    sel = np.array([c for c, _ in pairs], float)
     src = _project_plane(sel, n)
-    reflected = False
-    if len(pairs) >= 3:
-        cov = (dst - dst.mean(0)).T @ (src - src.mean(0))
-        if np.linalg.det(cov) < -1e-12 * max(float(np.abs(cov).max()) ** 2, 1e-300):
-            reflected = True
-            src = _project_plane(sel, n, reflected=True)
     s, yaw, t = _umeyama_2d(src, dst)
-    residual = float(np.sqrt(((_apply_2d(s, yaw, t, src) - dst) ** 2).sum(axis=1).mean()))
+    residual = _rms_residual(s, yaw, t, src, dst)
+    reflected = False
+    if residual > RESIDUAL_MAX_M:
+        xs = src - src.mean(axis=0)
+        sv = np.linalg.svd(xs, compute_uv=False)
+        # metres per SfM unit from the spreads alone (rotation/mirror free); the
+        # proper fit's scale shrinks when the graph really is mirrored
+        m_per_unit = math.sqrt(((dst - dst.mean(axis=0)) ** 2).sum() / max((xs ** 2).sum(), 1e-300))
+        lateral_m = m_per_unit * float(sv[1]) / math.sqrt(len(src))  # RMS spread across the path
+        if lateral_m > _REFLECT_MIN_LATERAL_M:
+            src_r = _project_plane(sel, n, reflected=True)
+            s_r, yaw_r, t_r = _umeyama_2d(src_r, dst)
+            residual_r = _rms_residual(s_r, yaw_r, t_r, src_r, dst)
+            if residual_r < 0.5 * residual:
+                reflected, s, yaw, t, residual = True, s_r, yaw_r, t_r, residual_r
     eye = float(np.mean(centers @ n + d) * s)
 
     params = {
@@ -293,8 +346,10 @@ def height_above_floor_m(alignment: Alignment, p_xyz: Sequence[float]) -> float:
 
 
 def scale_badge(alignment: Alignment) -> Literal["agrees", "disagrees"]:
-    """Cross-check of the anchor's scale. The tape-measured anchor stays the authority."""
-    ok = (abs(alignment.eye_height_m - EYE_HEIGHT_M) <= EYE_HEIGHT_TOL_M
+    """Cross-check of the anchor's scale. The tape-measured anchor stays the authority.
+    A mirrored (reflected) alignment never agrees."""
+    ok = (not alignment._reflected
+          and abs(alignment.eye_height_m - EYE_HEIGHT_M) <= EYE_HEIGHT_TOL_M
           and alignment.residual_m <= RESIDUAL_MAX_M)
     return "agrees" if ok else "disagrees"
 
@@ -330,60 +385,83 @@ def _map(pycolmap, db: Path, images: Path, out: Path) -> dict:
     return models or {}
 
 
-def run_sfm(video: PreparedVideo, work_dir: Path, fps: float = 2.0) -> SfmResult:
+def _reconstruct(video: PreparedVideo, work_dir: Path, fps: float) -> tuple[list[SfmFrame], list, int]:
+    """pycolmap pipeline -> (frames sorted by time, points, number of sampled frames).
+    Raises _SfmFailure with a readable reason."""
+    import pycolmap
+
+    work_dir = Path(work_dir)
+    frames_dir = work_dir / "frames"
+    if frames_dir.exists():
+        shutil.rmtree(frames_dir)
+    sampled = sample_frames(video.path, fps, frames_dir)
+    if len(sampled) < MIN_REGISTERED:
+        raise _SfmFailure(f"too_few_frames: {len(sampled)}")
+    t_by_name = {p.name: t for t, p in sampled}
+
+    db = work_dir / "database.db"
+    if db.exists():
+        db.unlink()
+    for sub in ("global", "incremental"):
+        shutil.rmtree(work_dir / sub, ignore_errors=True)
+
+    ex = pycolmap.FeatureExtractionOptions()
+    ex.max_image_size = MAX_IMAGE_SIZE
+    ex.sift.max_num_features = MAX_NUM_FEATURES
+    pycolmap.extract_features(db, frames_dir, camera_mode=pycolmap.CameraMode.SINGLE,
+                              extraction_options=ex, device=pycolmap.Device.cpu)
+    pycolmap.match_sequential(
+        db, pairing_options=pycolmap.SequentialPairingOptions(overlap=SEQUENTIAL_OVERLAP),
+        device=pycolmap.Device.cpu)
+
+    models = _map(pycolmap, db, frames_dir, work_dir)
+    if not models:
+        raise _SfmFailure("no_reconstruction: no model could be built (too little texture or overlap)")
+    rec = max(models.values(), key=lambda r: r.num_reg_images())
+    if rec.num_reg_images() < MIN_REGISTERED:
+        raise _SfmFailure(f"no_reconstruction: largest model has {rec.num_reg_images()} images")
+
+    frames = []
+    for img in rec.images.values():
+        if not img.has_pose or img.name not in t_by_name:
+            continue
+        R_c2w = np.asarray(img.cam_from_world().rotation.matrix()).T
+        frames.append(SfmFrame(
+            t_s=float(t_by_name[img.name]),
+            center=tuple(float(v) for v in np.asarray(img.projection_center()).ravel()),
+            R=R_c2w.tolist(),
+            K=np.asarray(img.camera.calibration_matrix()).tolist(),
+        ))
+    frames.sort(key=lambda f: f.t_s)
+    points = [tuple(float(v) for v in p.xyz) for p in rec.points3D.values()]
+    return frames, points, len(sampled)
+
+
+class _SfmFailure(Exception):
+    pass
+
+
+def run_sfm(video: PreparedVideo, work_dir: Path, fps: float = 4.0) -> SfmResult:
     """Recover the camera path with pycolmap. Never raises; failures return
-    status="failed" with an error string."""
+    status="failed" with an error string. Default 4 fps (Ruling R20): at 2 fps a
+    sharp turn produced a fully registered but wrong GLOMAP path.
+
+    A reconstruction with no supported floor plane is also "failed"
+    ("no_floor_plane"): without a floor there is no frozen alignment, so the
+    caller shows geometry as unavailable."""
     t0 = time.monotonic()
     try:
-        import pycolmap
-
-        work_dir = Path(work_dir)
-        frames_dir = work_dir / "frames"
-        if frames_dir.exists():
-            shutil.rmtree(frames_dir)
-        sampled = sample_frames(video.path, fps, frames_dir)
-        if len(sampled) < MIN_REGISTERED:
-            return _failed(t0, f"too_few_frames: {len(sampled)}")
-        t_by_name = {p.name: t for t, p in sampled}
-
-        db = work_dir / "database.db"
-        if db.exists():
-            db.unlink()
-        for sub in ("global", "incremental"):
-            shutil.rmtree(work_dir / sub, ignore_errors=True)
-
-        ex = pycolmap.FeatureExtractionOptions()
-        ex.max_image_size = MAX_IMAGE_SIZE
-        ex.sift.max_num_features = MAX_NUM_FEATURES
-        pycolmap.extract_features(db, frames_dir, camera_mode=pycolmap.CameraMode.SINGLE,
-                                  extraction_options=ex, device=pycolmap.Device.cpu)
-        pycolmap.match_sequential(
-            db, pairing_options=pycolmap.SequentialPairingOptions(overlap=SEQUENTIAL_OVERLAP),
-            device=pycolmap.Device.cpu)
-
-        models = _map(pycolmap, db, frames_dir, work_dir)
-        if not models:
-            return _failed(t0, "no_reconstruction: no model could be built "
-                               "(too little texture or overlap)")
-        rec = max(models.values(), key=lambda r: r.num_reg_images())
-        if rec.num_reg_images() < MIN_REGISTERED:
-            return _failed(t0, f"no_reconstruction: largest model has {rec.num_reg_images()} images")
-
-        frames = []
-        for img in rec.images.values():
-            if not img.has_pose or img.name not in t_by_name:
-                continue
-            R_c2w = np.asarray(img.cam_from_world().rotation.matrix()).T
-            frames.append(SfmFrame(
-                t_s=float(t_by_name[img.name]),
-                center=tuple(float(v) for v in np.asarray(img.projection_center()).ravel()),
-                R=R_c2w.tolist(),
-                K=np.asarray(img.camera.calibration_matrix()).tolist(),
-            ))
-        frames.sort(key=lambda f: f.t_s)
-        points = [tuple(float(v) for v in p.xyz) for p in rec.points3D.values()]
-        return SfmResult("completed", frames, points, len(frames) / len(sampled),
+        frames, points, n_sampled = _reconstruct(video, work_dir, fps)
+        try:
+            _fit_floor_plane(np.asarray(points, float).reshape(-1, 3),
+                             np.array([f.center for f in frames], float),
+                             np.array([np.asarray(f.R, float)[:, 1] for f in frames]))
+        except ValueError:
+            return _failed(t0, "no_floor_plane: no well-supported floor below the camera path")
+        return SfmResult("completed", frames, points, len(frames) / n_sampled,
                          int((time.monotonic() - t0) * 1000), None)
+    except _SfmFailure as e:
+        return _failed(t0, str(e))
     except Exception as e:  # noqa: BLE001 - run_sfm never raises
         return _failed(t0, f"{type(e).__name__}: {e}")
 
@@ -392,7 +470,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m walktwin.sfm",
                                  description="Run SfM on a video; print registered_fraction and elapsed_ms.")
     ap.add_argument("video", type=Path)
-    ap.add_argument("--fps", type=float, default=2.0, help="frame sampling rate (default 2)")
+    ap.add_argument("--fps", type=float, default=4.0, help="frame sampling rate (default 4)")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     with tempfile.TemporaryDirectory(prefix="walktwin-sfm-") as tmp:
