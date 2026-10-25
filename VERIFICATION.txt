@@ -1,0 +1,62 @@
+ROOMLAB VERIFICATION — 2026-10-25
+
+Branch: feat/video-to-editable-3d-room
+Checkout: /Users/alhinai/argon/SpatialTwin-roomlab
+Running app: http://127.0.0.1:8001
+Separate original SpatialTwin main checkout/server retained on port 8000.
+
+Automated checks
+- .venv/bin/python -m pytest tests/roomlab -q: 26 passed in 2.78s.
+- frontend npm test: 3 passed.
+- frontend npm run build: TypeScript and Vite production build passed.
+- git diff --check: passed before commit.
+- Browser console: no captured error entries during final integration flow.
+- Build reports a large JS chunk; splitting the 3D bundle remains a performance improvement.
+- Backend test runner reports a Starlette/httpx deprecation warning.
+
+Live provider verification
+Input was the visibly labelled, locally generated six-second synthetic translated
+camera walkthrough, decoded into nine actual timestamped JPEG frames. It was sent
+to gemini-4-argon through google-genai, using backend-only credentials. The known
+geometry reference JSON was not supplied to the model. No canned scene was used.
+The browser extraction completed in 17.38 seconds and produced four walls, three
+objects, and three openings with source-frame links and visibility assumptions.
+Scene: scene-d445198d23624579a473087a348ec700.
+An earlier separate API extraction also completed in 16.54 seconds.
+
+Browser -> API -> persisted scene flow observed
+1. Loaded the synthetic clip, extracted through the real provider, rendered the room.
+2. Edited the centre table position, yaw and width; exercised undo and redo; saved.
+3. Set wall-1 to a measured 6 m with 0.02 m tolerance. Used wall-2 at 5 m as an
+   independent held-out check. Scale multiplier was 1.271. Held-out prediction was
+   approximately 4.525 m, residual -0.475 m. The UI reports this error explicitly.
+4. Changed wall-3 height to 3 m and door opening-1 offset to 0.62 m. Saved revision 5.
+5. Geometry validation returned Geometry Valid.
+6. Restarted the backend and reloaded the browser. Revision 5 and its source video
+   and frames were restored from local scene/media storage.
+7. Exported revision 5 through the browser, then imported that downloaded JSON.
+   Import created scene-a288cf657a694e1d8330053aa0bfd8b5 at revision 1.
+8. Switched to top plan and tested reachability on the imported scene. A checked
+   common path returned ROBUST_PASS, length 6.54 m, displayed nominal slack 0.43 m.
+   Furniture search returned ALREADY_PASSABLE with no unnecessary move proposed.
+9. Final screenshot: runtime/roomlab/verified-roomlab.png (ignored local artifact).
+
+Coverage and limitations
+Offline perception is explicitly injected only in automated tests. Tests cover
+actual video decoding, invalid containers/length, provider normalization and
+sanitized errors, finite dimensions, coordinate/yaw convention, polygon validity,
+wall/opening attachments, stale revisions, persistence, calibration and held-out
+residuals, robust versus inconclusive reachability, and provider failure without
+fake success. Backend-only optional critic is not exposed as a completed UI flow.
+
+No real user room recording was provided. This verifies integration with an actual
+model call on synthetic footage; it does not establish real-room accuracy.
+Single-anchor scale does not recover camera geometry or confirm inferred walls.
+The held-out error demonstrates why manual correction and further measurements
+remain necessary. Floor-supported upright boxes, one level room, and declared
+uncertainty bounds are assumptions. Path statuses are conditional on the scene
+and nominal calibrated scale; global measurement/camera errors are not propagated.
+Layout search is bounded and tests final furniture poses, not globally minimal
+solutions or swept physical movement. No kinematic wheelchair or safety
+certification is claimed. Jobs are in memory; saved scenes and media survive
+restarts, while in-flight jobs do not resume after a process restart.

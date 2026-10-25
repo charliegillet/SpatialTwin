@@ -1,7 +1,0 @@
-.hazard-runner { display: grid; gap: 10px; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); align-content: start; min-width: 0; }
-.hazard-runner h2 { margin: 0; font-size: 1rem; font-weight: 500; }
-.hazard-runner-note { margin: 0; color: var(--muted); font-size: .75rem; }
-.hazard-runner-row { display: flex; gap: 8px; min-width: 0; }
-.hazard-runner-row select, .hazard-runner-row input { flex: 1; min-width: 0; }
-.hazard-runner-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.hazard-runner-error { margin: 0; color: var(--warning); font-size: .8125rem; }

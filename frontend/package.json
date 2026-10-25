@@ -1,14 +1,13 @@
 {
-  "name": "spatialtwin-frontend",
+  "name": "roomlab",
   "private": true,
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host 127.0.0.1",
     "build": "tsc && vite build",
-    "preview": "vite preview",
-    "review:ui": "npm run build && cd .. && .venv/bin/python -m tools.ui_review",
-    "test": "node --experimental-strip-types --test src/ai/*.test.mjs src/features/*/*.test.mjs src/twin/*.test.mjs src/scene/*.test.mjs"
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "node --experimental-strip-types --test src/roomlab/*.test.mjs"
   },
   "dependencies": {
     "@react-three/drei": "10.7.9",

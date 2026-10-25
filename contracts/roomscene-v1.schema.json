@@ -1,0 +1,1162 @@
+{
+  "Provenance": {
+    "additionalProperties": false,
+    "properties": {
+      "source": {
+        "default": "model_estimate",
+        "enum": [
+          "model_estimate",
+          "geometry_fit",
+          "user_edit",
+          "user_measurement"
+        ],
+        "title": "Source",
+        "type": "string"
+      },
+      "visibility": {
+        "default": "partial",
+        "enum": [
+          "observed",
+          "partial",
+          "unobserved"
+        ],
+        "title": "Visibility",
+        "type": "string"
+      },
+      "evidence_frame_ids": {
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 100,
+        "title": "Evidence Frame Ids",
+        "type": "array"
+      },
+      "note": {
+        "default": "",
+        "maxLength": 1000,
+        "title": "Note",
+        "type": "string"
+      }
+    },
+    "title": "Provenance",
+    "type": "object"
+  },
+  "EvidenceFrame": {
+    "additionalProperties": false,
+    "properties": {
+      "frame_id": {
+        "title": "Frame Id",
+        "type": "string"
+      },
+      "media_id": {
+        "title": "Media Id",
+        "type": "string"
+      },
+      "timestamp_s": {
+        "maximum": 1000,
+        "minimum": 0,
+        "title": "Timestamp S",
+        "type": "number"
+      },
+      "url": {
+        "title": "Url",
+        "type": "string"
+      },
+      "relative_path": {
+        "title": "Relative Path",
+        "type": "string"
+      }
+    },
+    "required": [
+      "frame_id",
+      "media_id",
+      "timestamp_s",
+      "url",
+      "relative_path"
+    ],
+    "title": "EvidenceFrame",
+    "type": "object"
+  },
+  "MediaRecord": {
+    "additionalProperties": false,
+    "properties": {
+      "media_id": {
+        "title": "Media Id",
+        "type": "string"
+      },
+      "filename": {
+        "title": "Filename",
+        "type": "string"
+      },
+      "mime_type": {
+        "enum": [
+          "video/mp4",
+          "video/webm",
+          "video/quicktime"
+        ],
+        "title": "Mime Type",
+        "type": "string"
+      },
+      "duration_s": {
+        "exclusiveMinimum": 0,
+        "maximum": 1000,
+        "title": "Duration S",
+        "type": "number"
+      },
+      "video_url": {
+        "title": "Video Url",
+        "type": "string"
+      },
+      "frames": {
+        "items": {
+          "$ref": "#/$defs/EvidenceFrame"
+        },
+        "title": "Frames",
+        "type": "array"
+      }
+    },
+    "required": [
+      "media_id",
+      "filename",
+      "mime_type",
+      "duration_s",
+      "video_url",
+      "frames"
+    ],
+    "title": "MediaRecord",
+    "type": "object"
+  },
+  "Wall": {
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "maxLength": 80,
+        "minLength": 1,
+        "title": "Id",
+        "type": "string"
+      },
+      "start": {
+        "items": {
+          "type": "number"
+        },
+        "maxItems": 2,
+        "minItems": 2,
+        "title": "Start",
+        "type": "array"
+      },
+      "end": {
+        "items": {
+          "type": "number"
+        },
+        "maxItems": 2,
+        "minItems": 2,
+        "title": "End",
+        "type": "array"
+      },
+      "height_m": {
+        "default": 2.7,
+        "exclusiveMinimum": 0,
+        "maximum": 1000,
+        "title": "Height M",
+        "type": "number"
+      },
+      "thickness_m": {
+        "default": 0.12,
+        "exclusiveMinimum": 0,
+        "maximum": 1000,
+        "title": "Thickness M",
+        "type": "number"
+      },
+      "provenance": {
+        "$ref": "#/$defs/Provenance"
+      }
+    },
+    "required": [
+      "id",
+      "start",
+      "end"
+    ],
+    "title": "Wall",
+    "type": "object"
+  },
+  "Opening": {
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "title": "Id",
+        "type": "string"
+      },
+      "wall_id": {
+        "title": "Wall Id",
+        "type": "string"
+      },
+      "kind": {
+        "enum": [
+          "door",
+          "window",
+          "passage"
+        ],
+        "title": "Kind",
+        "type": "string"
+      },
+      "offset_m": {
+        "maximum": 1000,
+        "minimum": 0,
+        "title": "Offset M",
+        "type": "number"
+      },
+      "width_m": {
+        "exclusiveMinimum": 0,
+        "maximum": 1000,
+        "title": "Width M",
+        "type": "number"
+      },
+      "height_m": {
+        "default": 2.1,
+        "exclusiveMinimum": 0,
+        "maximum": 1000,
+        "title": "Height M",
+        "type": "number"
+      },
+      "sill_m": {
+        "default": 0,
+        "maximum": 1000,
+        "minimum": 0,
+        "title": "Sill M",
+        "type": "number"
+      },
+      "width_interval_m": {
+        "anyOf": [
+          {
+            "items": {
+              "maximum": 1000,
+              "minimum": 0,
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Width Interval M"
+      },
+      "provenance": {
+        "$ref": "#/$defs/Provenance"
+      }
+    },
+    "required": [
+      "id",
+      "wall_id",
+      "kind",
+      "offset_m",
+      "width_m"
+    ],
+    "title": "Opening",
+    "type": "object"
+  },
+  "RoomObject": {
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "maxLength": 80,
+        "minLength": 1,
+        "title": "Id",
+        "type": "string"
+      },
+      "label": {
+        "maxLength": 160,
+        "minLength": 1,
+        "title": "Label",
+        "type": "string"
+      },
+      "category": {
+        "default": "furniture",
+        "maxLength": 80,
+        "title": "Category",
+        "type": "string"
+      },
+      "center": {
+        "items": {
+          "type": "number"
+        },
+        "maxItems": 2,
+        "minItems": 2,
+        "title": "Center",
+        "type": "array"
+      },
+      "width_m": {
+        "exclusiveMinimum": 0,
+        "maximum": 1000,
+        "title": "Width M",
+        "type": "number"
+      },
+      "depth_m": {
+        "exclusiveMinimum": 0,
+        "maximum": 1000,
+        "title": "Depth M",
+        "type": "number"
+      },
+      "height_m": {
+        "exclusiveMinimum": 0,
+        "maximum": 1000,
+        "title": "Height M",
+        "type": "number"
+      },
+      "yaw_deg": {
+        "default": 0,
+        "title": "Yaw Deg",
+        "type": "number"
+      },
+      "movable": {
+        "default": true,
+        "title": "Movable",
+        "type": "boolean"
+      },
+      "resize_allowed": {
+        "default": true,
+        "title": "Resize Allowed",
+        "type": "boolean"
+      },
+      "uncertainty_radius_m": {
+        "default": 0,
+        "maximum": 1000,
+        "minimum": 0,
+        "title": "Uncertainty Radius M",
+        "type": "number"
+      },
+      "provenance": {
+        "$ref": "#/$defs/Provenance"
+      }
+    },
+    "required": [
+      "id",
+      "label",
+      "center",
+      "width_m",
+      "depth_m",
+      "height_m"
+    ],
+    "title": "RoomObject",
+    "type": "object"
+  },
+  "Calibration": {
+    "additionalProperties": false,
+    "properties": {
+      "anchor_id": {
+        "title": "Anchor Id",
+        "type": "string"
+      },
+      "dimension": {
+        "enum": [
+          "wall_length",
+          "object_width",
+          "object_depth"
+        ],
+        "title": "Dimension",
+        "type": "string"
+      },
+      "measured_m": {
+        "exclusiveMinimum": 0,
+        "maximum": 1000,
+        "title": "Measured M",
+        "type": "number"
+      },
+      "tolerance_m": {
+        "default": 0.01,
+        "maximum": 1000,
+        "minimum": 0,
+        "title": "Tolerance M",
+        "type": "number"
+      },
+      "original_estimate_m": {
+        "exclusiveMinimum": 0,
+        "maximum": 1000,
+        "title": "Original Estimate M",
+        "type": "number"
+      },
+      "scale_factor": {
+        "exclusiveMinimum": 0,
+        "maximum": 1000,
+        "title": "Scale Factor",
+        "type": "number"
+      },
+      "holdout_predicted_m": {
+        "anyOf": [
+          {
+            "exclusiveMinimum": 0,
+            "maximum": 1000,
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Holdout Predicted M"
+      },
+      "holdout_measured_m": {
+        "anyOf": [
+          {
+            "exclusiveMinimum": 0,
+            "maximum": 1000,
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Holdout Measured M"
+      },
+      "holdout_residual_m": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Holdout Residual M"
+      }
+    },
+    "required": [
+      "anchor_id",
+      "dimension",
+      "measured_m",
+      "original_estimate_m",
+      "scale_factor"
+    ],
+    "title": "Calibration",
+    "type": "object"
+  },
+  "RoomDraft": {
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "default": "Estimated room",
+        "maxLength": 160,
+        "minLength": 1,
+        "title": "Name",
+        "type": "string"
+      },
+      "floor": {
+        "items": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "maxItems": 100,
+        "minItems": 3,
+        "title": "Floor",
+        "type": "array"
+      },
+      "walls": {
+        "items": {
+          "$ref": "#/$defs/Wall"
+        },
+        "maxItems": 100,
+        "title": "Walls",
+        "type": "array"
+      },
+      "openings": {
+        "items": {
+          "$ref": "#/$defs/Opening"
+        },
+        "maxItems": 100,
+        "title": "Openings",
+        "type": "array"
+      },
+      "objects": {
+        "items": {
+          "$ref": "#/$defs/RoomObject"
+        },
+        "maxItems": 200,
+        "title": "Objects",
+        "type": "array"
+      },
+      "notes": {
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 30,
+        "title": "Notes",
+        "type": "array"
+      }
+    },
+    "required": [
+      "floor"
+    ],
+    "title": "RoomDraft",
+    "type": "object"
+  },
+  "RoomSceneV1": {
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "default": "Estimated room",
+        "maxLength": 160,
+        "minLength": 1,
+        "title": "Name",
+        "type": "string"
+      },
+      "floor": {
+        "items": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "maxItems": 100,
+        "minItems": 3,
+        "title": "Floor",
+        "type": "array"
+      },
+      "walls": {
+        "items": {
+          "$ref": "#/$defs/Wall"
+        },
+        "maxItems": 100,
+        "title": "Walls",
+        "type": "array"
+      },
+      "openings": {
+        "items": {
+          "$ref": "#/$defs/Opening"
+        },
+        "maxItems": 100,
+        "title": "Openings",
+        "type": "array"
+      },
+      "objects": {
+        "items": {
+          "$ref": "#/$defs/RoomObject"
+        },
+        "maxItems": 200,
+        "title": "Objects",
+        "type": "array"
+      },
+      "notes": {
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 30,
+        "title": "Notes",
+        "type": "array"
+      },
+      "schema_version": {
+        "const": "1.0",
+        "default": "1.0",
+        "title": "Schema Version",
+        "type": "string"
+      },
+      "scene_id": {
+        "title": "Scene Id",
+        "type": "string"
+      },
+      "scene_revision": {
+        "default": 1,
+        "minimum": 1,
+        "title": "Scene Revision",
+        "type": "integer"
+      },
+      "units": {
+        "const": "m",
+        "default": "m",
+        "title": "Units",
+        "type": "string"
+      },
+      "up_axis": {
+        "const": "Y",
+        "default": "Y",
+        "title": "Up Axis",
+        "type": "string"
+      },
+      "geometry_source": {
+        "default": "model_estimate",
+        "enum": [
+          "model_estimate",
+          "user_authored",
+          "geometry_fit"
+        ],
+        "title": "Geometry Source",
+        "type": "string"
+      },
+      "calibration": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/Calibration"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "evidence_frames": {
+        "items": {
+          "$ref": "#/$defs/EvidenceFrame"
+        },
+        "title": "Evidence Frames",
+        "type": "array"
+      }
+    },
+    "required": [
+      "floor",
+      "scene_id"
+    ],
+    "title": "RoomSceneV1",
+    "type": "object"
+  },
+  "RoomDraftResult": {
+    "additionalProperties": false,
+    "properties": {
+      "draft": {
+        "$ref": "#/$defs/RoomDraft"
+      },
+      "model": {
+        "default": "gemini-4-argon",
+        "title": "Model",
+        "type": "string"
+      },
+      "provenance": {
+        "const": "live",
+        "default": "live",
+        "title": "Provenance",
+        "type": "string"
+      },
+      "latency_ms": {
+        "maximum": 600000,
+        "minimum": 0,
+        "title": "Latency Ms",
+        "type": "number"
+      },
+      "warnings": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Warnings",
+        "type": "array"
+      }
+    },
+    "required": [
+      "draft",
+      "latency_ms"
+    ],
+    "title": "RoomDraftResult",
+    "type": "object"
+  },
+  "ValidationIssue": {
+    "additionalProperties": false,
+    "properties": {
+      "code": {
+        "title": "Code",
+        "type": "string"
+      },
+      "message": {
+        "title": "Message",
+        "type": "string"
+      },
+      "element_ids": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Element Ids",
+        "type": "array"
+      },
+      "severity": {
+        "default": "error",
+        "enum": [
+          "error",
+          "warning"
+        ],
+        "title": "Severity",
+        "type": "string"
+      }
+    },
+    "required": [
+      "code",
+      "message"
+    ],
+    "title": "ValidationIssue",
+    "type": "object"
+  },
+  "ValidationReport": {
+    "additionalProperties": false,
+    "properties": {
+      "valid": {
+        "title": "Valid",
+        "type": "boolean"
+      },
+      "issues": {
+        "items": {
+          "$ref": "#/$defs/ValidationIssue"
+        },
+        "title": "Issues",
+        "type": "array"
+      }
+    },
+    "required": [
+      "valid",
+      "issues"
+    ],
+    "title": "ValidationReport",
+    "type": "object"
+  },
+  "EditSceneRequest": {
+    "additionalProperties": false,
+    "properties": {
+      "expected_revision": {
+        "minimum": 1,
+        "title": "Expected Revision",
+        "type": "integer"
+      },
+      "scene": {
+        "$ref": "#/$defs/RoomSceneV1"
+      }
+    },
+    "required": [
+      "expected_revision",
+      "scene"
+    ],
+    "title": "EditSceneRequest",
+    "type": "object"
+  },
+  "CalibrateRequest": {
+    "additionalProperties": false,
+    "properties": {
+      "expected_revision": {
+        "minimum": 1,
+        "title": "Expected Revision",
+        "type": "integer"
+      },
+      "anchor_id": {
+        "title": "Anchor Id",
+        "type": "string"
+      },
+      "dimension": {
+        "enum": [
+          "wall_length",
+          "object_width",
+          "object_depth"
+        ],
+        "title": "Dimension",
+        "type": "string"
+      },
+      "measured_m": {
+        "exclusiveMinimum": 0,
+        "maximum": 1000,
+        "title": "Measured M",
+        "type": "number"
+      },
+      "tolerance_m": {
+        "default": 0.01,
+        "maximum": 1000,
+        "minimum": 0,
+        "title": "Tolerance M",
+        "type": "number"
+      },
+      "holdout_anchor_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Holdout Anchor Id"
+      },
+      "holdout_dimension": {
+        "anyOf": [
+          {
+            "enum": [
+              "wall_length",
+              "object_width",
+              "object_depth"
+            ],
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Holdout Dimension"
+      },
+      "holdout_measured_m": {
+        "anyOf": [
+          {
+            "exclusiveMinimum": 0,
+            "maximum": 1000,
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Holdout Measured M"
+      }
+    },
+    "required": [
+      "expected_revision",
+      "anchor_id",
+      "dimension",
+      "measured_m"
+    ],
+    "title": "CalibrateRequest",
+    "type": "object"
+  },
+  "SolveRequest": {
+    "additionalProperties": false,
+    "properties": {
+      "expected_revision": {
+        "minimum": 1,
+        "title": "Expected Revision",
+        "type": "integer"
+      },
+      "start": {
+        "items": {
+          "type": "number"
+        },
+        "maxItems": 2,
+        "minItems": 2,
+        "title": "Start",
+        "type": "array"
+      },
+      "goal": {
+        "items": {
+          "type": "number"
+        },
+        "maxItems": 2,
+        "minItems": 2,
+        "title": "Goal",
+        "type": "array"
+      },
+      "agent_diameter_m": {
+        "default": 0.65,
+        "exclusiveMinimum": 0,
+        "maximum": 1000,
+        "title": "Agent Diameter M",
+        "type": "number"
+      },
+      "margin_m": {
+        "default": 0.02,
+        "maximum": 1000,
+        "minimum": 0,
+        "title": "Margin M",
+        "type": "number"
+      }
+    },
+    "required": [
+      "expected_revision",
+      "start",
+      "goal"
+    ],
+    "title": "SolveRequest",
+    "type": "object"
+  },
+  "SolveResult": {
+    "additionalProperties": false,
+    "properties": {
+      "status": {
+        "enum": [
+          "ROBUST_PASS",
+          "ROBUST_BLOCKED",
+          "INCONCLUSIVE",
+          "INVALID_SCENE",
+          "UNSCALED"
+        ],
+        "title": "Status",
+        "type": "string"
+      },
+      "scene_revision": {
+        "title": "Scene Revision",
+        "type": "integer"
+      },
+      "geometry_hash": {
+        "title": "Geometry Hash",
+        "type": "string"
+      },
+      "path": {
+        "items": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "title": "Path",
+        "type": "array"
+      },
+      "path_length_m": {
+        "anyOf": [
+          {
+            "maximum": 1000,
+            "minimum": 0,
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Path Length M"
+      },
+      "minimum_clearance_m": {
+        "anyOf": [
+          {
+            "maximum": 1000,
+            "minimum": 0,
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Minimum Clearance M"
+      },
+      "message": {
+        "title": "Message",
+        "type": "string"
+      },
+      "assumptions": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Assumptions",
+        "type": "array"
+      },
+      "obstacles": {
+        "items": {
+          "items": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "title": "Obstacles",
+        "type": "array"
+      },
+      "evidence_requests": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Evidence Requests",
+        "type": "array"
+      }
+    },
+    "required": [
+      "status",
+      "scene_revision",
+      "geometry_hash",
+      "message",
+      "assumptions"
+    ],
+    "title": "SolveResult",
+    "type": "object"
+  },
+  "OptimizeResult": {
+    "additionalProperties": false,
+    "properties": {
+      "status": {
+        "enum": [
+          "FOUND",
+          "NO_CANDIDATE",
+          "ALREADY_PASSABLE",
+          "UNAVAILABLE"
+        ],
+        "title": "Status",
+        "type": "string"
+      },
+      "message": {
+        "title": "Message",
+        "type": "string"
+      },
+      "candidates_checked": {
+        "default": 0,
+        "title": "Candidates Checked",
+        "type": "integer"
+      },
+      "object_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Object Id"
+      },
+      "translation": {
+        "anyOf": [
+          {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Translation"
+      },
+      "scene": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/RoomSceneV1"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "before": {
+        "$ref": "#/$defs/SolveResult"
+      },
+      "after": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/SolveResult"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      }
+    },
+    "required": [
+      "status",
+      "message",
+      "before"
+    ],
+    "title": "OptimizeResult",
+    "type": "object"
+  },
+  "ExtractRequest": {
+    "additionalProperties": false,
+    "properties": {
+      "media_id": {
+        "title": "Media Id",
+        "type": "string"
+      }
+    },
+    "required": [
+      "media_id"
+    ],
+    "title": "ExtractRequest",
+    "type": "object"
+  },
+  "JobRecord": {
+    "additionalProperties": false,
+    "properties": {
+      "job_id": {
+        "title": "Job Id",
+        "type": "string"
+      },
+      "status": {
+        "enum": [
+          "queued",
+          "running",
+          "completed",
+          "failed",
+          "cancelled"
+        ],
+        "title": "Status",
+        "type": "string"
+      },
+      "media_id": {
+        "title": "Media Id",
+        "type": "string"
+      },
+      "scene_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Scene Id"
+      },
+      "error": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Error"
+      },
+      "warnings": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Warnings",
+        "type": "array"
+      },
+      "model": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Model"
+      },
+      "latency_ms": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Latency Ms"
+      }
+    },
+    "required": [
+      "job_id",
+      "status",
+      "media_id"
+    ],
+    "title": "JobRecord",
+    "type": "object"
+  }
+}
