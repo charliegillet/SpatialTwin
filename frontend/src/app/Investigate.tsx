@@ -3,6 +3,7 @@ import type { Investigation, LedgerEntry } from '../apiTypes'
 import type { VenueGraph } from '../types'
 import { Tag, type ScreenProps } from './common'
 import { fmtT } from './format'
+import { agentFlags } from './sessionView'
 
 const doorOf = (interventionId: string) => interventionId.replace(/^OPEN:/, '')
 
@@ -44,6 +45,7 @@ function Case({ inv, props }: { inv: Investigation; props: ScreenProps }) {
   const run = currentRun(snap)
   // the server's flag, or ours when the claimed and checker figures differ
   const disagreement = inv.disagreement ?? localDisagreement(inv)
+  const flags = agentFlags(rec)
   return (
     <div className="case">
       <div className="case-meta">
@@ -92,8 +94,15 @@ function Case({ inv, props }: { inv: Investigation; props: ScreenProps }) {
 
       {rec && (
         <div className="explanation">
-          <h3>Agent's explanation</h3>
-          <p>{rec.rationale}</p>
+          <h3>Agent's unedited words <Tag kind="model">model-reported</Tag></h3>
+          <p className="muted small">Shown exactly as the agent wrote them; the figures above come from the checker, not from this text.</p>
+          {flags.length > 0 && (
+            <div className="chips" aria-label="Words our copy rules do not use">
+              {flags.map((w) => <span key={w} className="chip flag-chip">agent used “{w}”</span>)}
+              <span className="muted small"> Our copy rules do not use these words; the agent's text is left as written.</span>
+            </div>
+          )}
+          <blockquote className="agent-words">{rec.rationale}</blockquote>
           {rec.caveats.length > 0 && <ul>{rec.caveats.map((c, i) => <li key={i}>{c}</li>)}</ul>}
           {(rec.sweep_summary?.length ?? 0) > 0 && (
             <>

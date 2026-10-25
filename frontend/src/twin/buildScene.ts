@@ -16,6 +16,8 @@ export const DOOR_COLORS: Record<string, number> = {
 export interface BuildOpts {
   hazards: string[]
   doorFlows?: Record<string, number>
+  /** doors opened by an approved intervention (M4): a green ring on the floor */
+  approved?: string[]
 }
 
 const midWidth = (d: Door) => (d.clear_width.low_m + d.clear_width.high_m) / 2
@@ -121,6 +123,18 @@ export function buildScene(graph: VenueGraph, opts: BuildOpts): THREE.Scene {
     hz.name = `hazard:${id}`
     hz.position.copy(graphToScene(d.position[0], d.position[1], 0.4))
     scene.add(hz)
+  }
+
+  for (const id of opts.approved ?? []) {
+    const d = doorById.get(id)
+    if (!d) continue
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(0.75, 0.07, 8, 32),
+      new THREE.MeshStandardMaterial({ color: 0x2e9e4f, emissive: 0x2e9e4f, emissiveIntensity: 0.9 }))
+    ring.name = `approved:${id}`
+    ring.rotation.x = -Math.PI / 2
+    ring.position.copy(graphToScene(d.position[0], d.position[1], 0.08))
+    scene.add(ring)
   }
 
   // optional flow markers: thin bar whose height scales with flow

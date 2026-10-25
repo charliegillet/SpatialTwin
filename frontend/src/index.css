@@ -220,3 +220,27 @@ tr.st-pass td:nth-child(3) { color: var(--good); }
   .twin-canvas { height: 52vh; }
   .report-btn { margin-left: 0; }
 }
+
+/* final-fix wave (F5) */
+.session-time { display: inline-flex; align-items: center; }
+.badge-saved { font-size: 0.82rem; font-weight: 600; padding: 0.15rem 0.55rem; border-radius: 999px; border: 1px solid var(--warn); color: var(--warn); }
+.walk-inset { margin: 0.6rem 0 0; max-width: 220px; }
+.walk-inset svg { width: 100%; height: auto; max-height: 180px; display: block; background: #0f141c; border-radius: 8px; border: 1px dashed var(--line); }
+.walk-inset figcaption { color: var(--muted); font-size: 0.78rem; margin-top: 0.25rem; }
+.walk-start { fill: var(--good); }
+.walk-end { fill: var(--accent); }
+.flash-picker { margin: 0.5rem 0; font-size: 0.88rem; }
+.flash-picker select { margin-left: 0.3rem; }
+.round-baseline { border-left: 3px solid var(--muted); padding-left: 0.75rem; }
+.round-accepted { border-left: 3px solid var(--good); padding-left: 0.75rem; }
+.ops h4 { font-size: 0.9rem; margin: 0.8rem 0 0.3rem; }
+.discrepancies { margin: 0; padding-left: 1.1rem; }
+.discrepancies li { margin: 0.2rem 0; }
+.op-table td { vertical-align: top; }
+.op-rejected td:last-child, .op-reverted td:last-child { color: var(--bad); }
+.op-applied td:last-child { color: var(--good); }
+.delta { font-size: 1.02rem; margin: 0.6rem 0; }
+.hero-number.withheld { color: var(--bad); }
+.included { margin: 0.4rem 0; }
+.flag-chip { border: 1px solid var(--warn); color: var(--warn); cursor: default; }
+.agent-words { margin: 0.4rem 0; padding: 0.5rem 0.8rem; border-left: 3px solid var(--violet); background: var(--panel-2); border-radius: 0 6px 6px 0; }

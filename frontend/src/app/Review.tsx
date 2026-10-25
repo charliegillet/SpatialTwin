@@ -1,11 +1,15 @@
 import { useState } from 'react'
 import { acceptBlockers, api, ApiError, dedupeFindings, draftRevision } from '../api'
 import type { Finding } from '../apiTypes'
-import { ghostFlashes, ghostPath, latestGeometry } from '../twin/ghostWalker'
+import { ghostFlashes, ghostPath } from '../twin/ghostWalker'
 import type { Door, Evidence, VenueGraph } from '../types'
 import { Tag, type ScreenProps } from './common'
+import { FlashPicker } from './FlashPicker'
 import { fmtT } from './format'
+import { geometryChoices, pickGeometry } from './loopView'
 import { PlanView } from './PlanView'
+import { anchorStatus, pendingAnchor } from './sessionView'
+import { WalkInset } from './WalkInset'
 
 const STATES = ['open', 'closed', 'locked', 'unknown']
 const KINDS = ['door', 'opening', 'exit', 'stair']
@@ -79,6 +83,7 @@ function DoorEditor({ door, anchorId, onSave, onAnchor, disabled }: {
 export function Review({ snap, act, pending, seek, stale, videoTime, onAccepted }: ScreenProps & { videoTime: number; onAccepted: () => void }) {
   const graph = snap.draft_graph
   const [selected, setSelected] = useState<string | null>(null)
+  const [flashKey, setFlashKey] = useState<string | null>(null)
   const rev = draftRevision(snap)
   // findings from a 422 on Accept apply only to the revision they were returned for
   const [rejectedFor, setRejected] = useState<{ rev: string | null; findings: Finding[] }>({ rev: null, findings: [] })
@@ -89,9 +94,14 @@ export function Review({ snap, act, pending, seek, stale, videoTime, onAccepted 
 
   if (!graph) return <section className="screen"><div className="panel"><p className="muted">No draft twin yet. Build it from the Capture step.</p></div></section>
 
+  // D2: the anchor is server-owned (POST /anchor); the draft graph is never edited for it
   const commit = (next: VenueGraph, label: string) => rev && act(label, () => api.putGraph(snap.id, rev, next))
   const door = graph.doors.find((d) => d.id === selected) ?? null
-  const geo = latestGeometry(snap, rev)
+  const choices = geometryChoices(snap, rev)
+  const shownGeo = pickGeometry(choices, flashKey)
+  const geo = shownGeo?.current ? shownGeo.geometry : null
+  const anchor = anchorStatus(snap)
+  const anchorId = pendingAnchor(snap)?.door_id ?? null
   const busy = !!pending
   const accept = () => rev && act('Accepting', async () => {
     try { await api.accept(snap.id, rev) } catch (e) {
@@ -107,20 +117,26 @@ export function Review({ snap, act, pending, seek, stale, videoTime, onAccepted 
           <h2>Review the twin <Tag kind="model">Argon proposed</Tag></h2>
           <span className="muted mono">{rev ?? 'revision unknown'}</span>
         </div>
-        <PlanView graph={graph} path={ghostPath(snap)} flashes={geo ? ghostFlashes(geo) : []} hazards={[]} selected={selected}
+        <PlanView graph={graph} path={ghostPath(snap)} flashes={shownGeo ? ghostFlashes(shownGeo.geometry) : []} hazards={[]} selected={selected}
           errorIds={errorIds} editable={!busy && !!rev} onSelect={setSelected} onSeek={seek}
           onRectCommit={(id, rect) => commit({ ...graph, zones: graph.zones.map((z) => (z.id === id ? { ...z, rect } : z)) }, `Moving ${id}`)}
-          label={`${rev ? 'Drag a room to move it, drag its corner dot to resize. Click a door to edit it.' : 'Revision unknown: editing is off until a reload.'} ${geo ? `Walker path measured on this revision: ${geo.illegal_crossings.length} illegal crossings.` : (snap.geometry_unavailable_reason ? `Geometry unavailable: ${snap.geometry_unavailable_reason}` : 'Geometry not measured for this revision.')}`} />
+          label={`${rev ? 'Drag a room to move it, drag its corner dot to resize. Click a door to edit it.' : 'Revision unknown: editing is off until a reload.'} ${shownGeo && !shownGeo.current ? `Red flashes: ${shownGeo.label}, ${shownGeo.geometry.illegal_crossings.length} illegal crossings (measured on that round's graph, not this draft).` : geo ? `Walker path measured on this revision: ${geo.illegal_crossings.length} illegal crossings.` : (snap.geometry_unavailable_reason ? `Geometry unavailable: ${snap.geometry_unavailable_reason}` : 'Geometry not measured for this revision.')}`} />
+        <FlashPicker choices={choices} shown={shownGeo} onPick={setFlashKey} />
+        <WalkInset snap={snap} />
         <Timeline graph={graph} duration={snap.video.duration_s} videoTime={videoTime} selected={selected}
           onPick={(id, ev) => { setSelected(id); seek(ev.start_s) }} />
       </div>
       <div className="panel side">
         {door ? (
-          <DoorEditor key={JSON.stringify(door)} door={door} anchorId={graph.anchor?.door_id ?? null} disabled={busy || !rev}
+          <DoorEditor key={JSON.stringify(door)} door={door} anchorId={anchorId} disabled={busy || !rev}
             onSave={(d) => commit({ ...graph, doors: graph.doors.map((x) => (x.id === d.id ? d : x)) }, `Saving ${d.id}`)}
-            onAnchor={(w) => commit({ ...graph, anchor: { door_id: door.id, measured_width_m: w } }, `Anchoring ${door.id}`)} />
+            onAnchor={(w) => rev && act(`Anchoring ${door.id}`, () => api.anchor(snap.id, rev, door.id, w))} />
         ) : <p className="muted">Select a door on the plan or the timeline to edit state, kind and width.</p>}
-        {graph.anchor && <p>Anchor: {graph.anchor.door_id} = {graph.anchor.measured_width_m.toFixed(3)} m <Tag kind="measured">measured</Tag></p>}
+        {anchor && (
+          <p>Anchor: {anchor.text}{' '}
+            {anchor.state === 'applied' ? <Tag kind="measured">measured</Tag> : anchor.state === 'pending' ? <Tag kind="warn">pending</Tag> : <Tag kind="model">model-reported</Tag>}
+          </p>
+        )}
         <h3>Findings</h3>
         {findings.length === 0 ? <p className="muted">No findings.</p> : (
           <ul className="findings">

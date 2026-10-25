@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api, currentRevision, isCurrent, reportHtmlUrl } from '../api'
 import type { Report, Requirement, Snapshot } from '../apiTypes'
 import { Tag } from './common'
+import { adaResultText } from './sessionView'
 import { errText } from './useSession'
 
 const METHOD: Record<Requirement['method'], string> = {
@@ -81,7 +82,7 @@ export function ReportDrawer({ snap, open, onClose }: { snap: Snapshot; open: bo
                   <tr key={i} className={`st-${r.status}`}>
                     <td>{r.rule_id}<div className="muted small">{r.statement}</div></td>
                     <td>{r.element_id}</td>
-                    <td>{r.status === 'pass' ? `meets ${r.rule_id.replace('ADA-', 'ADA §')} within measured range` : STATUS[r.status]}{r.reason ? `: ${r.reason}` : ''}
+                    <td>{adaResultText(r)}
                       {r.measured && <div className="muted small">{r.measured.low_m.toFixed(2)}–{r.measured.high_m.toFixed(2)} m ({r.measured.basis}) vs {r.threshold_m} m</div>}</td>
                     <td className="small">{r.citation}</td>
                   </tr>

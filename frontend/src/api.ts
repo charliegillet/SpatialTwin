@@ -41,6 +41,14 @@ const iteration = obj({
   findings: arr(finding), geometry: nullable(geometry),
   renders: arr(obj({ t_s: nullable(num), path: str, kind: lit('perspective', 'top'), url: opt(str) })),
   receipt: nullable(receipt), stop_reason: nullable(str), rejected_geometry: opt(nullable(geometry)),
+  kind: opt(lit('baseline', 'round', 'accepted')),
+  critique: opt(nullable(obj({
+    status: str,
+    discrepancies: arr(obj({ t_s: num, element_id: nullable(str), description: str })),
+    ops: arr(obj({ op: str, cite_t_s: num, reason: str, id: opt(str), door: opt(obj({ id: str })), zone: opt(obj({ id: str })) })),
+    interaction_id: nullable(str), receipt: nullable(receipt), error: opt(nullable(str)),
+    dropped_ops: opt(arr(tuple(int, str))),
+  }))),
 })
 const result = obj({
   intervention_id: str, run_id: str, reached_exit: int, total: int, delta_vs_current: int, check_ok: bool, limiting_doors: arr(str),
@@ -54,6 +62,7 @@ const investigation = obj({
   recommendation: nullable(obj({
     intervention_id: nullable(str), claimed_reached_exit: nullable(int), rationale: str, caveats: arr(str),
     sweep_summary: opt(arr(obj({ intervention_id: str, claimed_reached_exit: int, label: lit('sandbox, unverified') }))),
+    copy_flags: opt(arr(str)),
   })),
   best: nullable(result), disagreement: nullable(str), hook_denials: int, receipt: nullable(receipt), error: opt(nullable(str)),
   network_mode: opt(nullable(str)),
@@ -62,6 +71,7 @@ const snapshotShape = obj({
   id: str, created_at: str,
   video: obj({ sha256: str, duration_s: num, width: int, height: int, url: str }),
   anchor: nullable(anchor), anchor_hint: nullable(str), anchor_width_m: nullable(num),
+  pending_anchor: opt(nullable(anchor)),
   jobs: rec(obj({
     kind: str, status: lit('queued', 'running', 'done', 'failed'), error: nullable(str),
     started_at: nullable(str), finished_at: nullable(str), meta: rec(any),
@@ -75,6 +85,7 @@ const snapshotShape = obj({
   })),
   alignment_error: nullable(str), geometry_unavailable_reason: nullable(str),
   ghost_path: arr(obj({ t_s: num, x: num, y: num })),
+  sfm_preview: opt(nullable(obj({ points: arr(obj({ t_s: num, u: num, v: num })), note: str }))),
   extraction: nullable(obj({
     status: lit('completed', 'failed', 'timeout', 'invalid'), graph: nullable(graphShape), findings: arr(finding),
     receipt: nullable(receipt), mode: lit('static', 'static_hifps', 'agentic'), agentic_observed: nullable(bool),
@@ -214,6 +225,8 @@ export class ApiError extends Error {
   constructor(status: number, body: unknown) {
     const code = typeof (body as { error?: unknown } | null)?.error === 'string' ? (body as { error: string }).error : null
     super(status === 409 && code === 'job_running' ? 'That job is already running.'
+      : status === 409 && code === 'sfm_running' ? 'Your walk is still being reconstructed (SfM). Refine once it finishes.'
+      : status === 422 && code === 'anchor_server_owned' ? 'The anchor is set with "Use as anchor", not by editing the graph.'
       : status === 409 ? `Stale ${code === 'stale_investigation' ? 'investigation' : 'revision'}: something changed first. Reloaded the latest state.`
         : `Request failed (${status}${code ? `: ${code}` : ''})`)
     this.status = status
@@ -252,7 +265,12 @@ export const api = {
     return validate<{ id: string }>(obj({ id: str }), await call('/api/sessions', { method: 'POST', body: fd })).id
   },
   snapshot: async (id: string) => parseSnapshot(await call(base(id))),
-  extract: (id: string, mode: VideoMode) => post(`${base(id)}/extract`, { mode }),
+  /** `expected_revision` is the current draft revision (null before the first draft). */
+  extract: (id: string, mode: VideoMode, expected_revision: string | null) =>
+    post(`${base(id)}/extract`, { mode, expected_revision }),
+  /** D2: the server owns the anchor; this never edits the draft graph. */
+  anchor: (id: string, expected_revision: string, door_id: string, measured_width_m: number) =>
+    post(`${base(id)}/anchor`, { expected_revision, door_id, measured_width_m }),
   refine: (id: string, expected_revision: string) => post(`${base(id)}/refine`, { expected_revision }),
   putGraph: async (id: string, expected_revision: string, graph: VenueGraph) =>
     validate<{ revision: string; findings: Finding[] }>(obj({ revision: str, findings: arr(finding) }),

@@ -18,8 +18,10 @@ describe('parseSnapshot', () => {
     const s = parseSnapshot(raw())
     expect(s.id).toBe(fixture.id)
     expect(s.ghost_path.length).toBeGreaterThan(10)
-    expect(s.iterations).toHaveLength(2)
-    expect(s.iterations[0].renders.every((r) => r.url?.startsWith(`/api/sessions/${s.id}/renders/`))).toBe(true)
+    // baseline, two rounds, the accepted rescore (D1)
+    expect(s.iterations.map((it) => it.kind)).toEqual(['baseline', 'round', 'round', 'accepted'])
+    expect(s.iterations[1].renders.length).toBeGreaterThan(0)
+    expect(s.iterations.every((it) => it.renders.every((r) => r.url?.startsWith(`/api/sessions/${s.id}/renders/`)))).toBe(true)
   })
   it('rejects a snapshot whose current_check.run_id !== current_run.run_id', () => {
     const r = raw()
