@@ -1,0 +1,242 @@
+{
+  "checked_on": "2026-10-23",
+  "scope": "20 task-relevant official Google pages plus Interactions OpenAPI; not entire documentation corpus",
+  "live_index": "https://ai.google.dev/gemini-api/docs/llms.txt",
+  "sdk_docs": "https://googleapis.github.io/python-genai/",
+  "sdk_source": "https://github.com/googleapis/python-genai",
+  "site_policies": "https://developers.google.com/site-policies",
+  "sources": [
+    {
+      "id": "argon-model",
+      "publisher": "Google",
+      "url": "https://ai.google.dev/gemini-api/docs/models/gemini-4-argon",
+      "retrieved_on": "2026-10-23",
+      "published_update": "2026-10-14",
+      "local_path": "reference/google/argon-model.md",
+      "sha256": "c540cecb728d5d5ae83f9620fc224bdd98594ff4672f0dc76bc534ac3bffa890",
+      "license_notice": "Google page footer: CC BY4.0 prose; Apache2.0 code unless otherwise noted",
+      "changes": "Markdown conversion; added provenance header"
+    },
+    {
+      "id": "latest-model",
+      "publisher": "Google",
+      "url": "https://ai.google.dev/gemini-api/docs/latest-model",
+      "retrieved_on": "2026-10-23",
+      "published_update": "2026-10-16",
+      "local_path": "reference/google/latest-model.md",
+      "sha256": "59f95c38a5308f52a451478ec154ab772b99872136e4be7560816a49a962c4c6",
+      "license_notice": "Google page footer: CC BY4.0 prose; Apache2.0 code unless otherwise noted",
+      "changes": "Markdown conversion; added provenance header"
+    },
+    {
+      "id": "antigravity-agent",
+      "publisher": "Google",
+      "url": "https://ai.google.dev/gemini-api/docs/antigravity-agent",
+      "retrieved_on": "2026-10-23",
+      "published_update": "2026-10-16",
+      "local_path": "reference/google/antigravity-agent.md",
+      "sha256": "6053612c551a3b437cf8c7d402a08467b68e80df79ff80bdd70defe9cf81c39c",
+      "license_notice": "Google page footer: CC BY4.0 prose; Apache2.0 code unless otherwise noted",
+      "changes": "Markdown conversion; added provenance header"
+    },
+    {
+      "id": "interactions-overview",
+      "publisher": "Google",
+      "url": "https://ai.google.dev/gemini-api/docs/interactions-overview",
+      "retrieved_on": "2026-10-23",
+      "published_update": "2026-10-15",
+      "local_path": "reference/google/interactions-overview.md",
+      "sha256": "28aae07432b74b4ef7f455c75382c0c2595f80ad5079917a0c9d72e074334764",
+      "license_notice": "Google page footer: CC BY4.0 prose; Apache2.0 code unless otherwise noted",
+      "changes": "Markdown conversion; added provenance header"
+    },
+    {
+      "id": "structured-output",
+      "publisher": "Google",
+      "url": "https://ai.google.dev/gemini-api/docs/structured-output",
+      "retrieved_on": "2026-10-23",
+      "published_update": "2026-10-21",
+      "local_path": "reference/google/structured-output.md",
+      "sha256": "089f009b1a8186680ec64d2299db4064bf44d7f194e2fcf4e4803477cf1c66b6",
+      "license_notice": "Google page footer: CC BY4.0 prose; Apache2.0 code unless otherwise noted",
+      "changes": "Markdown conversion; added provenance header"
+    },
+    {
+      "id": "image-understanding",
+      "publisher": "Google",
+      "url": "https://ai.google.dev/gemini-api/docs/image-understanding",
+      "retrieved_on": "2026-10-23",
+      "published_update": "2026-09-23",
+      "local_path": "reference/google/image-understanding.md",
+      "sha256": "f3487cdd3ba206f275658221514afd2f8a5278cf3fd28665497a7941a68b7525",
+      "license_notice": "Google page footer: CC BY4.0 prose; Apache2.0 code unless otherwise noted",
+      "changes": "Markdown conversion; added provenance header"
+    },
+    {
+      "id": "robotics-spatial",
+      "publisher": "Google",
+      "url": "https://ai.google.dev/gemini-api/docs/robotics-spatial",
+      "retrieved_on": "2026-10-23",
+      "published_update": "2026-09-04",
+      "local_path": "reference/google/robotics-spatial.md",
+      "sha256": "01f941ed0d002d5056e790d4136e5154e0b2d1599e96c83365b7bb5099bb32e7",
+      "license_notice": "Google page footer: CC BY4.0 prose; Apache2.0 code unless otherwise noted",
+      "changes": "Markdown conversion; added provenance header"
+    },
+    {
+      "id": "managed-quickstart",
+      "publisher": "Google",
+      "url": "https://ai.google.dev/gemini-api/docs/managed-agents-quickstart",
+      "retrieved_on": "2026-10-23",
+      "published_update": "2026-10-01",
+      "local_path": "reference/google/managed-quickstart.md",
+      "sha256": "9a012bab5b4cdc070f5181d216d7e00db52400c786007155718545e6056fd91e",
+      "license_notice": "Google page footer: CC BY4.0 prose; Apache2.0 code unless otherwise noted",
+      "changes": "Markdown conversion; added provenance header"
+    },
+    {
+      "id": "streaming",
+      "publisher": "Google",
+      "url": "https://ai.google.dev/gemini-api/docs/streaming",
+      "retrieved_on": "2026-10-23",
+      "published_update": "2026-09-23",
+      "local_path": "reference/google/streaming.md",
+      "sha256": "03272dd3575156f9d39f7a362984a01d2c3c489bb35ee65a0eac14e8580d32c6",
+      "license_notice": "Google page footer: CC BY4.0 prose; Apache2.0 code unless otherwise noted",
+      "changes": "Markdown conversion; added provenance header"
+    },
+    {
+      "id": "coding-agents",
+      "publisher": "Google",
+      "url": "https://ai.google.dev/gemini-api/docs/coding-agents",
+      "retrieved_on": "2026-10-23",
+      "published_update": "2026-10-06",
+      "local_path": "reference/google/coding-agents.md",
+      "sha256": "f1fe047ccdea43837594a5f226c8edf9ba1e5149f31fbeeef210ac475d34866a",
+      "license_notice": "Google page footer: CC BY4.0 prose; Apache2.0 code unless otherwise noted",
+      "changes": "Markdown conversion; added provenance header"
+    },
+    {
+      "id": "interactions-reference",
+      "publisher": "Google",
+      "url": "https://ai.google.dev/api/interactions-api",
+      "retrieved_on": "2026-10-23",
+      "published_update": "2026-10-22",
+      "local_path": "reference/google/interactions-reference.md",
+      "sha256": "6bb22a8383a64be262bdbfe3d4a3c480d5411de2ad9cd981ac9160754220fa28",
+      "license_notice": "Google page footer: CC BY4.0 prose; Apache2.0 code unless otherwise noted",
+      "changes": "Markdown conversion; added provenance header"
+    },
+    {
+      "id": "custom-agents",
+      "publisher": "Google",
+      "url": "https://ai.google.dev/gemini-api/docs/custom-agents",
+      "retrieved_on": "2026-10-23",
+      "published_update": "2026-10-09",
+      "local_path": "reference/google/custom-agents.md",
+      "sha256": "25eecdf37e763e3d38b0f412764dfef42dc6ad590ac7fd131c5a895482758522",
+      "license_notice": "Google page footer: CC BY4.0 prose; Apache2.0 code unless otherwise noted",
+      "changes": "Markdown conversion; added provenance header"
+    },
+    {
+      "id": "agent-environment",
+      "publisher": "Google",
+      "url": "https://ai.google.dev/gemini-api/docs/agent-environment",
+      "retrieved_on": "2026-10-23",
+      "published_update": "2026-10-07",
+      "local_path": "reference/google/agent-environment.md",
+      "sha256": "590de22e44fb5864fdf6fce253281a6ce2511dc4f571cb483fd94d67a1dcd74e",
+      "license_notice": "Google page footer: CC BY4.0 prose; Apache2.0 code unless otherwise noted",
+      "changes": "Markdown conversion; added provenance header"
+    },
+    {
+      "id": "pricing",
+      "publisher": "Google",
+      "url": "https://ai.google.dev/gemini-api/docs/pricing",
+      "retrieved_on": "2026-10-23",
+      "published_update": "2026-10-22",
+      "local_path": "reference/google/pricing.md",
+      "sha256": "a62fb4825ae4d24e1ae19f5bba6b690375914531d92fb79675c60fd133b21c88",
+      "license_notice": "Google page footer: CC BY4.0 prose; Apache2.0 code unless otherwise noted",
+      "changes": "Markdown conversion; added provenance header"
+    },
+    {
+      "id": "function-calling",
+      "publisher": "Google",
+      "url": "https://ai.google.dev/gemini-api/docs/function-calling",
+      "retrieved_on": "2026-10-23",
+      "published_update": "2026-09-23",
+      "local_path": "reference/google/function-calling.md",
+      "sha256": "66d59d595c6376bb4b0a6a5a511305fd1fad11e12cb05a0f9f84db2369ac60cb",
+      "license_notice": "Google page footer: CC BY4.0 prose; Apache2.0 code unless otherwise noted",
+      "changes": "Markdown conversion; added provenance header"
+    },
+    {
+      "id": "background-execution",
+      "publisher": "Google",
+      "url": "https://ai.google.dev/gemini-api/docs/background-execution",
+      "retrieved_on": "2026-10-23",
+      "published_update": "2026-10-21",
+      "local_path": "reference/google/background-execution.md",
+      "sha256": "bf5b78c8c5c6f59fbfeb572b85e4f3efd6443c72e399878f786eb06c6af8e6f6",
+      "license_notice": "Google page footer: CC BY4.0 prose; Apache2.0 code unless otherwise noted",
+      "changes": "Markdown conversion; added provenance header"
+    },
+    {
+      "id": "files",
+      "publisher": "Google",
+      "url": "https://ai.google.dev/gemini-api/docs/files",
+      "retrieved_on": "2026-10-23",
+      "published_update": "2026-10-14",
+      "local_path": "reference/google/files.md",
+      "sha256": "fa0bf414194e66d6eb5efacb3491914522e27fd66205c17078c6d3ba2f6192b4",
+      "license_notice": "Google page footer: CC BY4.0 prose; Apache2.0 code unless otherwise noted",
+      "changes": "Markdown conversion; added provenance header"
+    },
+    {
+      "id": "agent-hooks",
+      "publisher": "Google",
+      "url": "https://ai.google.dev/gemini-api/docs/agent-hooks",
+      "retrieved_on": "2026-10-23",
+      "published_update": "2026-10-07",
+      "local_path": "reference/google/agent-hooks.md",
+      "sha256": "8218ef6706c5c914a497f6fc8fb9affb8841d2e54beb372db99d403b781b3592",
+      "license_notice": "Google page footer: CC BY4.0 prose; Apache2.0 code unless otherwise noted",
+      "changes": "Markdown conversion; added provenance header"
+    },
+    {
+      "id": "rate-limits",
+      "publisher": "Google",
+      "url": "https://ai.google.dev/gemini-api/docs/rate-limits",
+      "retrieved_on": "2026-10-23",
+      "published_update": "2026-10-15",
+      "local_path": "reference/google/rate-limits.md",
+      "sha256": "4ac68412ce291dd1899338cb7725bb660d7d281c3010aaaa363015ede67430a2",
+      "license_notice": "Google page footer: CC BY4.0 prose; Apache2.0 code unless otherwise noted",
+      "changes": "Markdown conversion; added provenance header"
+    },
+    {
+      "id": "troubleshooting",
+      "publisher": "Google",
+      "url": "https://ai.google.dev/gemini-api/docs/troubleshooting",
+      "retrieved_on": "2026-10-23",
+      "published_update": "2026-10-13",
+      "local_path": "reference/google/troubleshooting.md",
+      "sha256": "1847d52abc8b10de30f8ca96e9f83a20234b0901e7eba0b283704a429adfcdff",
+      "license_notice": "Google page footer: CC BY4.0 prose; Apache2.0 code unless otherwise noted",
+      "changes": "Markdown conversion; added provenance header"
+    },
+    {
+      "id": "interactions-openapi",
+      "publisher": "Google",
+      "url": "https://ai.google.dev/static/api/interactions.openapi.json",
+      "retrieved_on": "2026-10-23",
+      "local_path": "reference/google/interactions.openapi.json",
+      "sha256": "b8f553e43b2afb1bf13d0c7bed659e00c8c92fe945a163918b4bcaf0a27b0833",
+      "license_notice": "No standalone license field observed; preserve source attribution and consult Google site policies",
+      "changes": "Unmodified downloaded JSON",
+      "openapi": "3.0.3",
+      "paths": 20
+    }
+  ]
+}

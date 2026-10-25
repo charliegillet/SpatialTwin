@@ -1,0 +1,485 @@
+{
+  "imported_on": "2026-10-24",
+  "source_workspace": "/Users/nihalnihalani/Documents/Codex/2026-10-23/https-github-com-nihalnihalani-winners-tree/outputs",
+  "target_repository": "/Users/nihalnihalani/Desktop/Github/SpatialTwin",
+  "remote": "https://github.com/charliegillet/SpatialTwin.git",
+  "notes": [
+    "Original Google source snapshots unchanged; local source manifest remains valid.",
+    "Active prompts retargeted to actual repository; historical source URLs preserved.",
+    "Archive is regenerated after adaptation; no application implementation was copied."
+  ],
+  "files": [
+    {
+      "source": "PHYSICAL_DEMO_WIRING.md",
+      "destination": "docs/plans/PHYSICAL_DEMO_WIRING.md",
+      "source_sha256": "49d8f8ae9086aa7c94e3083ba3986a9a788d4927d4115c263637e3b9dfc4bbe8",
+      "destination_sha256_at_copy": "49d8f8ae9086aa7c94e3083ba3986a9a788d4927d4115c263637e3b9dfc4bbe8",
+      "final_sha256": "49d8f8ae9086aa7c94e3083ba3986a9a788d4927d4115c263637e3b9dfc4bbe8",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "PHYSICAL_DEMO_BOARD_PREVIEW.png",
+      "destination": "docs/plans/PHYSICAL_DEMO_BOARD_PREVIEW.png",
+      "source_sha256": "2194c45e24c3f1e5d2469d7c49fbe9da94c68034a4e5807f03f94b0ea12972b5",
+      "destination_sha256_at_copy": "2194c45e24c3f1e5d2469d7c49fbe9da94c68034a4e5807f03f94b0ea12972b5",
+      "final_sha256": "2194c45e24c3f1e5d2469d7c49fbe9da94c68034a4e5807f03f94b0ea12972b5",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "DEMO_UI_UX_AND_ARGON.md",
+      "destination": "docs/plans/DEMO_UI_UX_AND_ARGON.md",
+      "source_sha256": "fcbbfbf79c38b65e23004ee7a313fd13b29ab03d913f4bb3342450c563246058",
+      "destination_sha256_at_copy": "fcbbfbf79c38b65e23004ee7a313fd13b29ab03d913f4bb3342450c563246058",
+      "final_sha256": "6318941858452cd3ce23f8bad63a2f566cc50a3f880b6671f055434a1b605e6f",
+      "adapted_after_copy": true
+    },
+    {
+      "source": "SPATIALTWIN_BUILD_PLAN.md",
+      "destination": "docs/plans/SPATIALTWIN_BUILD_PLAN.md",
+      "source_sha256": "1da36c52b9fc8553a789648a341b9957dae76443925bc990b0fa9e9f227c32dc",
+      "destination_sha256_at_copy": "1da36c52b9fc8553a789648a341b9957dae76443925bc990b0fa9e9f227c32dc",
+      "final_sha256": "aee68ff641e016daeaf642a45a05ea021f3061e92ff9d9db252879fdf1f0a496",
+      "adapted_after_copy": true
+    },
+    {
+      "source": "SHACK15_DEMO_PLAYBOOK.md",
+      "destination": "docs/plans/SHACK15_DEMO_PLAYBOOK.md",
+      "source_sha256": "54b00c6dbb8837059b81e533d9c84c3d8822ff364eaa11e499bcb28184eec2b3",
+      "destination_sha256_at_copy": "54b00c6dbb8837059b81e533d9c84c3d8822ff364eaa11e499bcb28184eec2b3",
+      "final_sha256": "54b00c6dbb8837059b81e533d9c84c3d8822ff364eaa11e499bcb28184eec2b3",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "TOOL_SELECTION_AND_SOURCES.md",
+      "destination": "docs/plans/TOOL_SELECTION_AND_SOURCES.md",
+      "source_sha256": "9e163683e227419a68d7842c92028d3f04727f5f917445db446051ac1c40cd96",
+      "destination_sha256_at_copy": "9e163683e227419a68d7842c92028d3f04727f5f917445db446051ac1c40cd96",
+      "final_sha256": "bf18979ae73f8741741bee3de9f953a289f89710e20c3dea698732fdac10ae03",
+      "adapted_after_copy": true
+    },
+    {
+      "source": "PHYSICAL_DEMO_BUILD_PLAN.md",
+      "destination": "docs/plans/PHYSICAL_DEMO_BUILD_PLAN.md",
+      "source_sha256": "7ec6b972918dc90f200fe8f982d4bbb0e6a9515f6f424f66e509a5974bea1ff6",
+      "destination_sha256_at_copy": "7ec6b972918dc90f200fe8f982d4bbb0e6a9515f6f424f66e509a5974bea1ff6",
+      "final_sha256": "eb0bf50743a415001b9abbec6b5c5ab07be9516df48f6bdbf390b96608e019e0",
+      "adapted_after_copy": true
+    },
+    {
+      "source": "PHYSICAL_DEMO_BOM.csv",
+      "destination": "docs/plans/PHYSICAL_DEMO_BOM.csv",
+      "source_sha256": "dae37746b126cc546911e0a0b21becc952351450292694a0473d63df57105d22",
+      "destination_sha256_at_copy": "dae37746b126cc546911e0a0b21becc952351450292694a0473d63df57105d22",
+      "final_sha256": "dae37746b126cc546911e0a0b21becc952351450292694a0473d63df57105d22",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "ARCHITECTURE_REVIEW.md",
+      "destination": "docs/plans/ARCHITECTURE_REVIEW.md",
+      "source_sha256": "94c53628c4de6be65708d44370000b5fea8be5e6643e99598fe4d5a68fd48db0",
+      "destination_sha256_at_copy": "94c53628c4de6be65708d44370000b5fea8be5e6643e99598fe4d5a68fd48db0",
+      "final_sha256": "bfbd97bdfda25ed2ffbc738b5ff4af75f0e10c43ab2617dc8f7234a6a7e523a6",
+      "adapted_after_copy": true
+    },
+    {
+      "source": "PHYSICAL_DEMO_DEVICE_MAP.json",
+      "destination": "docs/plans/PHYSICAL_DEMO_DEVICE_MAP.json",
+      "source_sha256": "996e877efc1e7101e4494cda71b1b2c6581cd731d3f1390055c502ecacaf4bad",
+      "destination_sha256_at_copy": "996e877efc1e7101e4494cda71b1b2c6581cd731d3f1390055c502ecacaf4bad",
+      "final_sha256": "996e877efc1e7101e4494cda71b1b2c6581cd731d3f1390055c502ecacaf4bad",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "UI_STUDY_PREVIEW.png",
+      "destination": "docs/plans/UI_STUDY_PREVIEW.png",
+      "source_sha256": "99bb762000bfa665c190db95b16c4234f0acf42639a8950714b0bb835ed81d03",
+      "destination_sha256_at_copy": "99bb762000bfa665c190db95b16c4234f0acf42639a8950714b0bb835ed81d03",
+      "final_sha256": "99bb762000bfa665c190db95b16c4234f0acf42639a8950714b0bb835ed81d03",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "PHYSICAL_DEMO_BOARD_TEMPLATE.svg",
+      "destination": "docs/plans/PHYSICAL_DEMO_BOARD_TEMPLATE.svg",
+      "source_sha256": "91336d7e4372bd4e3fc0b5d2f33b8712af37df0726e76eddd57b1d3e666dbdd6",
+      "destination_sha256_at_copy": "91336d7e4372bd4e3fc0b5d2f33b8712af37df0726e76eddd57b1d3e666dbdd6",
+      "final_sha256": "91336d7e4372bd4e3fc0b5d2f33b8712af37df0726e76eddd57b1d3e666dbdd6",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/CONTRACT_PROPOSAL.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/CONTRACT_PROPOSAL.md",
+      "source_sha256": "e5e1fe10f328b44edd861226133aeac640e77c81ad6d40a1c34c39bad845f500",
+      "destination_sha256_at_copy": "e5e1fe10f328b44edd861226133aeac640e77c81ad6d40a1c34c39bad845f500",
+      "final_sha256": "13bf4934e94565f7f0ced90a3c01901ef66a3f65aa359afbafb86a1b69e15e75",
+      "adapted_after_copy": true
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/START_HERE.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/START_HERE.md",
+      "source_sha256": "2d69cb46eacd28585b8bbfd32302a3cb5367ecb58102023703ebe6833d21b97c",
+      "destination_sha256_at_copy": "2d69cb46eacd28585b8bbfd32302a3cb5367ecb58102023703ebe6833d21b97c",
+      "final_sha256": "20d3b8e10e2f94a5f32ced59d32388c61c8e0fa201162a3fdd08d40ab86cfa91",
+      "adapted_after_copy": true
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/CLAUDE_MODELS_AND_TEAMS.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/CLAUDE_MODELS_AND_TEAMS.md",
+      "source_sha256": "3ca77c7603e7bc2cdace87cae57265bd7db034c43b6d8a974a7676eee9291a77",
+      "destination_sha256_at_copy": "3ca77c7603e7bc2cdace87cae57265bd7db034c43b6d8a974a7676eee9291a77",
+      "final_sha256": "bfd017c29f1ee7155acf97fbe70dc09a6e451bbef6ea73bf721a5032dbf8eafc",
+      "adapted_after_copy": true
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/GOOGLE_API_GUIDE.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/GOOGLE_API_GUIDE.md",
+      "source_sha256": "f4375846438fea0b8dea4228075d1c330f823b00ab01abb503053376cccc51d9",
+      "destination_sha256_at_copy": "f4375846438fea0b8dea4228075d1c330f823b00ab01abb503053376cccc51d9",
+      "final_sha256": "f4375846438fea0b8dea4228075d1c330f823b00ab01abb503053376cccc51d9",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/plans/PHYSICAL_DEMO_WIRING.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/plans/PHYSICAL_DEMO_WIRING.md",
+      "source_sha256": "49d8f8ae9086aa7c94e3083ba3986a9a788d4927d4115c263637e3b9dfc4bbe8",
+      "destination_sha256_at_copy": "49d8f8ae9086aa7c94e3083ba3986a9a788d4927d4115c263637e3b9dfc4bbe8",
+      "final_sha256": "49d8f8ae9086aa7c94e3083ba3986a9a788d4927d4115c263637e3b9dfc4bbe8",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/plans/PHYSICAL_DEMO_BOARD_PREVIEW.png",
+      "destination": "CLAUDE_BUILD_HANDOFF/plans/PHYSICAL_DEMO_BOARD_PREVIEW.png",
+      "source_sha256": "2194c45e24c3f1e5d2469d7c49fbe9da94c68034a4e5807f03f94b0ea12972b5",
+      "destination_sha256_at_copy": "2194c45e24c3f1e5d2469d7c49fbe9da94c68034a4e5807f03f94b0ea12972b5",
+      "final_sha256": "2194c45e24c3f1e5d2469d7c49fbe9da94c68034a4e5807f03f94b0ea12972b5",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/plans/DEMO_UI_UX_AND_ARGON.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/plans/DEMO_UI_UX_AND_ARGON.md",
+      "source_sha256": "6318941858452cd3ce23f8bad63a2f566cc50a3f880b6671f055434a1b605e6f",
+      "destination_sha256_at_copy": "6318941858452cd3ce23f8bad63a2f566cc50a3f880b6671f055434a1b605e6f",
+      "final_sha256": "6318941858452cd3ce23f8bad63a2f566cc50a3f880b6671f055434a1b605e6f",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/plans/SPATIALTWIN_BUILD_PLAN.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/plans/SPATIALTWIN_BUILD_PLAN.md",
+      "source_sha256": "1da36c52b9fc8553a789648a341b9957dae76443925bc990b0fa9e9f227c32dc",
+      "destination_sha256_at_copy": "1da36c52b9fc8553a789648a341b9957dae76443925bc990b0fa9e9f227c32dc",
+      "final_sha256": "aee68ff641e016daeaf642a45a05ea021f3061e92ff9d9db252879fdf1f0a496",
+      "adapted_after_copy": true
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/plans/SHACK15_DEMO_PLAYBOOK.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/plans/SHACK15_DEMO_PLAYBOOK.md",
+      "source_sha256": "54b00c6dbb8837059b81e533d9c84c3d8822ff364eaa11e499bcb28184eec2b3",
+      "destination_sha256_at_copy": "54b00c6dbb8837059b81e533d9c84c3d8822ff364eaa11e499bcb28184eec2b3",
+      "final_sha256": "54b00c6dbb8837059b81e533d9c84c3d8822ff364eaa11e499bcb28184eec2b3",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/plans/TOOL_SELECTION_AND_SOURCES.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/plans/TOOL_SELECTION_AND_SOURCES.md",
+      "source_sha256": "9e163683e227419a68d7842c92028d3f04727f5f917445db446051ac1c40cd96",
+      "destination_sha256_at_copy": "9e163683e227419a68d7842c92028d3f04727f5f917445db446051ac1c40cd96",
+      "final_sha256": "bf18979ae73f8741741bee3de9f953a289f89710e20c3dea698732fdac10ae03",
+      "adapted_after_copy": true
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/plans/PHYSICAL_DEMO_BUILD_PLAN.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/plans/PHYSICAL_DEMO_BUILD_PLAN.md",
+      "source_sha256": "7ec6b972918dc90f200fe8f982d4bbb0e6a9515f6f424f66e509a5974bea1ff6",
+      "destination_sha256_at_copy": "7ec6b972918dc90f200fe8f982d4bbb0e6a9515f6f424f66e509a5974bea1ff6",
+      "final_sha256": "eb0bf50743a415001b9abbec6b5c5ab07be9516df48f6bdbf390b96608e019e0",
+      "adapted_after_copy": true
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/plans/PHYSICAL_DEMO_BOM.csv",
+      "destination": "CLAUDE_BUILD_HANDOFF/plans/PHYSICAL_DEMO_BOM.csv",
+      "source_sha256": "dae37746b126cc546911e0a0b21becc952351450292694a0473d63df57105d22",
+      "destination_sha256_at_copy": "dae37746b126cc546911e0a0b21becc952351450292694a0473d63df57105d22",
+      "final_sha256": "dae37746b126cc546911e0a0b21becc952351450292694a0473d63df57105d22",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/plans/ARCHITECTURE_REVIEW.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/plans/ARCHITECTURE_REVIEW.md",
+      "source_sha256": "94c53628c4de6be65708d44370000b5fea8be5e6643e99598fe4d5a68fd48db0",
+      "destination_sha256_at_copy": "94c53628c4de6be65708d44370000b5fea8be5e6643e99598fe4d5a68fd48db0",
+      "final_sha256": "bfbd97bdfda25ed2ffbc738b5ff4af75f0e10c43ab2617dc8f7234a6a7e523a6",
+      "adapted_after_copy": true
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/plans/PHYSICAL_DEMO_DEVICE_MAP.json",
+      "destination": "CLAUDE_BUILD_HANDOFF/plans/PHYSICAL_DEMO_DEVICE_MAP.json",
+      "source_sha256": "996e877efc1e7101e4494cda71b1b2c6581cd731d3f1390055c502ecacaf4bad",
+      "destination_sha256_at_copy": "996e877efc1e7101e4494cda71b1b2c6581cd731d3f1390055c502ecacaf4bad",
+      "final_sha256": "996e877efc1e7101e4494cda71b1b2c6581cd731d3f1390055c502ecacaf4bad",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/plans/UI_STUDY_PREVIEW.png",
+      "destination": "CLAUDE_BUILD_HANDOFF/plans/UI_STUDY_PREVIEW.png",
+      "source_sha256": "99bb762000bfa665c190db95b16c4234f0acf42639a8950714b0bb835ed81d03",
+      "destination_sha256_at_copy": "99bb762000bfa665c190db95b16c4234f0acf42639a8950714b0bb835ed81d03",
+      "final_sha256": "99bb762000bfa665c190db95b16c4234f0acf42639a8950714b0bb835ed81d03",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/plans/PHYSICAL_DEMO_BOARD_TEMPLATE.svg",
+      "destination": "CLAUDE_BUILD_HANDOFF/plans/PHYSICAL_DEMO_BOARD_TEMPLATE.svg",
+      "source_sha256": "91336d7e4372bd4e3fc0b5d2f33b8712af37df0726e76eddd57b1d3e666dbdd6",
+      "destination_sha256_at_copy": "91336d7e4372bd4e3fc0b5d2f33b8712af37df0726e76eddd57b1d3e666dbdd6",
+      "final_sha256": "91336d7e4372bd4e3fc0b5d2f33b8712af37df0726e76eddd57b1d3e666dbdd6",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/prompts/06_CODEX_PARALLEL.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/prompts/06_CODEX_PARALLEL.md",
+      "source_sha256": "b1efa3a67605f907af0ab202631b5244d44d928a15c3f9ccbb491a99fa180ee7",
+      "destination_sha256_at_copy": "b1efa3a67605f907af0ab202631b5244d44d928a15c3f9ccbb491a99fa180ee7",
+      "final_sha256": "ed382874cd55d281fb13ec79265d46e747b415c2f5650c3a684414e01184cdaa",
+      "adapted_after_copy": true
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/prompts/04_INTEGRATION_DOCS.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/prompts/04_INTEGRATION_DOCS.md",
+      "source_sha256": "78ecdd299a717cf754c28920966d750d8f7cb5fe925967a15a5274f2d44e3357",
+      "destination_sha256_at_copy": "78ecdd299a717cf754c28920966d750d8f7cb5fe925967a15a5274f2d44e3357",
+      "final_sha256": "78ecdd299a717cf754c28920966d750d8f7cb5fe925967a15a5274f2d44e3357",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/prompts/00_CLAUDE_TEAM_LEAD.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/prompts/00_CLAUDE_TEAM_LEAD.md",
+      "source_sha256": "9452e927a61a27544b86dce7dc09753fbbb4d0a5dde9749a9cc50490af9707c8",
+      "destination_sha256_at_copy": "9452e927a61a27544b86dce7dc09753fbbb4d0a5dde9749a9cc50490af9707c8",
+      "final_sha256": "1f4209513119bbd0f72f43ed83b3164718d7a561261b729d8067267ba3df9d38",
+      "adapted_after_copy": true
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/prompts/01_GROUNDING.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/prompts/01_GROUNDING.md",
+      "source_sha256": "65b26ae53362ad052b3a5a926f0d221143a143193a935732edba77bbcb13ba63",
+      "destination_sha256_at_copy": "65b26ae53362ad052b3a5a926f0d221143a143193a935732edba77bbcb13ba63",
+      "final_sha256": "65b26ae53362ad052b3a5a926f0d221143a143193a935732edba77bbcb13ba63",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/prompts/03_PROPOSAL_UI.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/prompts/03_PROPOSAL_UI.md",
+      "source_sha256": "9d8fc6087a67bdbfbbaeb31eb012f400e3d3297a77d3d96d3c539472931fa1bb",
+      "destination_sha256_at_copy": "9d8fc6087a67bdbfbbaeb31eb012f400e3d3297a77d3d96d3c539472931fa1bb",
+      "final_sha256": "9d8fc6087a67bdbfbbaeb31eb012f400e3d3297a77d3d96d3c539472931fa1bb",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/prompts/02_MANAGED_AGENT.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/prompts/02_MANAGED_AGENT.md",
+      "source_sha256": "d0fa2c4d22ab4e4ec50fc0dd6ee90bd94de4004d7cd3a191e635cb8f155a6aa3",
+      "destination_sha256_at_copy": "d0fa2c4d22ab4e4ec50fc0dd6ee90bd94de4004d7cd3a191e635cb8f155a6aa3",
+      "final_sha256": "fec4309eb8c0d8638c40f920b23e222f6deee39fa6874d86d53e8436236d84d1",
+      "adapted_after_copy": true
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/prompts/05_DEVILS_ADVOCATE.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/prompts/05_DEVILS_ADVOCATE.md",
+      "source_sha256": "63625a42209a30798980f0e0c7ed0d8ee3f75340003f271be03a1b6fc320d488",
+      "destination_sha256_at_copy": "63625a42209a30798980f0e0c7ed0d8ee3f75340003f271be03a1b6fc320d488",
+      "final_sha256": "63625a42209a30798980f0e0c7ed0d8ee3f75340003f271be03a1b6fc320d488",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/reference/GOOGLE_SOURCES.json",
+      "destination": "CLAUDE_BUILD_HANDOFF/reference/GOOGLE_SOURCES.json",
+      "source_sha256": "04331e9b687480903319b64372bd623005ab112ae74e4b029bc51c984fd00997",
+      "destination_sha256_at_copy": "04331e9b687480903319b64372bd623005ab112ae74e4b029bc51c984fd00997",
+      "final_sha256": "04331e9b687480903319b64372bd623005ab112ae74e4b029bc51c984fd00997",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/reference/ATTRIBUTION.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/reference/ATTRIBUTION.md",
+      "source_sha256": "3e552d446acd5b45c654a3d2aa6777bd7094a2c532627926ba2cb23adf74ec18",
+      "destination_sha256_at_copy": "3e552d446acd5b45c654a3d2aa6777bd7094a2c532627926ba2cb23adf74ec18",
+      "final_sha256": "3e552d446acd5b45c654a3d2aa6777bd7094a2c532627926ba2cb23adf74ec18",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/reference/LICENSE-GOOGLE-CODE-APACHE-2.0.txt",
+      "destination": "CLAUDE_BUILD_HANDOFF/reference/LICENSE-GOOGLE-CODE-APACHE-2.0.txt",
+      "source_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "destination_sha256_at_copy": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "final_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/reference/google/pricing.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/reference/google/pricing.md",
+      "source_sha256": "a62fb4825ae4d24e1ae19f5bba6b690375914531d92fb79675c60fd133b21c88",
+      "destination_sha256_at_copy": "a62fb4825ae4d24e1ae19f5bba6b690375914531d92fb79675c60fd133b21c88",
+      "final_sha256": "a62fb4825ae4d24e1ae19f5bba6b690375914531d92fb79675c60fd133b21c88",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/reference/google/custom-agents.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/reference/google/custom-agents.md",
+      "source_sha256": "25eecdf37e763e3d38b0f412764dfef42dc6ad590ac7fd131c5a895482758522",
+      "destination_sha256_at_copy": "25eecdf37e763e3d38b0f412764dfef42dc6ad590ac7fd131c5a895482758522",
+      "final_sha256": "25eecdf37e763e3d38b0f412764dfef42dc6ad590ac7fd131c5a895482758522",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/reference/google/coding-agents.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/reference/google/coding-agents.md",
+      "source_sha256": "f1fe047ccdea43837594a5f226c8edf9ba1e5149f31fbeeef210ac475d34866a",
+      "destination_sha256_at_copy": "f1fe047ccdea43837594a5f226c8edf9ba1e5149f31fbeeef210ac475d34866a",
+      "final_sha256": "f1fe047ccdea43837594a5f226c8edf9ba1e5149f31fbeeef210ac475d34866a",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/reference/google/interactions-overview.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/reference/google/interactions-overview.md",
+      "source_sha256": "28aae07432b74b4ef7f455c75382c0c2595f80ad5079917a0c9d72e074334764",
+      "destination_sha256_at_copy": "28aae07432b74b4ef7f455c75382c0c2595f80ad5079917a0c9d72e074334764",
+      "final_sha256": "28aae07432b74b4ef7f455c75382c0c2595f80ad5079917a0c9d72e074334764",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/reference/google/function-calling.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/reference/google/function-calling.md",
+      "source_sha256": "66d59d595c6376bb4b0a6a5a511305fd1fad11e12cb05a0f9f84db2369ac60cb",
+      "destination_sha256_at_copy": "66d59d595c6376bb4b0a6a5a511305fd1fad11e12cb05a0f9f84db2369ac60cb",
+      "final_sha256": "66d59d595c6376bb4b0a6a5a511305fd1fad11e12cb05a0f9f84db2369ac60cb",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/reference/google/interactions-reference.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/reference/google/interactions-reference.md",
+      "source_sha256": "6bb22a8383a64be262bdbfe3d4a3c480d5411de2ad9cd981ac9160754220fa28",
+      "destination_sha256_at_copy": "6bb22a8383a64be262bdbfe3d4a3c480d5411de2ad9cd981ac9160754220fa28",
+      "final_sha256": "6bb22a8383a64be262bdbfe3d4a3c480d5411de2ad9cd981ac9160754220fa28",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/reference/google/troubleshooting.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/reference/google/troubleshooting.md",
+      "source_sha256": "1847d52abc8b10de30f8ca96e9f83a20234b0901e7eba0b283704a429adfcdff",
+      "destination_sha256_at_copy": "1847d52abc8b10de30f8ca96e9f83a20234b0901e7eba0b283704a429adfcdff",
+      "final_sha256": "1847d52abc8b10de30f8ca96e9f83a20234b0901e7eba0b283704a429adfcdff",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/reference/google/rate-limits.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/reference/google/rate-limits.md",
+      "source_sha256": "4ac68412ce291dd1899338cb7725bb660d7d281c3010aaaa363015ede67430a2",
+      "destination_sha256_at_copy": "4ac68412ce291dd1899338cb7725bb660d7d281c3010aaaa363015ede67430a2",
+      "final_sha256": "4ac68412ce291dd1899338cb7725bb660d7d281c3010aaaa363015ede67430a2",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/reference/google/agent-environment.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/reference/google/agent-environment.md",
+      "source_sha256": "590de22e44fb5864fdf6fce253281a6ce2511dc4f571cb483fd94d67a1dcd74e",
+      "destination_sha256_at_copy": "590de22e44fb5864fdf6fce253281a6ce2511dc4f571cb483fd94d67a1dcd74e",
+      "final_sha256": "590de22e44fb5864fdf6fce253281a6ce2511dc4f571cb483fd94d67a1dcd74e",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/reference/google/streaming.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/reference/google/streaming.md",
+      "source_sha256": "03272dd3575156f9d39f7a362984a01d2c3c489bb35ee65a0eac14e8580d32c6",
+      "destination_sha256_at_copy": "03272dd3575156f9d39f7a362984a01d2c3c489bb35ee65a0eac14e8580d32c6",
+      "final_sha256": "03272dd3575156f9d39f7a362984a01d2c3c489bb35ee65a0eac14e8580d32c6",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/reference/google/image-understanding.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/reference/google/image-understanding.md",
+      "source_sha256": "f3487cdd3ba206f275658221514afd2f8a5278cf3fd28665497a7941a68b7525",
+      "destination_sha256_at_copy": "f3487cdd3ba206f275658221514afd2f8a5278cf3fd28665497a7941a68b7525",
+      "final_sha256": "f3487cdd3ba206f275658221514afd2f8a5278cf3fd28665497a7941a68b7525",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/reference/google/agent-hooks.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/reference/google/agent-hooks.md",
+      "source_sha256": "8218ef6706c5c914a497f6fc8fb9affb8841d2e54beb372db99d403b781b3592",
+      "destination_sha256_at_copy": "8218ef6706c5c914a497f6fc8fb9affb8841d2e54beb372db99d403b781b3592",
+      "final_sha256": "8218ef6706c5c914a497f6fc8fb9affb8841d2e54beb372db99d403b781b3592",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/reference/google/robotics-spatial.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/reference/google/robotics-spatial.md",
+      "source_sha256": "01f941ed0d002d5056e790d4136e5154e0b2d1599e96c83365b7bb5099bb32e7",
+      "destination_sha256_at_copy": "01f941ed0d002d5056e790d4136e5154e0b2d1599e96c83365b7bb5099bb32e7",
+      "final_sha256": "01f941ed0d002d5056e790d4136e5154e0b2d1599e96c83365b7bb5099bb32e7",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/reference/google/structured-output.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/reference/google/structured-output.md",
+      "source_sha256": "089f009b1a8186680ec64d2299db4064bf44d7f194e2fcf4e4803477cf1c66b6",
+      "destination_sha256_at_copy": "089f009b1a8186680ec64d2299db4064bf44d7f194e2fcf4e4803477cf1c66b6",
+      "final_sha256": "089f009b1a8186680ec64d2299db4064bf44d7f194e2fcf4e4803477cf1c66b6",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/reference/google/background-execution.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/reference/google/background-execution.md",
+      "source_sha256": "bf5b78c8c5c6f59fbfeb572b85e4f3efd6443c72e399878f786eb06c6af8e6f6",
+      "destination_sha256_at_copy": "bf5b78c8c5c6f59fbfeb572b85e4f3efd6443c72e399878f786eb06c6af8e6f6",
+      "final_sha256": "bf5b78c8c5c6f59fbfeb572b85e4f3efd6443c72e399878f786eb06c6af8e6f6",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/reference/google/argon-model.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/reference/google/argon-model.md",
+      "source_sha256": "c540cecb728d5d5ae83f9620fc224bdd98594ff4672f0dc76bc534ac3bffa890",
+      "destination_sha256_at_copy": "c540cecb728d5d5ae83f9620fc224bdd98594ff4672f0dc76bc534ac3bffa890",
+      "final_sha256": "c540cecb728d5d5ae83f9620fc224bdd98594ff4672f0dc76bc534ac3bffa890",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/reference/google/antigravity-agent.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/reference/google/antigravity-agent.md",
+      "source_sha256": "6053612c551a3b437cf8c7d402a08467b68e80df79ff80bdd70defe9cf81c39c",
+      "destination_sha256_at_copy": "6053612c551a3b437cf8c7d402a08467b68e80df79ff80bdd70defe9cf81c39c",
+      "final_sha256": "6053612c551a3b437cf8c7d402a08467b68e80df79ff80bdd70defe9cf81c39c",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/reference/google/interactions.openapi.json",
+      "destination": "CLAUDE_BUILD_HANDOFF/reference/google/interactions.openapi.json",
+      "source_sha256": "b8f553e43b2afb1bf13d0c7bed659e00c8c92fe945a163918b4bcaf0a27b0833",
+      "destination_sha256_at_copy": "b8f553e43b2afb1bf13d0c7bed659e00c8c92fe945a163918b4bcaf0a27b0833",
+      "final_sha256": "b8f553e43b2afb1bf13d0c7bed659e00c8c92fe945a163918b4bcaf0a27b0833",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/reference/google/files.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/reference/google/files.md",
+      "source_sha256": "fa0bf414194e66d6eb5efacb3491914522e27fd66205c17078c6d3ba2f6192b4",
+      "destination_sha256_at_copy": "fa0bf414194e66d6eb5efacb3491914522e27fd66205c17078c6d3ba2f6192b4",
+      "final_sha256": "fa0bf414194e66d6eb5efacb3491914522e27fd66205c17078c6d3ba2f6192b4",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/reference/google/managed-quickstart.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/reference/google/managed-quickstart.md",
+      "source_sha256": "9a012bab5b4cdc070f5181d216d7e00db52400c786007155718545e6056fd91e",
+      "destination_sha256_at_copy": "9a012bab5b4cdc070f5181d216d7e00db52400c786007155718545e6056fd91e",
+      "final_sha256": "9a012bab5b4cdc070f5181d216d7e00db52400c786007155718545e6056fd91e",
+      "adapted_after_copy": false
+    },
+    {
+      "source": "CLAUDE_BUILD_HANDOFF/reference/google/latest-model.md",
+      "destination": "CLAUDE_BUILD_HANDOFF/reference/google/latest-model.md",
+      "source_sha256": "59f95c38a5308f52a451478ec154ab772b99872136e4be7560816a49a962c4c6",
+      "destination_sha256_at_copy": "59f95c38a5308f52a451478ec154ab772b99872136e4be7560816a49a962c4c6",
+      "final_sha256": "59f95c38a5308f52a451478ec154ab772b99872136e4be7560816a49a962c4c6",
+      "adapted_after_copy": false
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="609.6mm" height="457.2mm" viewBox="0 0 609.6 457.2">
+<title>SpatialTwin illustrative physical integration fixture</title>
+<desc>24 by 18 inch original schematic with three LED-stick mounts, one miniature gate and token pads. Not a SHACK15 blueprint. Print at 100 percent and verify the 100 millimeter scale.</desc>
+<defs><marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6" fill="#506374"/></marker></defs>
+<style>text{font-family:Arial,sans-serif;fill:#15232f} .tiny{font-size:3.5px} .small{font-size:4.5px} .label{font-size:6px;font-weight:bold} .route{fill:none;stroke:#dce4e9;stroke-width:22;stroke-linejoin:round} .center{fill:none;stroke:#506374;stroke-width:1.2;marker-end:url(#arrow)} .room{fill:#f4f6f8;stroke:#94a4b0;stroke-width:1} .pad{fill:#fff;stroke:#263d4d;stroke-width:1.2;stroke-dasharray:3 2}</style>
+<rect width="609.6" height="457.2" fill="white"/>
+<rect x="10" y="10" width="589.6" height="437.2" fill="none" stroke="#7f8d96" stroke-width=".5"/>
+<text x="22" y="29" font-size="11" font-weight="bold">SPATIALTWIN · PHYSICAL INTEGRATION FIXTURE</text>
+<text x="22" y="41" class="label" fill="#a53320">ILLUSTRATIVE GEOMETRY — NOT A SHACK15 SURVEY OR BLUEPRINT</text>
+<text x="22" y="51" class="small">Replace artwork from reviewed venue JSON. Board coordinates are millimeters; no building scale is implied.</text>
+<path class="route" d="M120 190 L145 100 H440"/>
+<path class="route" d="M120 190 L145 280 H440"/>
+<path class="route" d="M120 190 H340 V260 L385 280"/>
+<rect class="room" x="40" y="155" width="80" height="70" rx="3"/>
+<text x="80" y="182" text-anchor="middle" class="label">EVENT</text>
+<text x="80" y="194" text-anchor="middle" class="small">Synthetic occupants</text>
+<text x="80" y="204" text-anchor="middle" class="tiny">Counts supplied by scenario</text>
+<rect class="room" x="365" y="72" width="85" height="56" rx="3"/>
+<text x="407" y="104" text-anchor="middle" class="label">WEST</text>
+<rect class="room" x="365" y="252" width="85" height="56" rx="3"/>
+<text x="407" y="284" text-anchor="middle" class="label">EAST</text>
+<rect class="room" x="298" y="163" width="70" height="54" rx="3"/>
+<text x="333" y="187" text-anchor="middle" class="label">RESERVE</text>
+<text x="333" y="199" text-anchor="middle" class="tiny">Feeds existing EAST boundary</text>
+<path class="center" d="M281 100 H355"/>
+<path class="center" d="M281 280 H355"/>
+<path class="center" d="M281 190 H292"/>
+<path class="center" d="M340 221 V248 L360 268"/>
+<text x="347" y="238" class="small">P4 fixed</text>
+<path class="center" d="M450 100 H497"/>
+<path class="center" d="M450 280 H497"/>
+<rect x="500" y="82" width="70" height="36" fill="#e7eef3" stroke="#506374"/>
+<text x="535" y="96" text-anchor="middle" class="label">B1</text>
+<text x="535" y="108" text-anchor="middle" class="tiny">Finite transfer boundary</text>
+<rect x="500" y="262" width="70" height="36" fill="#e7eef3" stroke="#506374"/>
+<text x="535" y="276" text-anchor="middle" class="label">B2</text>
+<text x="535" y="288" text-anchor="middle" class="tiny">Finite transfer boundary</text>
+
+<rect x="220" y="94.5" width="52" height="11" fill="#fff" stroke="#4b5963" stroke-dasharray="1 1"/>
+<circle cx="223.0" cy="100" r="1.6" fill="#c8dbe4" stroke="#506374" stroke-width=".3"/>
+<circle cx="229.5" cy="100" r="1.6" fill="#c8dbe4" stroke="#506374" stroke-width=".3"/>
+<circle cx="236.0" cy="100" r="1.6" fill="#c8dbe4" stroke="#506374" stroke-width=".3"/>
+<circle cx="242.5" cy="100" r="1.6" fill="#c8dbe4" stroke="#506374" stroke-width=".3"/>
+<circle cx="249.0" cy="100" r="1.6" fill="#c8dbe4" stroke="#506374" stroke-width=".3"/>
+<circle cx="255.5" cy="100" r="1.6" fill="#c8dbe4" stroke="#506374" stroke-width=".3"/>
+<circle cx="262.0" cy="100" r="1.6" fill="#c8dbe4" stroke="#506374" stroke-width=".3"/>
+<circle cx="268.5" cy="100" r="1.6" fill="#c8dbe4" stroke="#506374" stroke-width=".3"/>
+<text x="220" y="90" class="label">P1 · LED 0–7</text>
+<text x="220" y="113" class="tiny">DIN → 8-pixel stick → DOUT</text>
+<rect x="220" y="274.5" width="52" height="11" fill="#fff" stroke="#4b5963" stroke-dasharray="1 1"/>
+<circle cx="223.0" cy="280" r="1.6" fill="#c8dbe4" stroke="#506374" stroke-width=".3"/>
+<circle cx="229.5" cy="280" r="1.6" fill="#c8dbe4" stroke="#506374" stroke-width=".3"/>
+<circle cx="236.0" cy="280" r="1.6" fill="#c8dbe4" stroke="#506374" stroke-width=".3"/>
+<circle cx="242.5" cy="280" r="1.6" fill="#c8dbe4" stroke="#506374" stroke-width=".3"/>
+<circle cx="249.0" cy="280" r="1.6" fill="#c8dbe4" stroke="#506374" stroke-width=".3"/>
+<circle cx="255.5" cy="280" r="1.6" fill="#c8dbe4" stroke="#506374" stroke-width=".3"/>
+<circle cx="262.0" cy="280" r="1.6" fill="#c8dbe4" stroke="#506374" stroke-width=".3"/>
+<circle cx="268.5" cy="280" r="1.6" fill="#c8dbe4" stroke="#506374" stroke-width=".3"/>
+<text x="220" y="270" class="label">P2 · LED 8–15</text>
+<text x="220" y="293" class="tiny">DIN → 8-pixel stick → DOUT</text>
+<rect x="220" y="184.5" width="52" height="11" fill="#fff" stroke="#4b5963" stroke-dasharray="1 1"/>
+<circle cx="223.0" cy="190" r="1.6" fill="#c8dbe4" stroke="#506374" stroke-width=".3"/>
+<circle cx="229.5" cy="190" r="1.6" fill="#c8dbe4" stroke="#506374" stroke-width=".3"/>
+<circle cx="236.0" cy="190" r="1.6" fill="#c8dbe4" stroke="#506374" stroke-width=".3"/>
+<circle cx="242.5" cy="190" r="1.6" fill="#c8dbe4" stroke="#506374" stroke-width=".3"/>
+<circle cx="249.0" cy="190" r="1.6" fill="#c8dbe4" stroke="#506374" stroke-width=".3"/>
+<circle cx="255.5" cy="190" r="1.6" fill="#c8dbe4" stroke="#506374" stroke-width=".3"/>
+<circle cx="262.0" cy="190" r="1.6" fill="#c8dbe4" stroke="#506374" stroke-width=".3"/>
+<circle cx="268.5" cy="190" r="1.6" fill="#c8dbe4" stroke="#506374" stroke-width=".3"/>
+<text x="220" y="180" class="label">P3 · LED 16–23</text>
+<text x="220" y="203" class="tiny">DIN → 8-pixel stick → DOUT</text>
+<rect class="pad" x="147.5" y="117.5" width="45" height="45" rx="3"/>
+<text x="170" y="137" text-anchor="middle" class="label">P1 TOKEN</text>
+<text x="170" y="147" text-anchor="middle" class="tiny">Flat BLOCKED card here</text>
+<rect class="pad" x="137.5" y="310.5" width="45" height="45" rx="3"/>
+<text x="160" y="330" text-anchor="middle" class="label">P2 TOKEN</text>
+<text x="160" y="340" text-anchor="middle" class="tiny">Flat BLOCKED card here</text>
+<rect class="pad" x="508.5" y="310.5" width="45" height="45" rx="3"/>
+<text x="531" y="330" text-anchor="middle" class="label">B2 TOKEN</text>
+<text x="531" y="340" text-anchor="middle" class="tiny">Flat BLOCKED card here</text>
+<path d="M185 174 V207" stroke="#a53320" stroke-width="3"/>
+<text x="155" y="225" class="small">G1 miniature gate at P3</text>
+<text x="155" y="234" class="tiny">OPEN / CLOSED endpoint switches; mounting adjusted on bench</text>
+<path d="M183 234 L185 210" stroke="#7f8d96" stroke-width=".5"/>
+<path d="M170 117 V112" stroke="#263d4d" stroke-width=".7"/>
+<path d="M160 310 V294" stroke="#263d4d" stroke-width=".7"/>
+<path d="M531 310 V300" stroke="#263d4d" stroke-width=".7"/>
+<text x="22" y="380" class="label">CONTROL / LEGEND STRIP</text>
+<text x="22" y="392" class="small">P1 = main west · P2 = main east · P3 = gated reserve → existing EAST boundary</text>
+<text x="22" y="402" class="small">White = neutral · Amber = pending/stale · Red + X = hypothetical blockage · Cyan = checked route</text>
+<text x="22" y="412" class="small">Hypothetical prediction stays on screen until the model gate is independently confirmed.</text>
+<path d="M22 430 H122 M22 426 V434 M122 426 V434" stroke="#15232f" stroke-width=".7"/>
+<text x="72" y="441" text-anchor="middle" class="small">100 mm — verify print at 100%</text>
+<text x="200" y="433" class="tiny">fixture-physical-v1 · Paper trim size 609.6 × 457.2 mm / 24 × 18 in</text>
+<text x="200" y="441" class="tiny">Electronic mount outlines are indicative. Verify actual parts before cutting holes.</text>
+</svg>
