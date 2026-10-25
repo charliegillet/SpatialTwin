@@ -55,17 +55,21 @@ _DESCRIPTIONS = {
     "doors.id": "D1, D2, ... in order of first appearance.",
     "doors.a": "A zone id (never OUTSIDE).",
     "doors.b": 'A zone id, or "OUTSIDE" for every exit and stair.',
-    "doors.state": "open only if seen open; unknown if not seen open.",
+    "doors.state": "open if seen open; closed if seen shut; locked if seen locked, "
+                   "chained or blocked; unknown if not seen clearly.",
     "doors.clear_width": "Clear opening width as an honest range in meters.",
     "doors.position": "[x, y] in meters, on the zone edge the doorway sits on.",
     "doors.evidence": "Video time spans in seconds when the doorway is visible.",
     "keyframes": "5 to 8 camera poses spread across the video.",
-    "keyframes.heading_deg": "Camera facing, clockwise from above: 0 = +y, 90 = +x.",
+    "keyframes.heading_deg": "Camera facing, clockwise from above: 0 = +y, 90 = +x. "
+                             "First frame: small offset of initial facing from +y.",
 }
 
 # JSON-schema keys Gemini structured output documents as supported (and that we use).
+# Numeric bounds (minimum/maximum) are left out: they add decoding states and pydantic
+# re-checks them on the way back.
 _KEEP = {"type", "properties", "required", "items", "prefixItems", "enum", "description",
-         "minimum", "maximum", "minItems", "maxItems"}
+         "minItems", "maxItems"}
 
 
 class ExtractionResult(BaseModel):
@@ -79,6 +83,8 @@ class ExtractionResult(BaseModel):
     agentic_observed: bool | None
     video_uri: str | None
     error: str | None
+    # Known whenever create() succeeded, including on timeout (where receipt is None).
+    interaction_id: str | None = None
 
 
 # --- schema ---------------------------------------------------------------------
@@ -105,7 +111,15 @@ def gemini_schema(model: type[BaseModel]) -> dict:
             if len(alts) != 1 or len(alts) == len(node["anyOf"]):
                 raise ValueError(f"unsupported anyOf: {node['anyOf']}")
             out = conv(alts[0])
-            out["type"] = [out["type"], "null"]
+            t = out.get("type")
+            if isinstance(t, str):
+                out["type"] = [t, "null"]
+            elif isinstance(t, list):
+                out["type"] = t if "null" in t else [*t, "null"]
+            else:  # untyped alternative (e.g. bare enum): fall back to anyOf
+                out = {"anyOf": [out, {"type": "null"}]}
+            if "description" in node:
+                out["description"] = node["description"]
             return out
         out: dict[str, Any] = {}
         if "const" in node:
@@ -183,8 +197,8 @@ def build_prompt(duration_s: float, anchor_hint: str | None) -> str:
             .replace("{{ANCHOR_HINT}}", hint))
 
 
-def video_part(uri: str, mode: VideoMode) -> dict:
-    part: dict[str, Any] = {"type": "video", "uri": uri, "mime_type": "video/mp4",
+def video_part(uri: str, mode: VideoMode, mime_type: str = "video/mp4") -> dict:
+    part: dict[str, Any] = {"type": "video", "uri": uri, "mime_type": mime_type,
                             "processing": _PROCESSING[mode]}
     if mode == "static_hifps":
         part["resolution"] = "high"
@@ -245,11 +259,42 @@ def _provider_error(interaction: Any) -> str:
 # --- main entry -----------------------------------------------------------------
 
 
+class _IdRecorder:
+    """Client proxy that remembers the id ``interactions.create`` returned.
+
+    ``run_background`` raises on deadline without returning the interaction, so
+    this is how a timed-out extraction still reports which interaction it was.
+    """
+
+    def __init__(self, client) -> None:
+        self.interaction_id: str | None = None
+        inner = client.aio.interactions
+        recorder = self
+
+        class _Interactions:
+            async def create(self, **kwargs):
+                interaction = await inner.create(**kwargs)
+                recorder.interaction_id = getattr(interaction, "id", None) or None
+                return interaction
+
+            def __getattr__(self, name):
+                return getattr(inner, name)
+
+        class _Aio:
+            interactions = _Interactions()
+
+            def __getattr__(self, name):
+                return getattr(client.aio, name)
+
+        self.aio = _Aio()
+
+
 async def extract_venue(client, video: PreparedVideo, *, mode: VideoMode = "static_hifps",
                         deadline_s: float, anchor_hint: str | None = None) -> ExtractionResult:
     """Ask Argon for the venue graph of ``video``. Never raises for provider errors."""
     started = time.monotonic()
     uri: str | None = None
+    rec = _IdRecorder(client)
 
     def result(status, *, graph=None, findings=(), receipt=None, error=None):
         observed = None
@@ -257,19 +302,21 @@ async def extract_venue(client, video: PreparedVideo, *, mode: VideoMode = "stat
             observed = receipt.processing_calls > 0
         return ExtractionResult(status=status, graph=graph, findings=list(findings),
                                 receipt=receipt, mode=mode, agentic_observed=observed,
-                                video_uri=uri, error=error)
+                                video_uri=uri, error=error,
+                                interaction_id=(receipt.interaction_id or None) if receipt
+                                else rec.interaction_id)
 
     try:
         uploaded = await upload_video(client, video.path, deadline_s=deadline_s)
         uri = uploaded.uri
         remaining = max(deadline_s - (time.monotonic() - started), 0.001)
         interaction, receipt = await run_background(
-            client, deadline_s=remaining, poll_s=POLL_S,
+            rec, deadline_s=remaining, poll_s=POLL_S,
             model=MODEL,
             generation_config=dict(GENERATION_CONFIG),
             response_format={"type": "text", "mime_type": "application/json",
                              "schema": venue_graph_schema()},
-            input=[video_part(uri, mode),
+            input=[video_part(uri, mode, uploaded.mime_type),
                    {"type": "text", "text": build_prompt(video.duration_s, anchor_hint)}],
         )
     except TimeoutError as e:
@@ -294,14 +341,29 @@ async def extract_venue(client, video: PreparedVideo, *, mode: VideoMode = "stat
 # --- CLI (live: pending key) ------------------------------------------------------
 
 
-def _default_deadline(mode: VideoMode, probes: Path) -> float:
-    """3x the Task 2 probe time for this mode when recorded, never under 900 s."""
-    name = "video_agentic" if mode == "agentic" else "video_static"
+DEADLINE_FLOOR_S = 900.0
+_PROBES_FOR_MODE = {"static": ("video_static",), "agentic": ("video_agentic",),
+                    "static_hifps": ("video_static", "video_agentic")}
+
+
+def _probe_elapsed_s(probes: Path, name: str) -> float | None:
+    """``elapsed_ms`` from ``runtime/probes/<name>.json`` as ``tools/probe.py`` writes it
+    (top-level ``receipt`` = ``Receipt.model_dump()``); None if absent or unusable."""
     try:
         ms = json.loads((probes / f"{name}.json").read_text())["receipt"]["elapsed_ms"]
-        return max(900.0, 3 * ms / 1000)
+        return float(ms) / 1000 if isinstance(ms, (int, float)) and ms > 0 else None
     except (OSError, KeyError, TypeError, ValueError):
-        return 900.0
+        return None
+
+
+def _default_deadline(mode: VideoMode, probes: Path) -> float:
+    """3x the observed Task 2 probe time for this mode, never under 900 s.
+
+    static uses ``video_static``, agentic ``video_agentic``; static_hifps (no probe
+    of its own) uses the larger of the two.
+    """
+    times = [t for n in _PROBES_FOR_MODE[mode] if (t := _probe_elapsed_s(probes, n))]
+    return max(DEADLINE_FLOOR_S, 3 * max(times)) if times else DEADLINE_FLOOR_S
 
 
 async def _main(argv: list[str] | None = None) -> int:

@@ -41,19 +41,21 @@ Work through the video once, in order, before you write anything.
 
 - One flat floor plane, in meters. Ignore height.
 - **Origin (0, 0)** is the walker's position in the first frame of the video.
-- **+y** is the direction the walker faces and walks at the start of the video.
-- **+x** is to the walker's right at the start.
-- Coordinates can be negative. The first room usually extends behind the walker (-y) and
-  to their left (-x), so its rect contains the origin.
-- Walkers start by walking straight along a wall or corridor, so walls run parallel to the
-  x and y axes. If the first steps are a little off-axis, still keep rooms axis-aligned to
-  the nearest wall direction.
+- **+y** is the wall or corridor direction closest to the walker's initial facing
+  direction. Walls run parallel to the x and y axes, so every zone stays axis-aligned.
+- **+x** is 90° clockwise from +y when the plan is viewed from above: to the right of a
+  walker facing +y.
 - **heading_deg** is the direction the camera faces, measured clockwise when the plan is
   viewed from above: 0 faces +y, 90 faces +x, 180 faces -y, 270 faces -x. It is always in
-  [0, 360). The camera at the first frame has heading 0 by definition.
+  [0, 360). Treat +y as heading 0. The first frame's heading is the small offset between
+  the walker's actual facing and +y, for example 350 (a little left of +y) or 8 (a little
+  right). It is exactly 0 only when the walker starts facing straight along the wall.
+- The first zone's rect must contain the origin. It may extend in any direction, so the
+  x and y of its min corner are often negative.
 
-Worked example: the walker starts at (0, 0) facing +y, walks 5 m forward, turns right and
-walks 3 m. They are now at (3, 5), with heading_deg 90.
+Worked example: the walker starts at (0, 0) facing 5° right of the corridor, so the first
+heading is 5 and +y runs along the corridor. They walk 5 m along the corridor, turn right
+and walk 3 m. They are now at about (3, 5), with heading_deg about 90.
 
 ## Zones
 
@@ -75,7 +77,7 @@ walks 3 m. They are now at (3, 5), with heading_deg 90.
   with a short note (under 120 characters) on what is seen.
 - `name`: under 40 characters.
 - A door that leads to a space the walker never entered: add a zone for that space named
-  "Not filmed: <what it seems to be>", 2 m deep beyond the door and 2 m wide along the
+  `"Not filmed: <what it seems to be>"` (exactly that prefix), 2 m deep beyond the door and 2 m wide along the
   wall, not overlapping any other zone, with `furniture_seen` true and `occupants` 0. Its
   evidence is the span when the door was seen. Never invent the inside of a room.
 
@@ -95,13 +97,12 @@ through.
   the walker leaving the floor by stair ends the map there.
 - `position: [x, y]` lies **on the zone edge**: on the edge `a` and `b` share, or for
   `OUTSIDE`, on the outer edge of zone `a`, at the middle of the doorway.
-- `state`:
+- `state` (anything not seen open is treated as not open):
   - `open` only if you actually see it open in the video, or it is an `opening`.
-  - `unknown` for every door you did not see open. Being closed on video does not show
-    whether it opens, so a shut door is `unknown`.
-  - `locked` only with visible evidence: chain, padlock, bar across it, or a "locked" sign.
-  - `closed` only if you see it shut and blocked or obstructed, so it could not be used.
-    Say what blocks it in the evidence note.
+  - `closed` if you see it shut.
+  - `locked` if you see it locked, chained or blocked: a chain, padlock or bar across it,
+    a "locked" sign, or an obstruction in front of it. Say what in the evidence note.
+  - `unknown` if you did not see it clearly enough to tell.
 - `clear_width` is the clear opening a person passes through when the door is fully open
   (between the frame stops, not the leaf), as a **range** `low_m`..`high_m` in meters,
   with `low_m` > 0 and `high_m` >= `low_m`. Make the range honest: about ±10% when the
@@ -126,7 +127,8 @@ a doorway. For each:
 - `heading_deg`: the direction the camera is facing at that time, using the convention
   above (not necessarily the walking direction).
 
-Include the first frame as a keyframe: `t_s` 0, `x` 0, `y` 0, `heading_deg` 0.
+Include the first frame as a keyframe: `t_s` 0, `x` 0, `y` 0, and `heading_deg` the
+small offset of the walker's initial facing from +y (0 if they face straight along +y).
 
 ## Times
 
@@ -151,6 +153,8 @@ Always set `anchor` to null; the app applies tape measurements itself. Set
 - At least one door has `b` "OUTSIDE", if any exit or stair was seen.
 - Every width is a range with `low_m` > 0 and `high_m` >= `low_m`.
 - Every `furniture_seen` is set deliberately.
-- 5 to 8 keyframes, each inside its zone, headings in [0, 360).
+- 5 to 8 keyframes, each inside its zone, headings in [0, 360); the first is at t_s 0,
+  (0, 0), inside the first zone.
+- Every "Not filmed: " zone has `occupants` 0.
 - Every time is within 0..{{DURATION_S}}.
-- Anything you did not see is `unknown`, `assumed` or "Not filmed", not a guess.
+- Anything you did not see is `unknown`, `assumed` or "Not filmed: ", not a guess.

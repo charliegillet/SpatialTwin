@@ -51,6 +51,7 @@ async def test_valid_extraction(video, canned):
     assert r.graph.video_sha256 == SHA  # model's value overridden
     assert r.findings == check_graph(r.graph, video.duration_s)
     assert r.receipt.interaction_id == "int-x"
+    assert r.interaction_id == "int-x"
     assert r.video_uri == "https://fake.test/files/fake123"
     assert r.mode == "static_hifps"
     assert r.agentic_observed is None
@@ -118,6 +119,7 @@ async def test_timeout(video, monkeypatch):
     assert r.receipt is None
     assert len(client.cancel_calls) == 1
     assert r.video_uri == "https://fake.test/files/fake123"
+    assert r.interaction_id == client.cancel_calls[0] == "int-1"
 
 
 # --- extra coverage -------------------------------------------------------------
@@ -160,12 +162,39 @@ async def test_empty_text_invalid(video):
     assert r.status == "invalid"
 
 
-async def test_create_error_is_failed(video):
-    client = FakeClient()  # no script left: create() raises
+class ProviderError(Exception):
+    pass
+
+
+async def test_create_error_is_failed(video, monkeypatch):
+    client = FakeClient([])
+
+    async def boom(**kwargs):
+        client.requests.append(kwargs)
+        raise ProviderError("400 INVALID_ARGUMENT: schema too complex")
+
+    monkeypatch.setattr(client.aio.interactions, "create", boom)
     r = await extract_venue(client, video, deadline_s=5)
     assert r.status == "failed"
-    assert r.receipt is None
-    assert "AssertionError" in r.error
+    assert r.receipt is None and r.interaction_id is None
+    assert r.error == "ProviderError: 400 INVALID_ARGUMENT: schema too complex"
+    assert r.video_uri == "https://fake.test/files/fake123"
+    assert len(client.requests) == 1
+
+
+async def test_upload_mime_type_used(video, canned, monkeypatch):
+    from google.genai import types
+
+    client = FakeClient(completed(canned))
+
+    async def upload(**kwargs):
+        return types.File(name="files/q", uri="https://fake.test/files/q",
+                          mime_type="video/quicktime", state="ACTIVE")
+
+    monkeypatch.setattr(client.aio.files, "upload", upload)
+    await extract_venue(client, video, deadline_s=5)
+    assert _video_part(client)["mime_type"] == "video/quicktime"
+    assert _video_part(client)["uri"] == "https://fake.test/files/q"
 
 
 async def test_request_shape(video, canned):
@@ -223,7 +252,7 @@ async def test_code_fence_and_heading_normalised(video, office_graph):
 # --- schema ---------------------------------------------------------------------
 
 ALLOWED_KEYS = {"type", "properties", "required", "items", "enum", "description",
-                "minimum", "maximum", "minItems", "maxItems"}
+                "minItems", "maxItems"}
 
 
 def _walk(node, path="$"):
@@ -248,8 +277,9 @@ def test_schema_is_flat_and_supported():
     s = venue_graph_schema()
     text = json.dumps(s)
     for bad in ("$ref", "$defs", "prefixItems", "anyOf", "const", "exclusiveMinimum",
-                "exclusiveMaximum", "pattern", "maxLength", "title", "default", "revision"):
-        assert bad not in text, bad
+                "exclusiveMaximum", "minimum", "maximum", "pattern", "maxLength", "title",
+                "default", "revision"):
+        assert f'"{bad}":' not in text, bad  # as a key, not inside descriptions
     for path, node in _walk(s):
         if "properties" in node or "type" in node:
             assert set(node) <= ALLOWED_KEYS, (path, set(node) - ALLOWED_KEYS)
@@ -297,6 +327,49 @@ def test_gemini_schema_flattens_generic_constructs():
     assert s["properties"]["many"]["items"]["properties"]["v"] == {"type": "integer"}
     # heterogeneous tuples keep prefixItems (documented as supported)
     assert s["properties"]["pair"]["prefixItems"] == [{"type": "number"}, {"type": "string"}]
+
+
+def test_gemini_schema_anyof_keeps_description_and_untyped_alt():
+    from typing import Literal
+
+    from pydantic import BaseModel, Field
+
+    class M(BaseModel):
+        n: int | None = Field(description="count or null")
+        tag: Literal["a", 1] | None = Field(description="mixed enum")  # no single "type"
+
+    s = gemini_schema(M)
+    assert s["properties"]["n"] == {"type": ["integer", "null"], "description": "count or null"}
+    tag = s["properties"]["tag"]
+    assert tag["description"] == "mixed enum"
+    assert tag["anyOf"][1] == {"type": "null"}
+    assert tag["anyOf"][0]["enum"] == ["a", 1]
+
+
+def _probe(dir_, name, elapsed_ms):
+    # Same layout tools/probe.py writes: top-level "receipt" = Receipt.model_dump().
+    dir_.mkdir(parents=True, exist_ok=True)
+    (dir_ / f"{name}.json").write_text(json.dumps({
+        "probe": name, "sdk_version": "2.33.0", "finished_at": "2026-10-25T12:00:00",
+        "ok": True, "receipt": {"interaction_id": "i", "provider_model": "gemini-4-argon",
+                                "status": "completed", "usage": {},
+                                "elapsed_ms": elapsed_ms, "processing_calls": 0},
+        "text": "{}", "step_types": ["model_output"]}))
+
+
+def test_default_deadline_from_probe_files(tmp_path):
+    probes = tmp_path / "runtime" / "probes"
+    assert ex._default_deadline("static_hifps", probes) == 900.0  # no files: floor
+    _probe(probes, "video_static", 400_000)    # 400 s
+    _probe(probes, "video_agentic", 200_000)   # 200 s
+    assert ex._default_deadline("static", probes) == 1200.0
+    assert ex._default_deadline("agentic", probes) == 900.0     # 600 s -> floor
+    assert ex._default_deadline("static_hifps", probes) == 1200.0  # 3 x max(400, 200)
+    _probe(probes, "video_agentic", 500_000)
+    assert ex._default_deadline("static_hifps", probes) == 1500.0
+    (probes / "video_static.json").write_text('{"ok": false, "error": "x"}')  # failed probe
+    assert ex._default_deadline("static", probes) == 900.0
+    assert ex._default_deadline("static_hifps", probes) == 1500.0
 
 
 # --- prompt ---------------------------------------------------------------------
