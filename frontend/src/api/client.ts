@@ -60,12 +60,21 @@ async function errorDetail(res: Response): Promise<{ text: string; code: string 
 /** The one place that sets the timeout, serialises the body and turns failures into ApiError. */
 export async function requestJson<T>(path: string, { method = 'GET', body, rawBody, headers, signal, timeoutMs, fallback, describe }: RequestOptions): Promise<T> {
   const signals = [signal, timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined].filter((item): item is AbortSignal => Boolean(item));
-  const res = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers: body === undefined ? headers : { 'Content-Type': 'application/json', ...headers },
-    body: rawBody ?? (body === undefined ? undefined : JSON.stringify(body)),
-    signal: signals.length > 1 ? AbortSignal.any(signals) : signals[0],
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers: body === undefined ? headers : { 'Content-Type': 'application/json', ...headers },
+      body: rawBody ?? (body === undefined ? undefined : JSON.stringify(body)),
+      signal: signals.length > 1 ? AbortSignal.any(signals) : signals[0],
+    });
+  } catch (error) {
+    // A caller's own cancel stays an AbortError (callers ignore it); a timeout or a dead connection becomes readable
+    // copy instead of the browser's "signal timed out" / "Failed to fetch".
+    if (error instanceof DOMException && error.name === 'TimeoutError') throw new ApiError(`${fallback}: the server did not answer in time. Please try again.`, 0, 'timeout');
+    if (error instanceof TypeError) throw new ApiError(`${fallback}: the server could not be reached. Please try again.`, 0, 'unreachable');
+    throw error;
+  }
   if (res.ok) return res.json() as Promise<T>;
   const { text, code } = await errorDetail(res);
   throw new ApiError(describe?.(res.status, text, code) || text || `${fallback} (${res.status}). Please try again.`, res.status, text || code);

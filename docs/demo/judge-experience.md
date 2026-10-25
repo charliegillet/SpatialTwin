@@ -26,7 +26,9 @@ managed agents stress-tests the plan, and you approve. AI proposes, the checker 
   **Judge mode** so judges' hazards join the twin at once; doors still need your Approve. If phones cannot reach the
   laptop (the panel warns), open **Signs on this laptop** on a second screen instead.
 - Preflight: the capabilities chip shows a fresh live receipt; one live team run has completed in the last hour.
-- One app tab only on the presenter laptop: every tab is the operator.
+- One app tab only on the presenter laptop: every tab is the operator. Each app tab also holds two or three live
+  event streams, and a browser allows only six connections per server address, so a second app tab can stall the
+  planner's requests ("did not answer in time"); close it and reload. The "Signs on this laptop" tab is fine.
 
 ## Act 1 · "Your building in a minute" (Build mode)
 
