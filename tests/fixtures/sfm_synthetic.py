@@ -35,11 +35,12 @@ def rot_axis(axis, a: float) -> np.ndarray:
     return np.eye(3) + math.sin(a) * kx + (1 - math.cos(a)) * kx @ kx
 
 
-def _world_points(rng: np.random.Generator, noise_m: float, n_floor: int, n_ceiling: int) -> np.ndarray:
+def _world_points(rng: np.random.Generator, noise_m: float, n_floor: int, n_ceiling: int,
+                  n_wall: int) -> np.ndarray:
     floor = np.c_[rng.uniform(0, ROOM_W, n_floor), rng.uniform(0, ROOM_D, n_floor), np.zeros(n_floor)]
     ceiling = np.c_[rng.uniform(0, ROOM_W, n_ceiling), rng.uniform(0, ROOM_D, n_ceiling),
                     np.full(n_ceiling, ROOM_H)]
-    n = 400
+    n = n_wall
     z = lambda: rng.uniform(0, ROOM_H, n)  # noqa: E731
     walls = []
     walls.append(np.c_[rng.uniform(0, ROOM_W, n), np.zeros(n), z()])        # south
@@ -50,12 +51,13 @@ def _world_points(rng: np.random.Generator, noise_m: float, n_floor: int, n_ceil
     return pts + rng.normal(0, noise_m, pts.shape)
 
 
-def _camera_path(eye_m: float) -> list[tuple[float, np.ndarray, float]]:
-    """(t_s, centre_xyz, heading_rad) sampled at FPS along WAYPOINTS."""
+def _camera_path(eye_m: float, waypoints) -> list[tuple[float, np.ndarray, float]]:
+    """(t_s, centre_xyz, heading_rad) sampled at FPS along the waypoints.
+    heading_rad is the math angle from +x (counter-clockwise)."""
     out = []
     t = 0.0
     seg_start_t = 0.0
-    for (x0, y0), (x1, y1) in zip(WAYPOINTS, WAYPOINTS[1:]):
+    for (x0, y0), (x1, y1) in zip(waypoints, waypoints[1:]):
         length = math.hypot(x1 - x0, y1 - y0)
         dur = length / WALK_SPEED
         heading = math.atan2(y1 - y0, x1 - x0)
@@ -87,10 +89,13 @@ def make_scene(
     noise_m: float = 0.01,
     n_floor: int = 1500,
     n_ceiling: int = 300,
+    n_wall: int = 400,
+    waypoints=None,
     seed: int = 0,
 ) -> tuple[SfmResult, VenueGraph]:
     """Return (sfm, graph). `tilt` is an extra 3D rotation applied to the SfM frame,
-    `mirror` negates graph y, `graph_scale` scales graph keyframes (a wrong anchor)."""
+    `mirror` negates graph y, `graph_scale` scales graph keyframes (a wrong anchor).
+    Keyframe `heading_deg` is clockwise from +y: atan2(dx, dy) in degrees mod 360."""
     rng = np.random.default_rng(seed)
     yaw = math.radians(yaw_deg)
     Q = np.eye(3) if tilt is None else np.asarray(tilt, float)
@@ -101,9 +106,9 @@ def make_scene(
         local = (rot_z(-yaw) @ (p - t3).T).T / scale + np.array([0.0, 0.0, z0])
         return (Q @ local.T).T
 
-    points = to_sfm(_world_points(rng, noise_m, n_floor, n_ceiling))
+    points = to_sfm(_world_points(rng, noise_m, n_floor, n_ceiling, n_wall))
     frames, keyframes = [], []
-    for t_s, c, heading in _camera_path(eye_m):
+    for t_s, c, heading in _camera_path(eye_m, WAYPOINTS if waypoints is None else waypoints):
         frames.append(SfmFrame(
             t_s=t_s,
             center=tuple(float(v) for v in to_sfm(c[None])[0]),
@@ -112,10 +117,11 @@ def make_scene(
         ))
         if abs(t_s / KEYFRAME_EVERY_S - round(t_s / KEYFRAME_EVERY_S)) < 1e-6:
             gx, gy = c[0] * graph_scale, c[1] * graph_scale
-            hd = math.degrees(heading)
+            dx, dy = math.cos(heading), math.sin(heading)
             if mirror:
-                gy, hd = -gy, -hd
-            keyframes.append(Keyframe(t_s=t_s, zone_id="Z1", x=gx, y=gy, heading_deg=hd % 360))
+                gy, dy = -gy, -dy
+            hd = math.degrees(math.atan2(dx, dy)) % 360  # clockwise from +y
+            keyframes.append(Keyframe(t_s=t_s, zone_id="Z1", x=gx, y=gy, heading_deg=hd))
     sfm = SfmResult(
         status="completed",
         frames=frames,
