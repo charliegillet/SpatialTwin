@@ -1,6 +1,6 @@
 """Estimated token cost of an agent lane, from the provider's usage counters. An estimate, never a bill.
 
-Prices: CLAUDE_BUILD_HANDOFF/reference/google/pricing.md, "Gemini 4 Argon", paid tier, read 23 Oct 2026: input
+Prices: docs/research/build-handoff/reference/google/pricing.md, "Gemini 4 Argon", paid tier, read 23 Oct 2026: input
 $2.00 / 1M tokens and output (including thinking) $10.00 / 1M through 30 Nov 2026 ($4.00 / $20.00 from 1 Dec 2026);
 implicit context caching $0.10 / 1M. Agent loops are billed at model list rates; environment compute is not billed
 during the preview (pricing.md "Pricing for agents"). Usage semantics are taken from live receipts on 25 Oct 2026:

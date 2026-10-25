@@ -2,7 +2,7 @@
 
 Shapes follow runtime/live-checks-2026-10-25/door-agent-live*.json (interaction ids "v1_...", 32-hex environment ids,
 "call_<digits>" function-call ids, usage with total/input/output/thought/cached tokens) and the SSE event shapes in
-CLAUDE_BUILD_HANDOFF/reference/google/streaming.md (interaction.created, interaction.status_update, step.start/
+docs/research/build-handoff/reference/google/streaming.md (interaction.created, interaction.status_update, step.start/
 delta/stop with index, step.stop usage, interaction.completed, error) plus the SDK 2.33 models (event_id on every
 event, code_execution_call arguments {code, language}, code_execution_result {result, is_error}).
 """

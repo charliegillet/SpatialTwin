@@ -35,7 +35,7 @@ Google's [release guide](https://ai.google.dev/gemini-api/docs/latest-model) hig
 
 The exact token limits come from the [Argon model catalog](https://ai.google.dev/gemini-api/docs/models/gemini-4-argon). Long decode requires background stored execution and larger output configuration; see [long decode](https://ai.google.dev/gemini-api/docs/long-decode). Agentic video is opt-in and emits processing steps; see [video understanding](https://ai.google.dev/gemini-api/docs/video-understanding).
 
-These expansion features are not prerequisites of the agreed initial build: [BUILD_PLAN:149](/Users/nihalnihalani/Desktop/Github/SpatialTwin/BUILD_PLAN.md:149) deliberately selects one still, and [BUILD_PLAN:168](/Users/nihalnihalani/Desktop/Github/SpatialTwin/BUILD_PLAN.md:168) selects fixed read-only numerical tools. The required completion gaps are the correctness and orchestration controls described below.
+These expansion features are not prerequisites of the agreed initial build: [BUILD_PLAN:149](/Users/nihalnihalani/Desktop/Github/SpatialTwin/docs/research/build-handoff/plans/BUILD_PLAN.md:149) deliberately selects one still, and [BUILD_PLAN:168](/Users/nihalnihalani/Desktop/Github/SpatialTwin/docs/research/build-handoff/plans/BUILD_PLAN.md:168) selects fixed read-only numerical tools. The required completion gaps are the correctness and orchestration controls described below.
 
 ## 2. Direct-model capability matrix
 
@@ -172,7 +172,7 @@ Preserve capture-time identity and image digest/source, bind the proposal to it,
 
 The deterministic managed fallback assigns `1420 + 310 = 1730` tokens and an explanation attributing verification to Antigravity. [Adapter:202](/Users/nihalnihalani/Desktop/Github/SpatialTwin/backend/app/ai/managed/adapter.py:202), [usage:222](/Users/nihalnihalani/Desktop/Github/SpatialTwin/backend/app/ai/managed/adapter.py:222). These are not measured provider usage or proof of managed execution.
 
-[Main:244](/Users/nihalnihalani/Desktop/Github/SpatialTwin/backend/app/main.py:244) exposes configuration, not actual successful execution provenance. [Team status:16](/Users/nihalnihalani/Desktop/Github/SpatialTwin/docs/ai/team-status.md:16) claims live integration was verified; this audit found no tracked run artifact sufficient to establish that claim. A previous unrecorded live test is not disproved, but the checked-in evidence and green suite do not prove it.
+[Main:244](/Users/nihalnihalani/Desktop/Github/SpatialTwin/backend/app/main.py:244) exposes configuration, not actual successful execution provenance. [Team status:16](/Users/nihalnihalani/Desktop/Github/SpatialTwin/docs/research/reports/team-status.md:16) claims live integration was verified; this audit found no tracked run artifact sufficient to establish that claim. A previous unrecorded live test is not disproved, but the checked-in evidence and green suite do not prove it.
 
 [Requirements:6](/Users/nihalnihalani/Desktop/Github/SpatialTwin/requirements.txt:6) permits `google-genai>=2.0.0`; the manifest's stated SDK version is not an enforced installation pin. Pin or lock the verified dependency and retain sanitized request/status/model/usage/latency evidence for real smoke tests.
 
@@ -268,4 +268,4 @@ Google official pages inspected: [model catalog](https://ai.google.dev/gemini-ap
 
 Venue sources, issuer/date/scope limitations and record-release routes are linked in sections 7–9. Firecrawl can return recently indexed content; successful retrieval is not itself a current-condition certificate. Local SDK/runtime observations were captured on the research date.
 
-Related local specification: [Google API guide](/Users/nihalnihalani/Desktop/Github/SpatialTwin/CLAUDE_BUILD_HANDOFF/GOOGLE_API_GUIDE.md). It already calls for several controls absent from the current implementation; it is guidance, not proof they were executed.
+Related local specification: [Google API guide](/Users/nihalnihalani/Desktop/Github/SpatialTwin/docs/research/build-handoff/GOOGLE_API_GUIDE.md). It already calls for several controls absent from the current implementation; it is guidance, not proof they were executed.

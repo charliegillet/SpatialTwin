@@ -1,6 +1,6 @@
 # SpatialTwin Setup & Quickstart Guide
 
-**Current AI operation and release gates:** read [production-readiness.md](production-readiness.md). The legacy demo script below describes intended behavior, not proof of live or physical validation. Missing provider credentials return unavailable; fixture/local modes require an explicit choice. On startup the backend loads the repository `.env` (`backend/app/env_file.py`): only `GEMINI_API_KEY`, `SERIAL_PORT`, `SERIAL_BAUD`, `HOST`, `PORT` and `SPATIALTWIN_*` keys are read, a variable already set in the process environment always wins, and `SPATIALTWIN_ENV_FILE=` (empty) disables it.
+**Current AI operation and release gates:** read [production-readiness.md](../research/reports/production-readiness.md). The legacy demo script below describes intended behavior, not proof of live or physical validation. Missing provider credentials return unavailable; fixture/local modes require an explicit choice. On startup the backend loads the repository `.env` (`backend/app/env_file.py`): only `GEMINI_API_KEY`, `SERIAL_PORT`, `SERIAL_BAUD`, `HOST`, `PORT` and `SPATIALTWIN_*` keys are read, a variable already set in the process environment always wins, and `SPATIALTWIN_ENV_FILE=` (empty) disables it.
 
 ## 1. Prerequisites
 
