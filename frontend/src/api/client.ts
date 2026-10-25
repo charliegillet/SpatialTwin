@@ -41,8 +41,9 @@ export async function interpretGrounding(
     imageBase64?: string;
     forceTarget?: string;
     targetOverride?: string;
+    thinkingLevel?: 'low' | 'medium' | 'high';
   }
-): Promise<{ proposal: GroundingProposalV1; provenance: string; is_live_api: boolean }> {
+): Promise<{ proposal: GroundingProposalV1; provenance: string; is_live_api: boolean; thinking_level: string }> {
   const res = await fetch(`${API_BASE}/api/scenarios/${scenarioId}/grounding`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -50,9 +51,16 @@ export async function interpretGrounding(
       image_base64: options.imageBase64,
       force_target: options.forceTarget,
       target_override: options.targetOverride,
+      thinking_level: options.thinkingLevel || 'low',
     }),
   });
   if (!res.ok) throw new Error('Grounding perception request failed');
+  return res.json();
+}
+
+export async function fetchScenarioMatrix(scenarioId = 'facility-demo'): Promise<any> {
+  const res = await fetch(`${API_BASE}/api/scenarios/${scenarioId}/matrix`);
+  if (!res.ok) throw new Error('Failed to fetch scenario matrix');
   return res.json();
 }
 

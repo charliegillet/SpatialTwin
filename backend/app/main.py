@@ -133,6 +133,7 @@ async def handle_command(scenario_id: str, payload: Dict[str, Any]) -> Dict[str,
 @app.post("/api/scenarios/{scenario_id}/grounding")
 async def interpret_grounding(scenario_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     ctx = state_manager.get_current_context()
+    thinking_level = payload.get("thinking_level", "low")
     capture = Capture(
         capture_id=payload.get("capture_id", f"cap-{os.urandom(4).hex()}"),
         timestamp_iso=state_manager._now_iso(),
@@ -149,12 +150,56 @@ async def interpret_grounding(scenario_id: str, payload: Dict[str, Any]) -> Dict
         capture=capture,
         context=ctx,
         force_target=force_target,
+        thinking_level=thinking_level,
     )
 
     return {
         "proposal": proposal.model_dump(),
         "provenance": provenance,
         "is_live_api": provenance == "live",
+        "thinking_level": thinking_level,
+    }
+
+
+@app.get("/api/scenarios/{scenario_id}/matrix")
+def get_scenario_matrix(scenario_id: str) -> Dict[str, Any]:
+    """
+    Computes all 4 canonical benchmark scenarios side-by-side for judging comparison:
+    1. Baseline (All Open)
+    2. Portal P1 Blocked
+    3. Portal P2 Blocked (Bottleneck rescued by OPEN_P3)
+    4. Boundary B2 Blocked (No-benefit proof: OPEN_P3 +0 gain)
+    """
+    ctx = state_manager.get_current_context()
+    planner = state_manager.planner
+
+    # 1. Baseline
+    base_env = planner.solve(ctx, AlternativeId.KEEP_CURRENT, set(), set())
+    # 2. P1 Blocked
+    p1_env = planner.solve(ctx, AlternativeId.KEEP_CURRENT, {"P1"}, set())
+    # 3. P2 Blocked (Keep vs Open)
+    p2_keep = planner.solve(ctx, AlternativeId.KEEP_CURRENT, {"P2"}, set())
+    p2_open = planner.solve(ctx, AlternativeId.OPEN_P3, {"P2"}, set())
+    # 4. B2 Blocked (Keep vs Open)
+    b2_keep = planner.solve(ctx, AlternativeId.KEEP_CURRENT, set(), {"B2"})
+    b2_open = planner.solve(ctx, AlternativeId.OPEN_P3, set(), {"B2"})
+
+    return {
+        "context": ctx.model_dump(),
+        "scenarios": {
+            "baseline": base_env.model_dump(),
+            "p1_blocked": p1_env.model_dump(),
+            "p2_blocked": {
+                "keep_current": p2_keep.model_dump(),
+                "open_p3": p2_open.model_dump(),
+                "net_gain": p2_open.completed_crossings - p2_keep.completed_crossings,
+            },
+            "b2_blocked": {
+                "keep_current": b2_keep.model_dump(),
+                "open_p3": b2_open.model_dump(),
+                "net_gain": b2_open.completed_crossings - b2_keep.completed_crossings,
+            },
+        },
     }
 
 

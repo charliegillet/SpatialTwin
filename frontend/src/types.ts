@@ -23,6 +23,18 @@ export interface ValidatorReport {
   quota_respected: boolean;
 }
 
+export interface TimelineStep {
+  step: number;
+  time_seconds: number;
+  event_occupancy: number;
+  west_occupancy: number;
+  east_occupancy: number;
+  reserve_occupancy: number;
+  b1_cumulative: number;
+  b2_cumulative: number;
+  total_completed: number;
+}
+
 export interface EvaluationEnvelope {
   run_id: string;
   base_context: RunContext;
@@ -36,6 +48,7 @@ export interface EvaluationEnvelope {
   time_step_seconds: number;
   boundary_breakdown: Record<string, number>;
   zone_occupancy: Record<string, number>;
+  timeline?: TimelineStep[];
   bottlenecks: string[];
   assumptions: string[];
   validator_report: ValidatorReport;

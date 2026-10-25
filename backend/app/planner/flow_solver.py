@@ -164,6 +164,52 @@ class FlowPlanner:
         for z_id in self.venue.zones:
             zone_occupancy[z_id] = flow_dict.get((z_id, T), {}).get(UNASSIGNED_COLLECTOR, 0)
 
+        # Build dynamic time-series schedule (timeline)
+        timeline: List[Dict[str, Any]] = []
+        cum_b1 = 0
+        cum_b2 = 0
+        for t in range(T + 1):
+            time_sec = t * dt
+            step_b1 = 0
+            step_b2 = 0
+            if "B1" in boundary_edges_by_id:
+                for u, mid in boundary_edges_by_id["B1"]:
+                    if u == ("WEST", t):
+                        step_b1 += flow_dict.get(u, {}).get(mid, 0)
+            if "B2" in boundary_edges_by_id:
+                for u, mid in boundary_edges_by_id["B2"]:
+                    if u == ("EAST", t):
+                        step_b2 += flow_dict.get(u, {}).get(mid, 0)
+
+            cum_b1 += step_b1
+            cum_b2 += step_b2
+
+            # Estimate zone occupancies at step t
+            step_occ: Dict[str, int] = {}
+            for z_id in self.venue.zones:
+                if t == T:
+                    step_occ[z_id] = zone_occupancy.get(z_id, 0)
+                else:
+                    # Ingress/Wait into (z_id, t)
+                    wait_flow = flow_dict.get((z_id, t), {}).get((z_id, t + 1), 0)
+                    step_occ[z_id] = wait_flow
+
+            # At t=0, initial population is in EVENT
+            if t == 0:
+                step_occ["EVENT"] = N
+
+            timeline.append({
+                "step": t,
+                "time_seconds": time_sec,
+                "event_occupancy": step_occ.get("EVENT", 0),
+                "west_occupancy": step_occ.get("WEST", 0),
+                "east_occupancy": step_occ.get("EAST", 0),
+                "reserve_occupancy": step_occ.get("RESERVE", 0),
+                "b1_cumulative": cum_b1,
+                "b2_cumulative": cum_b2,
+                "total_completed": cum_b1 + cum_b2,
+            })
+
         # Identify bottlenecks
         bottlenecks = []
         for b_id, b_spec in self.venue.boundaries.items():
@@ -222,6 +268,7 @@ class FlowPlanner:
             time_step_seconds=dt,
             boundary_breakdown=boundary_breakdown,
             zone_occupancy=zone_occupancy,
+            timeline=timeline,
             bottlenecks=bottlenecks,
             assumptions=assumptions,
             validator_report=validator_report,

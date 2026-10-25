@@ -111,6 +111,7 @@ class GroundingProposalV1(BaseModel):
     selected_entity_id: Optional[str] = None
     operation: Literal["SET_UNAVAILABLE"] = "SET_UNAVAILABLE"
     evidence: str
+    thinking_level: Literal["low", "medium", "high"] = "low"
     box_2d: Optional[List[int]] = Field(
         default=None,
         description="Normalized [ymin, xmin, ymax, xmax] coordinates on 0-1000 scale"
@@ -173,6 +174,7 @@ class EvaluationEnvelope(BaseModel):
     time_step_seconds: int
     boundary_breakdown: Dict[str, int] = Field(default_factory=dict)
     zone_occupancy: Dict[str, int] = Field(default_factory=dict)
+    timeline: List[Dict[str, Any]] = Field(default_factory=list, description="Step-by-step occupancy and exit flow schedule")
     bottlenecks: List[str] = Field(default_factory=list)
     assumptions: List[str] = Field(default_factory=list)
     validator_report: ValidatorReport
