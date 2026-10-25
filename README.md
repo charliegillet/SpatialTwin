@@ -25,3 +25,7 @@ WalkTwin shows these as "cannot measure" and turns them into a hand-check to-do 
 ## Where this lives
 
 Branch `charlie` of `charliegillet/SpatialTwin`, a history that starts at the event.
+
+## Measured results
+
+live: pending key. No benchmark has been run yet; numbers will be pasted here only from `runtime/bench/<venue>.json` produced by `python -m walktwin.benchmark run`.
