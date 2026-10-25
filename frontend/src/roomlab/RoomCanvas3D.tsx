@@ -186,6 +186,8 @@ function RoomSceneContent({
 }: RoomCanvas3DProps & { scene: RoomSceneV1; showLabels: boolean }) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const dragOffsetRef = useRef<[number, number]>([0, 0]);
+  // Preserve selection through the trailing click after pressing or dragging an object.
+  const objectPressRef = useRef(false);
   const floorPlane = useMemo(
     () => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0),
     [],
@@ -225,6 +227,8 @@ function RoomSceneContent({
       }
       return;
     }
+    // Ignore the click that ends an object press/drag or a camera orbit; only a plain click on empty floor deselects.
+    if (objectPressRef.current || e.delta > 4) return;
     onSelectTarget(null);
   };
 
@@ -253,6 +257,9 @@ function RoomSceneContent({
       <mesh
         rotation={[-Math.PI / 2, 0, 0]}
         position={[0, -0.002, 0]}
+        onPointerDown={() => {
+          objectPressRef.current = false;
+        }}
         onPointerMove={handleFloorPointerMove}
         onPointerUp={handleFloorPointerUp}
         onClick={handleFloorClick}
@@ -425,6 +432,7 @@ function RoomSceneContent({
               rotation={[0, yawRad, 0]}
               onPointerDown={(e) => {
                 e.stopPropagation();
+                objectPressRef.current = true;
                 onSelectTarget({ kind: "object", id: obj.id });
                 const hit = new THREE.Vector3();
                 if (e.ray.intersectPlane(floorPlane, hit)) {
@@ -435,6 +443,7 @@ function RoomSceneContent({
                   setDraggingId(obj.id);
                 }
               }}
+              onClick={(e) => e.stopPropagation()}
             >
               <boxGeometry args={[obj.width_m, obj.height_m, obj.depth_m]} />
               <meshStandardMaterial
@@ -817,6 +826,7 @@ export const RoomCanvas3D: React.FC<RoomCanvas3DProps> = (props) => {
             dpr={[1, 1.5]}
             gl={{ antialias: true }}
             frameloop="demand"
+            onPointerMissed={() => props.onSelectTarget(null)}
           >
             <RoomSceneContent
               {...props}
