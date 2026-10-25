@@ -92,12 +92,18 @@ class HardwareSimulator:
                 "target": target,
             })
 
+            # Disengage current endpoint switch immediately -> Enter TRANSIT
+            self.gate_state = GateObservedState.TRANSIT
+            self.open_switch = False
+            self.closed_switch = False
+            self._send_observation(cmd_id)
+
             # Start simulated mechanical transit
             if self._moving_task and not self._moving_task.done():
                 self._moving_task.cancel()
 
             self._moving_task = asyncio.create_task(
-                self._simulate_movement(target, cmd_id)
+                self._finish_movement(target, cmd_id)
             )
 
         elif cmd_type == "SET_DISPLAY":
@@ -111,17 +117,11 @@ class HardwareSimulator:
             self.display_pixels = [0] * 24
             self.emit(SerialResponseType.ACK, {"command_id": cmd_id, "status": "STOPPED"})
 
-    async def _simulate_movement(self, target: str, command_id: str) -> None:
-        # Step 1: Disengage current switch -> Enter TRANSIT
-        self.gate_state = GateObservedState.TRANSIT
-        self.open_switch = False
-        self.closed_switch = False
-        self._send_observation(command_id)
-
-        # Step 2: Mechanical transit duration (e.g. 500 ms)
+    async def _finish_movement(self, target: str, command_id: str) -> None:
+        # Mechanical transit duration (e.g. 500 ms)
         await asyncio.sleep(0.5)
 
-        # Step 3: Engage endpoint switch and debounce
+        # Engage endpoint switch and debounce
         if target == "OPEN":
             self.gate_state = GateObservedState.OPEN
             self.open_switch = True

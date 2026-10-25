@@ -1,36 +1,96 @@
-# SpatialTwin
+# SpatialTwin — Gemini 4 Argon Hackathon Demonstrator
 
-A physical and digital scenario workbench: a judge changes a tabletop floor plan, the system interprets and reviews the change, computes a checked routing result, and demonstrates a sensor-confirmed miniature intervention.
+A physical and digital tabletop evacuation twin: a judge places a physical blockage token on a tabletop floor plan, **Gemini 4 Argon** perceives and proposes the blockage, a **Managed Antigravity Agent** autonomously investigates candidate interventions using client-executed local numerical tools, and an operator authorizes a miniature physical servo gate whose independent microswitch confirmation triggers a fresh re-solve and live NeoPixel route illumination.
 
-**Implementation repository:** <https://github.com/charliegillet/SpatialTwin>. The project root is this repository. Prepared 24 October 2026 for **Nihal, Charlie, Codex and Claude**.
+**Repository:** <https://github.com/charliegillet/SpatialTwin>  
+**Project Root:** `/Users/nihalnihalani/Desktop/Github/SpatialTwin`  
+**Contributors:** Nihal, Charlie, Codex, Claude  
 
-## Start here
+---
 
-1. Read the current [detailed build plan](BUILD_PLAN.md).
-2. Read the [physical demo plan and bill of materials](docs/plans/PHYSICAL_DEMO_BUILD_PLAN.md) and [pin-by-pin wiring guide](docs/plans/PHYSICAL_DEMO_WIRING.md).
-3. Start Claude using the [team setup](CLAUDE_BUILD_HANDOFF/START_HERE.md) and [lead prompt](CLAUDE_BUILD_HANDOFF/prompts/00_CLAUDE_TEAM_LEAD.md).
-4. Give the parallel Codex session its [build prompt](CLAUDE_BUILD_HANDOFF/prompts/06_CODEX_PARALLEL.md).
-5. Freeze shared contracts before either team changes shared application files.
+## Architecture Overview
 
-## What is here now
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                      Physical Tabletop & Hardware                        │
+│  Overhead Camera  ──►  Arduino UNO R4 Minima  ──►  Adafruit PCA9685 PWM  │
+│  BLOCKED Tokens   ──►  Dual Microswitches (D2/D3) ──► 24 WS2812B NeoPixels│
+└────────────────────────────────────┬─────────────────────────────────────┘
+                                     │ USB Serial / NDJSON Protocol (v: 1)
+                                     ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                        Local Authoritative Backend                       │
+│  FastAPI + SQLite (WAL Mode) • StateManager • HardwareBridge & Simulator │
+│                                                                          │
+│  ┌───────────────────────┐             ┌──────────────────────────────┐  │
+│  │ Two-Phase Network Flow│             │ Independent Checker          │  │
+│  │ Planner (NetworkX)    │             │ Total Population Conservation│  │
+│  └───────────────────────┘             └──────────────────────────────┘  │
+└───────────────────▲──────────────────────────────────────▲───────────────┘
+                    │                                      │
+     Direct Vision  │                  Client-Executed     │
+     Grounding      │                  Local Tools         │
+                    ▼                                      ▼
+┌───────────────────────────────┐     ┌───────────────────────────────────┐
+│       gemini-4-argon          │     │    antigravity-preview-09-2026    │
+│  Direct Model (Structured)    │     │  Managed Agent (gemini-4-argon)   │
+└───────────────────────────────┘     └───────────────────────────────────┘
+```
 
-The repository contains planning, hardware fabrication assets, a priced shopping list, separate build prompts and a Google documentation pack. **Application code, firmware, complete solver and live API/device verification have not been implemented here.** The repository initially had no commits; create separate worktrees only after an agreed baseline commit exists.
+---
 
-| Material | Location |
-|---|---|
-| Current execution plan and phase checks | [BUILD_PLAN.md](BUILD_PLAN.md) |
-| Shared agent ownership | [AGENTS.md](AGENTS.md) |
-| Claude entry instructions | [CLAUDE.md](CLAUDE.md) |
-| Architecture, venue, UI and physical plans | [docs/plans/](docs/plans/) |
-| Exact shopping list | [PHYSICAL_DEMO_BOM.csv](docs/plans/PHYSICAL_DEMO_BOM.csv) |
-| Printable 24 × 18 inch illustrative board | [SVG template](docs/plans/PHYSICAL_DEMO_BOARD_TEMPLATE.svg) · [preview](docs/plans/PHYSICAL_DEMO_BOARD_PREVIEW.png) |
-| Device-map fixture, requiring calibration/review | [PHYSICAL_DEMO_DEVICE_MAP.json](docs/plans/PHYSICAL_DEMO_DEVICE_MAP.json) |
-| Seven copy-paste prompts | [CLAUDE_BUILD_HANDOFF/prompts/](CLAUDE_BUILD_HANDOFF/prompts/) |
-| Google implementation briefing | [GOOGLE_API_GUIDE.md](CLAUDE_BUILD_HANDOFF/GOOGLE_API_GUIDE.md) |
-| 20 official Google pages + OpenAPI | [Source manifest](CLAUDE_BUILD_HANDOFF/reference/GOOGLE_SOURCES.json) · [snapshots](CLAUDE_BUILD_HANDOFF/reference/google/) |
-| Portable prompt/documentation package | [CLAUDE_BUILD_HANDOFF.zip](CLAUDE_BUILD_HANDOFF.zip) |
-| Imported-file provenance | [IMPORTED_FILES.json](docs/IMPORTED_FILES.json) |
+## Key Invariants & Features
 
-Earlier plans cite `nihalnihalani/winners/spatialtwin_argon_winner` as the original concept source. That is historical reference, not this project's build directory. Root `BUILD_PLAN.md` takes precedence for repository paths and current phase order. Vendor documentation retains its original verification date; compatibility and account access must be tested before implementation claims.
+1. **Direct Gemini 4 Argon Grounding**: Uses `google-genai` SDK (`from google import genai`) with `client.interactions.create(model="gemini-4-argon", ...)` to identify tokens on allowlisted pads (`portal:P1`, `portal:P2`, `boundary:B2`). A strict local validator prevents hallucinations.
+2. **Managed Antigravity Agent Investigation**: Uses `client.interactions.create(agent="antigravity-preview-09-2026", agent_config={"type":"antigravity","model":"gemini-4-argon"}, ...)` to run multi-turn autonomous investigations comparing `KEEP_CURRENT` vs `OPEN_P3` using client-executed local tools (`get_reviewed_scenario`, `evaluate_allowed_alternative`, `get_checked_comparison`).
+3. **Rigorous Population Conservation**: An all-population two-phase min-cost network flow solver tracks every single synthetic occupant ($N_{initial} = 120 = N_{completed} + N_{remaining}$) across a finite 40s horizon. If an egress is blocked, occupants remain accounted for in physical holding states.
+4. **Honest No-Improvement Handling**: When downstream boundary `B2` is blocked, opening internal gate `P3` yields exactly +0 net gain. Both the solver and managed agent truthfully report zero benefit rather than manufacturing exit capacity.
+5. **Physical Position Confirmation**: Microcontroller `ACK` only acknowledges command receipt. Route lights and digital state are updated only after debounced microswitches (D2 LOW, D3 HIGH) independently confirm the gate has arrived at the open endpoint.
 
-The provided board is explicitly illustrative, not a surveyed SHACK15 blueprint. Synthetic occupants and scenario capacities are separate from venue observations. Results end at finite-rate modeled floor-transfer boundaries; they do not claim full-building evacuation or survival prediction.
+---
+
+## Quickstart
+
+### 1. Backend Setup
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 2. Frontend Setup
+```bash
+cd frontend
+npm install
+npm run build
+cd ..
+```
+
+### 3. Run Application
+```bash
+source .venv/bin/activate
+uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+```
+Open **`http://localhost:8000`** in your browser.
+
+---
+
+## Running the Automated Test Suite
+
+Run all unit, integration, and devil's advocate adversarial tests:
+```bash
+source .venv/bin/activate
+pytest tests/ -v
+```
+*(17 tests covering network flow conservation, checker constraints, protocol envelopes, hardware simulator, and adversarial attacks).*
+
+---
+
+## Detailed Documentation Links
+
+- [Managed Agent Guide](docs/ai/managed.md) — Multi-turn Antigravity agent integration, tool interfaces, and token budgeting.
+- [Vision Grounding Guide](docs/ai/grounding.md) — Direct Gemini 4 Argon structured vision, coordinate conventions, and semantic validation.
+- [Setup & Stage Playbook](docs/ai/setup.md) — Hardware wiring, simulator options, and two-minute judge trial script.
+- [Adversarial Review Report](docs/ai/devils-advocate.md) — Devil's Advocate boundary tests and falsification results.
+- [Team Status & Milestones](docs/ai/team-status.md) — Project milestones, SDK versions, and deliverables.
+- [Firmware Arduino Sketch](firmware/spatialtwin_board/README.md) — Pin map, Adafruit PCA9685 configuration, and upload instructions.
