@@ -129,3 +129,31 @@ def test_geometry_object_obb_uses_same_measured_floor_frame():
     assert item.width_m==pytest.approx(1) and item.depth_m==pytest.approx(1)
     assert item.height_m==pytest.approx(1.2) and item.provenance.source=='geometry_fit'
     with pytest.raises(ValueError,match='Confirm'):fit_object(r,floor_request,scene,request.model_copy(update={'floor_supported_confirmed':False}))
+
+
+def test_roomplan_spanning_partition_preserves_outer_shell_and_opening_parent():
+    raw=room()
+    partition=surface(3,2,1.5,-np.pi/2);partition['identifier']='partition-original'
+    raw['walls'].append(partition)
+    door=surface(.8,2,1.5,-np.pi/2,height=2.1)
+    door['parentIdentifier']='partition-original';raw['doors']=[door]
+    draft=import_roomplan(raw)
+    from backend.app.roomlab.contracts import RoomSceneV1
+    from backend.app.roomlab.validation import validate_scene
+    partitions=[w for w in draft.walls if w.role=='partition']
+    assert len(draft.floor)==4 and len(partitions)==1 and len(draft.walls)==5
+    assert draft.openings[0].wall_id==partitions[0].id
+    assert [i.code for i in validate_scene(RoomSceneV1(scene_id='offline',**draft.model_dump())).issues if i.severity=='error']==['topology_review_required']
+
+
+def test_roomplan_rejects_outside_objects_and_overlapping_openings_before_saving(tmp_path):
+    outside=room();box=surface(1,20,20,height=1);box['dimensions'][2]=1;box['category']={'table':{}}
+    outside['objects']=[box]
+    with pytest.raises(ValueError,match='object_outside'):import_roomplan(outside)
+    overlapping=room();door=surface(1,2,0,height=2.1);overlapping['doors']=[door,copy.deepcopy(door)]
+    with pytest.raises(ValueError,match='overlapping_openings'):import_roomplan(overlapping)
+    app=create_app(tmp_path/'runtime')
+    with TestClient(app) as client:
+        assert client.post('/api/roomlab/imports/roomplan',json=outside).status_code==422
+        assert client.post('/api/roomlab/imports/roomplan',json=overlapping).status_code==422
+    assert not list((tmp_path/'runtime/scenes').glob('scene-*.json'))

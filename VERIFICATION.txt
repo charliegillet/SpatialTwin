@@ -431,3 +431,13 @@ Adaptive extraction verification (2026-10-25, side conversation):
 - Final browser screenshot: runtime/roomlab/fidelity-final.png. Source views and
   baseline scenes remain intact. Unrelated concurrent SpatialTwin branding edits
   were preserved in the working tree and excluded from these fidelity commits.
+
+2026-10-25 ROOMPLAN REVIEW FOLLOW-UP
+- Contiguous polygonized zones separated by a spanning interior wall now merge to
+  one outer shell; the interior wall and its parent-attached opening are preserved.
+  Nested holes and disconnected regions remain rejected for explicit conversion.
+- Canonical validation now runs before an imported scene is saved, excluding only
+  the deliberately retained topology-review flag. Outside furniture and overlapping
+  openings return422 and create no scene. Eight importer/geometry tests passed.
+- Refinement architecture preservation, wide source anchors, canonical shell ordering
+  and preservation of existing review flags were already in the earlier commits.

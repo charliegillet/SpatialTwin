@@ -3,7 +3,7 @@ import math
 import numpy as np
 from shapely.geometry import LineString, Polygon, Point
 from shapely.ops import polygonize, unary_union
-from .contracts import RoomDraft, Wall, Opening, RoomObject, Provenance
+from .contracts import RoomDraft, RoomSceneV1, Wall, Opening, RoomObject, Provenance
 
 
 def _pose(item):
@@ -46,8 +46,11 @@ def import_roomplan(payload: dict) -> RoomDraft:
         mean=np.mean(group,axis=0).tolist()
         for p in group:p[:]=mean
     polys=list(polygonize(unary_union([LineString([w.start,w.end]) for w in walls])))
-    if len(polys)!=1 or polys[0].interiors:raise ValueError('Walls do not form one closed, hole-free room. Import one room or correct wall joins first.')
-    poly=polys[0];floor=[[float(x),float(z)] for x,z in list(poly.exterior.coords)[:-1]]
+    if not polys or any(p.interiors for p in polys):raise ValueError('Walls do not form one closed, hole-free room. Import one room or correct wall joins first.')
+    poly=unary_union(polys)
+    if poly.geom_type!='Polygon' or poly.interiors:raise ValueError('Walls do not form one closed, hole-free room. Import one room or correct wall joins first.')
+    poly=poly.simplify(1e-6,preserve_topology=True)
+    floor=[[float(x),float(z)] for x,z in list(poly.exterior.coords)[:-1]]
     for floor_surface in payload.get('floors',[]):
         corners=floor_surface.get('polygonCorners',[])
         if corners:
@@ -92,7 +95,13 @@ def import_roomplan(payload: dict) -> RoomDraft:
             center=[float(m[0,3]),float(m[2,3])],width_m=float(d[0]),height_m=float(d[1]),depth_m=float(d[2]),
             yaw_deg=math.degrees(math.atan2(float(-m[2,0]),float(m[0,0]))),
             movable=category not in ('storage','refrigerator','oven','sink','stove','stairs'),provenance=prov))
-    return RoomDraft(name=str(payload.get('name','Imported RoomPlan room'))[:160],floor=floor,walls=walls,openings=openings,objects=objects,
+    draft=RoomDraft(name=str(payload.get('name','Imported RoomPlan room'))[:160],floor=floor,walls=walls,openings=openings,objects=objects,
         topology_review_required=True,notes=['RoomPlan JSON sensor estimates in meters. Wall endpoints within 12 cm were snapped to close the perimeter.',
         'Review topology, glass, stairs and furniture. Native curves, multiple levels and disconnected rooms are rejected.',
         'No video evidence or articulated door poses were imported. Verify a measured anchor and an independent held-out dimension.'])
+
+    from .validation import validate_scene
+    issues=validate_scene(RoomSceneV1(**draft.model_dump(),scene_id='roomplan-import-check',geometry_source='geometry_fit')).issues
+    errors=[i for i in issues if i.severity=='error' and i.code!='topology_review_required']
+    if errors:raise ValueError('RoomPlan geometry needs correction before import: '+', '.join(sorted({i.code for i in errors})))
+    return draft
