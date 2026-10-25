@@ -33,3 +33,7 @@ Branch `charlie` of `charliegillet/SpatialTwin`, a history that starts at the ev
 Headless WebGL works on macOS with `--use-angle=swiftshader --enable-unsafe-swiftshader`. Run it with
 `pytest -m browser`.
 Note: a plain `pytest` run includes the browser tests (use `-m 'not browser'` to skip them); they need Chromium (`playwright install chromium`) and build `frontend/dist` if missing.
+
+## Measured results
+
+live: pending key. No benchmark has been run yet; numbers will be pasted here only from `runtime/bench/<venue>.json` produced by `python -m walktwin.benchmark run`.

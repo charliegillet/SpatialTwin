@@ -1,0 +1,10 @@
+{
+  "venue": "example",
+  "video_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "source": "tape",
+  "doors": [
+    {"t_s": 12.4, "kind": "door", "measured_width_m": 0.91},
+    {"t_s": 31.0, "kind": "opening", "measured_width_m": null},
+    {"t_s": 58.7, "kind": "exit", "measured_width_m": 1.83}
+  ]
+}
