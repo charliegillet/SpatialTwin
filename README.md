@@ -172,8 +172,8 @@ refined drafts and diagnostics are saved under the ignored media runtime folder.
 **Check footage** reports image-quality heuristics; a temporal coverage ratio is
 not the percentage of room surfaces observed. **Reconstruct cameras** runs an
 isolated, cancellable COLMAP CPU process. **Inspect 3D evidence** shows its largest
-connected sparse component and camera positions. Geometry jobs/results survive
-reloads; interrupted jobs become retryable. Reprojection error is in image pixels,
+connected sparse component and camera positions. Automatically recovered sparse geometry is also available in the same inspector.
+Geometry jobs/results survive reloads; interrupted jobs become retryable. Reprojection error is in image pixels,
 not a dimensional error in meters. More frames can help matching but cannot resolve
 invisible, reflective or textureless surfaces reliably.
 

@@ -10,7 +10,7 @@ export function GeometryCapturePanel({media,scene,dirty,selected,preview,onPrevi
  useEffect(()=>{const token=++epoch.current;setJob(null);setQuality(null);setError('');setBusy(false);onPreview(null);
   if(media)void Promise.all([getSavedCapture(media.media_id).catch(()=>null),getLatestGeometry(media.media_id).catch(()=>null)]).then(([q,j])=>{if(token===epoch.current){setQuality(q);setJob(j)}});
   return()=>{epoch.current++};
- },[media?.media_id]);
+ },[media?.media_id,scene?.scene_id]);
  useEffect(()=>{setConfirmed(false);setTopology(false);setObjectConfirmed(false)},[selected.join(','),measurement]);
  useEffect(()=>{if(!job||!['running','queued'].includes(job.status))return;let stopped=false;let timer:ReturnType<typeof setTimeout>;
   const poll=async()=>{try{const result=await getGeometry(job.job_id);if(!stopped){setJob(result);if(['running','queued'].includes(result.status))timer=setTimeout(()=>void poll(),1800);}}catch(e){if(!stopped){setError(e instanceof Error?e.message:'Status unavailable.');timer=setTimeout(()=>void poll(),4000);}}};

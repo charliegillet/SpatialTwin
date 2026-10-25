@@ -85,7 +85,23 @@ def fidelity_router(runtime: Path, store):
         directory(job.job_id).mkdir();save(job);tasks[job.job_id]=asyncio.create_task(run(job));return job
     @router.get('/media/{id}/geometry',response_model=GeometryJob)
     def latest_geometry(id:str):
-        media(id)
+        original=media(id)
+        # Surface real automatic SfM outputs through the same inspector/fitting workflow.
+        for candidate_path in sorted((root/id).glob('fidelity-*/result.json'),key=lambda p:p.stat().st_mtime,reverse=True):
+            try:
+                suffix=candidate_path.parent.name.removeprefix('fidelity-')
+                if not re.fullmatch(r'[a-f0-9]{32}',suffix):continue
+                indexed='geometry-'+suffix
+                if (directory(indexed)/'job.json').exists():continue
+                report=GeometryReport.model_validate_json(candidate_path.read_text())
+                if report.media_id!=id or report.source_sha256!=source_digest(original,root):continue
+                input_data=json.loads((candidate_path.parent/'input.json').read_text())
+                observed=MediaRecord.model_validate(input_data['media'])
+                if observed.media_id!=id or not {c.frame_id for c in report.cameras}<={f.frame_id for f in observed.frames}:continue
+                directory(indexed).mkdir(exist_ok=True)
+                (directory(indexed)/'input.json').write_text(json.dumps(input_data))
+                save(GeometryJob(job_id=indexed,media_id=id,status='completed',report=report))
+            except (ValueError,KeyError,OSError):continue
         paths=sorted(jobs_root.glob('geometry-*/job.json'),key=lambda p:p.stat().st_mtime,reverse=True)
         for path in paths:
             try:
