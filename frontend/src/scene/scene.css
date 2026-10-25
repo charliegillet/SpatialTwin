@@ -2,6 +2,7 @@
 .twin-scene canvas { display: block; }
 .twin-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .twin-label { font: 600 10px/1 'IBM Plex Mono', ui-monospace, monospace; letter-spacing: 0.04em; color: #a3b1a9; white-space: nowrap; pointer-events: none; user-select: none;  text-shadow: 0 0 4px #070908, 0 0 2px #070908; }
+.twin-labels--off .twin-label { display: none; }
 .twin-label--zone { text-transform: uppercase; opacity: 0.7; }
 .twin-label--door { color: #f2f5f1; }
 .twin-label--exit { color: #f2f5f1; }
@@ -9,6 +10,7 @@
 .twin-presets { position: absolute; right: 12px; bottom: 12px; display: flex; gap: 6px; z-index: 2; }
 .twin-presets button { font: 600 11px/1 'IBM Plex Sans', system-ui, sans-serif; color: #f2f5f1; background: rgba(15, 19, 18, 0.85); border: 1px solid #26312c; border-radius: 6px; padding: 7px 10px; min-height: 32px; cursor: pointer; }
 .twin-presets button:hover, .twin-presets button:focus-visible { border-color: #5cf28a; outline: none; }
+.twin-presets button[aria-pressed='true'] { color: #5cf28a; }
 @container (max-width: 520px) { .twin-label--zone:not(.twin-label--count) { display: none; } .twin-label { font-size: 9px; } }
 .twin-playback { position: absolute; left: 12px; bottom: 12px; z-index: 2; display: grid; gap: 4px; max-width: calc(100% - 200px); padding: 6px 8px; background: rgba(15, 19, 18, 0.85); border: 1px solid #26312c; border-radius: 8px; color: #f2f5f1; font: 500 11px/1.2 'IBM Plex Sans', system-ui, sans-serif; }
 .twin-playback__row { display: flex; align-items: center; gap: 8px; }

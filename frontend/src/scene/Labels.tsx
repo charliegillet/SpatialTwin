@@ -49,9 +49,10 @@ export function buildLabels(
   return out;
 }
 
-export function LabelLayer({ labels, refs }: { labels: LabelSpec[]; refs: MutableRefObject<Map<string, HTMLElement>> }) {
+/** `hidden` hides the text labels only; hazard badges stay. Elements stay mounted so they keep their projected positions. */
+export function LabelLayer({ labels, refs, hidden = false }: { labels: LabelSpec[]; refs: MutableRefObject<Map<string, HTMLElement>>; hidden?: boolean }) {
   return (
-    <div className="twin-labels" aria-hidden="true">
+    <div className={hidden ? 'twin-labels twin-labels--off' : 'twin-labels'} aria-hidden="true">
       {labels.map((l) => (
         <div
           key={l.key}

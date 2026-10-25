@@ -38,6 +38,7 @@ export default function TwinScene3D(props: TwinScene3DProps) {
   const pickRef = useRef<Picker | null>(null);
   const [preset, setPreset] = useState<CameraPreset>('overview');
   const [nonce, setNonce] = useState(0);
+  const [showLabels, setShowLabels] = useState(true);
   const summary = useMemo(() => ariaSummary(venue, plan, hazards), [venue, plan, hazards]);
   const playback = usePlayback(plan, reducedMotion);
   const view = useMemo(() => playbackView(venue, plan, playback.index), [venue, plan, playback.index]);
@@ -98,9 +99,10 @@ export default function TwinScene3D(props: TwinScene3DProps) {
         />
         <DropPlane venue={venue} armedType={armedType} onPlace={onPlace} onEmptyClick={() => onSelectHazard(null)} />
       </Canvas>
-      <LabelLayer labels={labels} refs={labelRefs} />
+      <LabelLayer labels={labels} refs={labelRefs} hidden={!showLabels} />
       {view && <PlaybackBar view={view} playback={playback} />}
       <div className="twin-presets">
+        <button type="button" onClick={() => setShowLabels((on) => !on)} aria-pressed={showLabels}>Labels</button>
         <button type="button" onClick={() => choose('overview')} aria-pressed={preset === 'overview'}>Overview</button>
         <button type="button" onClick={() => choose('top')} aria-pressed={preset === 'top'}>Top</button>
       </div>
