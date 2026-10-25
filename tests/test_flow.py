@@ -201,6 +201,35 @@ def test_reached_by_step_is_earliest_arrival(office_graph):
     _check_invariants(run, office_graph, s)
 
 
+def _interior_doors(graph):
+    return [d for d in graph.doors if "OUTSIDE" not in (d.a, d.b)]
+
+
+def _assert_no_door_reversal(run, graph):
+    # Through any interior door, flow runs one way only over the whole run:
+    # nobody walks into a zone and back out through the same door.
+    for d in _interior_doors(graph):
+        flows = run.door_flows[d.id]
+        assert not (any(f > 0 for f in flows) and any(f < 0 for f in flows)), (d.id, flows)
+
+
+def test_no_dead_end_detours(office_graph):
+    s = Scenario(hazards=[Hazard(door_id="D2", kind="fire", from_s=0)],
+                 interventions=["OPEN:D5"])
+    run = solve(office_graph, s, FlowParams(horizon_s=120))
+    assert all(f == 0 for f in run.door_flows["D1"])  # Z2's only exit is on fire
+    assert all(f >= 0 for f in run.door_flows["D6"])  # Z4 only empties
+    assert sum(run.door_flows["D6"]) == 10
+    _assert_no_door_reversal(run, office_graph)
+    _check_invariants(run, office_graph, s)
+    for s2 in [Scenario(), Scenario(interventions=["OPEN:D5"]),
+               Scenario(hazards=[Hazard(door_id="D4", kind="fire", from_s=30)])]:
+        for horizon in (20, 60, 120):
+            r = solve(office_graph, s2, FlowParams(horizon_s=horizon))
+            _assert_no_door_reversal(r, office_graph)
+            assert all(f >= 0 for f in r.door_flows["D6"])
+
+
 def test_exit_written_outside_first():
     # Exit stored as a=OUTSIDE, b=Z1: outward flow is b->a, so negative.
     g = _graph(

@@ -8,9 +8,14 @@ shared by both directions of an interior door, so capacity is per door, not per
 direction. Exits carry flow outward only. People departing at step k arrive at
 step k + travel_steps, and a gate exists only when that arrival is <= K.
 
-The solver is ``nx.max_flow_min_cost``. Every exit gate->sink edge costs its
-arrival step (k + travel) and every other edge costs 0, so among all maximum
-flows it picks the one with the least total arrival time. In a time-expanded
+The solver is ``nx.max_flow_min_cost`` with a lexicographic integer cost.
+Each exit gate->sink edge costs (k + travel) * M, each interior door gate costs
+1 per person per traversal, and holdovers cost 0. Every gate advances time by at
+least one step, so one person makes at most K traversals, and the total
+traversal cost is at most total * K < M. The arrival objective therefore
+dominates, and door traversals only break ties. That removes zero-cost detours
+into dead ends and back. Among all maximum flows the solver picks the one with
+the least total arrival time and, within those, the fewest door traversals. In a time-expanded
 network with a single sink an earliest-arrival flow exists, so this optimum
 maximises the number reached at every step k at once: ``reached_by_step[k]``
 equals the max-flow value at horizon k * dt_s.
@@ -29,6 +34,7 @@ import json
 import math
 
 import networkx as nx
+from networkx.algorithms.flow import edmonds_karp
 from pydantic import BaseModel, ConfigDict
 
 from .contracts import Door, FlowParams, Scenario, VenueGraph, Zone
@@ -173,6 +179,9 @@ def solve(graph: VenueGraph, scenario: Scenario, params: FlowParams) -> FlowRun:
         for k in range(K):
             G.add_edge(_zn(z.id, k), _zn(z.id, k + 1))  # holdover, unbounded
 
+    total = sum(z.occupants for z in zones)
+    M = total * K + 1  # > max total interior traversal cost (each person <= K)
+
     # Per door: (kind, inner zones, travel steps, list of gate steps).
     plan: dict[str, tuple[str, tuple[str, ...], int, list[int]]] = {}
     for d in doors:
@@ -197,18 +206,24 @@ def solve(graph: VenueGraph, scenario: Scenario, params: FlowParams) -> FlowRun:
             gin, gout = ("gate_in", d.id, k), ("gate_out", d.id, k)
             for zid in ends:
                 G.add_edge(_zn(zid, k), gin)
-            G.add_edge(gin, gout, capacity=cap)
+            G.add_edge(gin, gout, capacity=cap, weight=0 if kind == "exit" else 1)
             if kind == "exit":
-                G.add_edge(gout, _SINK, weight=k + t)  # cost = arrival step
+                G.add_edge(gout, _SINK, weight=(k + t) * M)  # arrival step dominates
             else:
                 for zid in ends:
                     G.add_edge(gout, _zn(zid, k + t))
             steps.append(k)
         plan[d.id] = (kind, ends, t, steps)
 
-    flow = nx.max_flow_min_cost(G, _SOURCE, _SINK)
+    try:
+        flow = nx.max_flow_min_cost(G, _SOURCE, _SINK)
+    except (nx.NetworkXUnfeasible, nx.NetworkXUnbounded) as exc:
+        raise RuntimeError(f"min-cost flow failed: {exc}") from exc
     _validate_flow(G, flow)
     value = sum(flow[u][_SINK] for u in G.predecessors(_SINK))
+    check = nx.maximum_flow_value(G, _SOURCE, _SINK, flow_func=edmonds_karp)
+    if value != check:
+        raise RuntimeError(f"min-cost flow value {value} != edmonds_karp value {check}")
 
     # Readback from gate edge flows.
     departures = {zid: [0] * (K + 1) for zid in zone_ids}
@@ -264,7 +279,6 @@ def solve(graph: VenueGraph, scenario: Scenario, params: FlowParams) -> FlowRun:
         transit_by_step.append(transit)
         reached_by_step.append(reached)
 
-    total = sum(z.occupants for z in zones)
     if reached_by_step[K] != value:
         raise RuntimeError("readback disagrees with max-flow value")
 
