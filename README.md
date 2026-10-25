@@ -10,17 +10,30 @@ Everything in this repo.
 
 Before the event the team built a hardware tabletop prototype (SpatialTwin). No code, data or assets from it are in this repo.
 
+## Demo
+
+Full runbook, script, checklists and fallbacks: [docs/DEMO.md](docs/DEMO.md).
+
+To run: set `GEMINI_API_KEY` in `.env` (see `.env.example`), build the frontend with `cd frontend && npm ci && npm run build`, then from the repo root:
+
+```
+PYTHONPATH=backend .venv/bin/uvicorn walktwin.api:app --host 0.0.0.0 --port 8000
+```
+
+Open `http://<laptop-ip>:8000` on the laptop or the phone. Live probes: `python tools/probe.py all` (live: pending key).
+
 ## Limits
 
 WalkTwin shows these as "cannot measure" and turns them into a hand-check to-do list:
 
-- survival, and approved or code-official egress capacity
+- survival, and approved or code-official egress capacity (a run reports whether simulated people reach a modeled exit, not a code verdict)
 - IBC/NFPA occupant load
 - doorway depth, which decides whether a door needs 32 in or 36 in
 - turning space reduced by furniture
 - door hardware and opening force, thresholds, ramp slopes, signage, fire separation
 - crowd density effects, and people moving during the event
 - any area not filmed
+- widths from monocular scale are ranges; when a range straddles a threshold the result is "cannot measure"
 
 ## Where this lives
 
