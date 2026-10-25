@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, videoUrl } from '../api'
 import { Capture } from './Capture'
-import { fmtT, type Act } from './common'
+import { type Act } from './common'
+import { fmtT } from './format'
 import { Investigate } from './Investigate'
 import { Loop } from './Loop'
 import { ReportDrawer } from './ReportDrawer'
@@ -27,11 +28,12 @@ export default function App() {
     window.addEventListener('hashchange', on)
     return () => window.removeEventListener('hashchange', on)
   }, [])
-  const { snap, error, refresh } = useSession(id)
+  const { snap, error, refresh, markMutated, stale } = useSession(id)
   const [chosen, setChosen] = useState<StepId | null>(null)
   const [pending, setPending] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [drawer, setDrawer] = useState(false)
+  const closeDrawer = useCallback(() => setDrawer(false), [])
   const videoRef = useRef<HTMLVideoElement>(null)
   const [videoTime, setVideoTime] = useState(0)
 
@@ -47,16 +49,18 @@ export default function App() {
     setNotice(null)
     try {
       await fn()
+      markMutated()
       await refresh()
       return true
     } catch (e) {
-      setNotice(e instanceof ApiError && e.status === 422 ? 'Rejected: the draft still has error findings.' : errText(e))
+      setNotice(e instanceof ApiError && e.status === 422 && e.findings.length ? 'Rejected: the draft still has error findings.' : errText(e))
+      markMutated()
       await refresh()
       return false
     } finally {
       setPending(null)
     }
-  }, [refresh])
+  }, [refresh, markMutated])
 
   const seek = useCallback((t: number) => {
     const v = videoRef.current
@@ -69,7 +73,6 @@ export default function App() {
     location.hash = `#/s/${newId}`
     setChosen('capture')
   }
-  const props = snap ? { snap, act, pending, seek } : null
 
   return (
     <div className="app">
@@ -88,24 +91,32 @@ export default function App() {
       {pending && <div className="status" role="status">{pending}…</div>}
       {notice && <div className="notice" role="alert">{notice} <button className="link" onClick={() => setNotice(null)}>dismiss</button></div>}
       {error && <div className="notice" role="alert">Could not load the session: {error}</div>}
+      {stale && snap && (
+        <div className="notice" role="alert">
+          Showing an older copy of this session: Accept, Approve and the checked badge are paused until a reload succeeds.{' '}
+          <button className="link" onClick={() => void refresh()}>Reload now</button>
+        </div>
+      )}
 
       <main className={`stage step-${step}${id ? ' with-video' : ''}`}>
         <div className="content">
           {step === 'capture' && <Capture snap={snap} act={act} pending={pending} onCreated={created} />}
-          {props && step === 'review' && <Review {...props} videoTime={videoTime} onAccepted={() => setChosen('twin')} />}
-          {props && step === 'loop' && <Loop {...props} />}
-          {props && step === 'twin' && <Twin {...props} videoRef={videoRef} />}
-          {props && step === 'investigate' && <Investigate {...props} />}
+          {snap && step === 'review' && (
+            <Review snap={snap} act={act} pending={pending} seek={seek} stale={stale} videoTime={videoTime} onAccepted={() => setChosen('twin')} />
+          )}
+          {snap && step === 'loop' && <Loop snap={snap} act={act} pending={pending} seek={seek} stale={stale} />}
+          {snap && step === 'twin' && <Twin snap={snap} act={act} pending={pending} seek={seek} stale={stale} videoRef={videoRef} />}
+          {snap && step === 'investigate' && <Investigate snap={snap} act={act} pending={pending} seek={seek} stale={stale} />}
         </div>
         {id && (
           <aside className="video-pane">
-            <video ref={videoRef} src={videoUrl(id)} controls playsInline muted preload="metadata"
+            <video ref={videoRef} src={snap?.video.url ?? videoUrl(id)} controls playsInline muted preload="metadata"
               onTimeUpdate={(e) => setVideoTime(e.currentTarget.currentTime)} onSeeked={(e) => setVideoTime(e.currentTarget.currentTime)} />
             <p className="muted small">Walk-through video · t = {fmtT(videoTime)}</p>
           </aside>
         )}
       </main>
-      {snap && <ReportDrawer snap={snap} open={drawer} onClose={() => setDrawer(false)} />}
+      {snap && <ReportDrawer snap={snap} open={drawer} onClose={closeDrawer} />}
     </div>
   )
 }

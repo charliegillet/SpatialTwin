@@ -2,18 +2,27 @@
 import type { Anchor, Measure, VenueGraph } from './types'
 
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed'
-export interface JobState { kind: string; status: JobStatus; error: string | null }
-
-export interface PreparedVideo { path: string; sha256: string; duration_s: number; width: number; height: number }
-
-export interface SfmFrame { t_s: number; center: [number, number, number]; R: number[][]; K: number[][] }
-export interface SfmResult {
-  status: 'completed' | 'failed'
-  frames: SfmFrame[]
-  points: [number, number, number][]
-  registered_fraction: number
-  elapsed_ms: number
+export interface JobState {
+  kind: string
+  status: JobStatus
   error: string | null
+  started_at: string | null
+  finished_at: string | null
+  /** investigate jobs carry {graph_revision, scenario_hash, precomputed_for?} */
+  meta: Record<string, unknown>
+}
+
+/** api.py VideoInfo: the snapshot never exposes server paths. */
+export interface VideoInfo { sha256: string; duration_s: number; width: number; height: number; url: string }
+
+/** api.py _sfm_summary: frames and points stay on the server. */
+export interface SfmSummary {
+  status: 'completed' | 'failed' | string
+  registered_fraction: number | null
+  elapsed_ms: number | null
+  error: string | null
+  frame_count: number
+  point_count: number
 }
 
 export interface Alignment {
@@ -64,6 +73,7 @@ export interface GeometryScore {
   heldout_t_s: number[]
 }
 
+/** `url` is added by api.py (`/api/sessions/{id}/renders/{iteration}/{index}.png`). */
 export interface RenderedView { t_s: number | null; path: string; kind: 'perspective' | 'top'; url?: string }
 
 export interface Iteration {
@@ -77,6 +87,7 @@ export interface Iteration {
   renders: RenderedView[]
   receipt: Receipt | null
   stop_reason: string | null
+  rejected_geometry?: GeometryScore | null
 }
 
 export type VideoMode = 'static' | 'static_hifps' | 'agentic'
@@ -89,6 +100,7 @@ export interface ExtractionResult {
   agentic_observed: boolean | null
   video_uri: string | null
   error: string | null
+  interaction_id?: string | null
 }
 
 export interface InterventionResult {
@@ -117,6 +129,7 @@ export interface Investigation {
   disagreement: string | null
   hook_denials: number
   receipt: Receipt | null
+  error?: string | null
 }
 
 export interface Approval {
@@ -126,30 +139,39 @@ export interface Approval {
 
 export interface GhostPoint { t_s: number; x: number; y: number }
 
+/** api.py SessionSnapshot, field for field. */
 export interface Snapshot {
   id: string
-  video: PreparedVideo
+  created_at: string
+  video: VideoInfo
   anchor: Anchor | null
-  sfm: SfmResult | null
+  anchor_hint: string | null
+  anchor_width_m: number | null
+  jobs: Record<string, JobState>
+  sfm: SfmSummary | null
   alignment: Alignment | null
+  alignment_error: string | null
+  ghost_path: GhostPoint[]
+  extraction: ExtractionResult | null
   draft_graph: VenueGraph | null
+  // Revision fields are validated as optional so that a snapshot without them
+  // fails closed (nothing counts as current) instead of being guessed.
+  draft_revision?: string | null
+  /** check_graph on the draft */
+  findings: Finding[]
   accepted_graph: VenueGraph | null
+  accepted_revision?: string | null
+  /** accepted graph revision (same as accepted_revision) */
+  graph_revision?: string | null
   scenario: Scenario
+  scenario_hash?: string | null
   current_run: FlowRun | null
   current_check: CheckResult | null
   iterations: Iteration[]
-  extraction: ExtractionResult | null
   investigations: Investigation[]
+  ready_investigation_id: string | null
+  allowed_interventions: string[]
   approvals: Approval[]
-  jobs: Record<string, JobState>
-  ghost_path: GhostPoint[]
-  // Derived fields the backend may add (Python `revision`/`hash` are properties,
-  // not dumped). When absent, api.ts falls back to the run and the iterations.
-  graph_revision?: string | null
-  draft_revision?: string | null
-  scenario_hash?: string | null
-  findings?: Finding[]
-  allowed_interventions?: string[]
 }
 
 export interface RuleResult {
@@ -167,6 +189,6 @@ export interface Report {
   verdict: 'verified_within_model' | 'failed' | 'incomplete'
   requirements: Requirement[]; rules: RuleResult[]; hand_checks: string[]
   declared_parameters: Record<string, unknown>; provenance: string[]
-  /** Optional: the drafted note to security, if the backend includes it. */
+  /** api.py adds the latest approval's note text ("" when none); the drawer reads the note endpoint instead. */
   security_note?: string | null
 }

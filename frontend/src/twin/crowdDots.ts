@@ -44,3 +44,22 @@ export function dotLayout(rect: [number, number, number, number], count: number)
   }
   return out
 }
+
+/** Zones with people at step k that the twin has no rect for (their dots can't be drawn). */
+export function droppedZones(zoneIds: Iterable<string>, run: FlowRun, k: number): string[] {
+  const known = new Set(zoneIds)
+  return dotsForStep(run, k).filter((d) => d.count > 0 && !known.has(d.zoneId)).map((d) => d.zoneId)
+}
+
+/** Explicit flag when the counter doesn't reconcile: people not conserved, or the horizon differs from the headline. */
+export function counterMismatch(run: FlowRun, k: number): string | null {
+  const c = counterForStep(run, k)
+  if (c.inZones + c.inTransit + c.reached !== c.total) {
+    return `counter mismatch: ${c.inZones} + ${c.inTransit} + ${c.reached} ≠ ${c.total}`
+  }
+  const last = stepCount(run) - 1
+  if (Math.round(k) >= last && c.reached !== run.reached_exit) {
+    return `counter mismatch: ${c.reached} at exits vs headline ${run.reached_exit}`
+  }
+  return null
+}

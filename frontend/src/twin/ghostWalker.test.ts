@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import fixture from '../__fixtures__/snapshot.json'
 import { parseSnapshot } from '../api'
-import { ghostFlashes, ghostPath, positionAt } from './ghostWalker'
+import { ghostFlashes, ghostPath, latestGeometry, positionAt } from './ghostWalker'
 
 const snap = parseSnapshot(fixture)
 
@@ -35,5 +35,18 @@ describe('positionAt', () => {
     expect(positionAt(p, -5)).toEqual({ x: 0, y: 0 })
     expect(positionAt(p, 9)).toEqual({ x: 2, y: 4 })
     expect(positionAt([], 1)).toBeNull()
+  })
+})
+
+describe('latestGeometry', () => {
+  it('returns geometry only for the iteration measured on that revision', () => {
+    const last = snap.iterations[1]
+    expect(latestGeometry(snap, last.graph_revision)).toEqual(last.geometry)
+    expect(latestGeometry(snap, snap.iterations[0].graph_revision)).toEqual(snap.iterations[0].geometry)
+    expect(latestGeometry(snap, 'g-0000000000000000')).toBeNull()
+    expect(latestGeometry(snap, null)).toBeNull()
+  })
+  it('the accepted revision is the one the loop finished on in the fixture', () => {
+    expect(latestGeometry(snap, snap.graph_revision ?? null)?.illegal_crossings).toHaveLength(1)
   })
 })

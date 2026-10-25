@@ -1,7 +1,8 @@
-import { api, approvable, currentRevision, currentRun, currentScenarioHash, readyInvestigations, runningJobs } from '../api'
+import { api, approvable, currentRevision, currentRun, currentScenarioHash, investigationsInProgress, localDisagreement, readyInvestigations } from '../api'
 import type { Investigation, LedgerEntry } from '../apiTypes'
 import type { VenueGraph } from '../types'
-import { fmtT, Tag, type ScreenProps } from './common'
+import { Tag, type ScreenProps } from './common'
+import { fmtT } from './format'
 
 const doorOf = (interventionId: string) => interventionId.replace(/^OPEN:/, '')
 
@@ -33,7 +34,7 @@ function Step({ e }: { e: LedgerEntry }) {
 }
 
 function Case({ inv, props }: { inv: Investigation; props: ScreenProps }) {
-  const { snap, act, pending, seek } = props
+  const { snap, act, pending, seek, stale } = props
   const graph = snap.accepted_graph
   const rec = inv.recommendation
   const recResult = rec?.intervention_id ? inv.results.find((r) => r.intervention_id === rec.intervention_id) : undefined
@@ -41,11 +42,13 @@ function Case({ inv, props }: { inv: Investigation; props: ScreenProps }) {
   const approved = snap.approvals.filter((a) => a.investigation_id === inv.investigation_id)
   const rev = currentRevision(snap), sh = currentScenarioHash(snap)
   const run = currentRun(snap)
+  // the server's flag, or ours when the claimed and checker figures differ
+  const disagreement = inv.disagreement ?? localDisagreement(inv)
   return (
     <div className="case">
       <div className="case-meta">
         <span>Investigation <span className="mono">{inv.investigation_id}</span></span>
-        <span className={inv.status === 'completed' ? '' : 'fail'}>status {inv.status}</span>
+        <span className={inv.status === 'completed' ? '' : 'fail'}>status {inv.status}{inv.error ? `: ${inv.error}` : ''}</span>
         <span>{inv.sandbox_runs} sandbox runs, unverified</span>
         <span>{inv.hook_denials} audit hook denials</span>
       </div>
@@ -60,12 +63,12 @@ function Case({ inv, props }: { inv: Investigation; props: ScreenProps }) {
           <p className="muted">Agent claimed{rec?.intervention_id ? ` for ${rec.intervention_id}` : ''}</p>
         </div>
         <div className="figure">
-          <Tag kind="checked">checker verified</Tag>
+          {recResult?.check_ok ? <Tag kind="checked">checker verified</Tag> : <Tag kind="error">{recResult ? 'check failed' : 'not checked'}</Tag>}
           <p className="big">{recResult ? recResult.reached_exit : 'n/a'}{recResult && ` of ${recResult.total}`}</p>
-          <p className="muted">{recResult ? (recResult.check_ok ? 'local solve, check passed' : 'check failed') : 'not evaluated locally'}</p>
+          <p className="muted">{recResult ? (recResult.check_ok ? 'local solve, check passed' : 'local solve, check failed') : 'not evaluated locally'}</p>
         </div>
       </div>
-      {inv.disagreement && <p className="disagree" role="alert">Disagreement: {inv.disagreement}</p>}
+      {disagreement && <p className="disagree" role="alert">Disagreement: {disagreement}</p>}
 
       {inv.results.length > 0 && (
         <div className="table-wrap">
@@ -96,10 +99,10 @@ function Case({ inv, props }: { inv: Investigation; props: ScreenProps }) {
 
       <div className="approve">
         {inv.best ? (
-          <p>Best checked change: <strong>{inv.best.intervention_id}</strong>, {inv.best.reached_exit} of {inv.best.total} reach a modeled exit
+          <p>{inv.best.check_ok ? 'Best checked change' : 'Best change, but its check failed'}: <strong>{inv.best.intervention_id}</strong>, {inv.best.reached_exit} of {inv.best.total} reach a modeled exit
             {run ? ` (now ${run.reached_exit})` : ''}. Door: <DoorLink id={doorOf(inv.best.intervention_id)} graph={graph} seek={seek} /></p>
         ) : <p>No allowed change improves this case.</p>}
-        <button className="primary" disabled={!best || !!pending || !rev || !sh}
+        <button className="primary" disabled={!best || !!pending || !rev || !sh || stale}
           onClick={() => best && rev && sh && act('Approving', () => api.approve(snap.id, {
             expected_revision: rev, expected_scenario: sh, investigation_id: inv.investigation_id, intervention_id: best.intervention_id,
           }))}>Approve {inv.best?.intervention_id ?? ''}</button>
@@ -114,9 +117,11 @@ function Case({ inv, props }: { inv: Investigation; props: ScreenProps }) {
 export function Investigate(props: ScreenProps) {
   const { snap, act, pending } = props
   const ready = readyInvestigations(snap)
-  const running = runningJobs(snap).filter((j) => j.startsWith('investigat'))
+  const running = investigationsInProgress(snap)
   const rev = currentRevision(snap), sh = currentScenarioHash(snap)
-  const inv = ready.at(-1)
+  const failedJob = Object.values(snap.jobs).find((j) => j.kind === 'investigate' && j.status === 'failed'
+    && j.meta.graph_revision === rev && j.meta.scenario_hash === sh)
+  const inv = ready.find((i) => i.investigation_id === snap.ready_investigation_id) ?? ready.at(-1)
   return (
     <section className="screen investigate">
       <div className="panel">
@@ -125,7 +130,10 @@ export function Investigate(props: ScreenProps) {
           <span className="muted">Fire on {snap.scenario.hazards.map((h) => h.door_id).join(', ') || 'nothing yet'}</span>
         </div>
         <p className="lede">A managed agent sweeps options in its sandbox; only its shortlist is solved and checked here. Authority stays local: nothing changes until you approve.</p>
-        {running.length > 0 && <p className="muted">Running: {running.join(', ')}</p>}
+        {!snap.accepted_graph ? <p className="muted">Accept the twin in Review first.</p>
+          : !rev || !sh ? <p className="fail">Revision unknown: nothing is shown as current until a reload succeeds.</p> : null}
+        {running.length > 0 && <p className="muted" role="status">The agent is investigating this exact twin and hazard…</p>}
+        {!inv && failedJob && <p className="fail">The last investigation of this case failed: {failedJob.error ?? 'no detail'}</p>}
         {inv ? <Case inv={inv} props={props} /> : (
           <div>
             <p className="muted">No investigation for this exact twin and hazard yet.</p>

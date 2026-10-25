@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { acceptBlockers, api, ApiError, draftRevision, findingsOf } from '../api'
+import { acceptBlockers, api, ApiError, draftRevision } from '../api'
 import type { Finding } from '../apiTypes'
 import { ghostFlashes, ghostPath, latestGeometry } from '../twin/ghostWalker'
 import type { Door, Evidence, VenueGraph } from '../types'
-import { fmtT, Tag, type ScreenProps } from './common'
+import { Tag, type ScreenProps } from './common'
+import { fmtT } from './format'
 import { PlanView } from './PlanView'
 
 const STATES = ['open', 'closed', 'locked', 'unknown']
@@ -75,22 +76,22 @@ function DoorEditor({ door, anchorId, onSave, onAnchor, disabled }: {
   )
 }
 
-export function Review({ snap, act, pending, seek, videoTime, onAccepted }: ScreenProps & { videoTime: number; onAccepted: () => void }) {
+export function Review({ snap, act, pending, seek, stale, videoTime, onAccepted }: ScreenProps & { videoTime: number; onAccepted: () => void }) {
   const graph = snap.draft_graph
   const [selected, setSelected] = useState<string | null>(null)
   const rev = draftRevision(snap)
   // findings from a 422 on Accept apply only to the revision they were returned for
   const [rejectedFor, setRejected] = useState<{ rev: string | null; findings: Finding[] }>({ rev: null, findings: [] })
   const rejected = rejectedFor.rev === rev ? rejectedFor.findings : []
-  const findings = [...findingsOf(snap), ...rejected]
+  const findings = [...snap.findings, ...rejected]
   const errorIds = new Set(findings.filter((f) => f.severity === 'error' && f.element_id).map((f) => f.element_id!))
-  const blockers = acceptBlockers(snap)
+  const blockers = [...acceptBlockers(snap, rejected), ...(stale ? ['reload needed'] : [])]
 
   if (!graph) return <section className="screen"><div className="panel"><p className="muted">No draft twin yet. Build it from the Capture step.</p></div></section>
 
   const commit = (next: VenueGraph, label: string) => rev && act(label, () => api.putGraph(snap.id, rev, next))
   const door = graph.doors.find((d) => d.id === selected) ?? null
-  const geo = latestGeometry(snap)
+  const geo = latestGeometry(snap, rev)
   const busy = !!pending
   const accept = () => rev && act('Accepting', async () => {
     try { await api.accept(snap.id, rev) } catch (e) {
@@ -104,18 +105,18 @@ export function Review({ snap, act, pending, seek, videoTime, onAccepted }: Scre
       <div className="panel">
         <div className="panel-head">
           <h2>Review the twin <Tag kind="model">Argon proposed</Tag></h2>
-          <span className="muted mono">{rev}</span>
+          <span className="muted mono">{rev ?? 'revision unknown'}</span>
         </div>
         <PlanView graph={graph} path={ghostPath(snap)} flashes={geo ? ghostFlashes(geo) : []} hazards={[]} selected={selected}
-          errorIds={errorIds} editable={!busy} onSelect={setSelected} onSeek={seek}
+          errorIds={errorIds} editable={!busy && !!rev} onSelect={setSelected} onSeek={seek}
           onRectCommit={(id, rect) => commit({ ...graph, zones: graph.zones.map((z) => (z.id === id ? { ...z, rect } : z)) }, `Moving ${id}`)}
-          label="Drag a room to move it, drag its corner dot to resize. Click a door to edit it." />
+          label={`${rev ? 'Drag a room to move it, drag its corner dot to resize. Click a door to edit it.' : 'Revision unknown: editing is off until a reload.'} ${geo ? `Walker path measured on this revision: ${geo.illegal_crossings.length} illegal crossings.` : 'Geometry not measured for this revision.'}`} />
         <Timeline graph={graph} duration={snap.video.duration_s} videoTime={videoTime} selected={selected}
           onPick={(id, ev) => { setSelected(id); seek(ev.start_s) }} />
       </div>
       <div className="panel side">
         {door ? (
-          <DoorEditor key={JSON.stringify(door)} door={door} anchorId={graph.anchor?.door_id ?? null} disabled={busy}
+          <DoorEditor key={JSON.stringify(door)} door={door} anchorId={graph.anchor?.door_id ?? null} disabled={busy || !rev}
             onSave={(d) => commit({ ...graph, doors: graph.doors.map((x) => (x.id === d.id ? d : x)) }, `Saving ${d.id}`)}
             onAnchor={(w) => commit({ ...graph, anchor: { door_id: door.id, measured_width_m: w } }, `Anchoring ${door.id}`)} />
         ) : <p className="muted">Select a door on the plan or the timeline to edit state, kind and width.</p>}

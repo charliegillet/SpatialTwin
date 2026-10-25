@@ -28,11 +28,15 @@ export function positionAt(path: GhostPoint[], t: number): { x: number; y: numbe
   return { x: a.x + u * (b.x - a.x), y: a.y + u * (b.y - a.y) }
 }
 
-/** The geometry score the twin is graded on: the last iteration that measured one. */
-export function latestGeometry(s: Pick<Snapshot, 'iterations'>): GeometryScore | null {
+/**
+ * The measured geometry for exactly this graph revision: the last iteration whose
+ * graph_revision matches. Null when this revision was never measured (or is unknown).
+ */
+export function latestGeometry(s: Pick<Snapshot, 'iterations'>, revision: string | null): GeometryScore | null {
+  if (!revision) return null
   for (let i = s.iterations.length - 1; i >= 0; i--) {
-    const g = s.iterations[i].geometry
-    if (g) return g
+    const it = s.iterations[i]
+    if (it.graph_revision === revision && it.geometry) return it.geometry
   }
   return null
 }
