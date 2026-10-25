@@ -15,8 +15,16 @@ managed agents stress-tests the plan, and you approve. AI proposes, the checker 
   (Build → photo → Accept). They stay in the gitignored `runtime/`: the venue's maps are under the owner's terms and are
   never committed or shared. Accepted venues so far: `ferry-building-level-3` (8 areas, 7 doors, 2 stair exits) and
   `ferry-building-level-2` (12 areas, 11 doors, D9 marked motorized).
+- The same readings are exported as labelled **saved runs** of the venue's own maps ("a recorded Gemini 4 Argon
+  reading from …; not a live call") by `runtime/live/export_saved_runs.py` into the gitignored `runtime/saved-runs/`,
+  next to our synthetic sketch and office map. Start the server with them so Act 1 always has a fallback, and on the
+  LAN so phones can reach it:
+  `SPATIALTWIN_REAL2SIM_FIXTURES_DIR=runtime/saved-runs SPATIALTWIN_SIGN_SECRET=<32+ chars> .venv/bin/python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000`
 - Presenter menu → choose the venue to start on. **Next judge** returns to the built-in building; the venue picker in
   the presenter menu switches back.
+- Phones: Simulation → **Phone exit signs** → **Show QR codes** (one per exit, one to propose hazards). Turn on
+  **Judge mode** so judges' hazards join the twin at once; doors still need your Approve. If phones cannot reach the
+  laptop (the panel warns), open **Signs on this laptop** on a second screen instead.
 - Preflight: the capabilities chip shows a fresh live receipt; one live team run has completed in the last hour.
 - One app tab only on the presenter laptop: every tab is the operator.
 
