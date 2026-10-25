@@ -1,0 +1,12 @@
+fastapi==0.162.0
+google-genai==2.33.0
+httpx==0.28.1
+networkx==3.7
+numpy==2.5.4
+opencv-python-headless==5.0.0.93
+playwright==1.64.1
+pycolmap==4.2.1
+pydantic==2.14.1
+pytest==9.1.1
+pytest-asyncio==1.4.0
+uvicorn==0.54.0
