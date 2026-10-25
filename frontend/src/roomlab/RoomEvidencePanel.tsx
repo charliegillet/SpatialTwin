@@ -91,8 +91,8 @@ export const RoomEvidencePanel: React.FC<RoomEvidencePanelProps> = ({
       ) : (
         <div className="rl-empty-card">
           <p>
-            Bring in a room walkthrough. MP4, MOV or WebM, up to 2 minutes and
-            256 MiB. You can also import a saved room.
+            Bring in a room walkthrough. MP4, MOV or WebM, up to 10 minutes and
+            1 GiB. You can also import a saved room.
           </p>
           <p className="rl-muted-note">
             Walk slowly with overlapping views. A moving viewpoint captures more

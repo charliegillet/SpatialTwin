@@ -55,6 +55,12 @@ CRITICAL ARCHITECTURAL DISTINCTIONS (VOID CUTOUTS, PARTITIONS, RAILINGS, STAIRS)
    - Only when a door leaf and its actual pose are clearly visible in cited frames, you may add `category="door_leaf"`, `movable=false` thin upright object boxes representing that static snapshot, alongside the architectural opening. Width is leaf length and depth is panel thickness. Include exact frame citations and pose uncertainty. These objects participate in collision; do not depict a closed leaf as a fully clear doorway. Never invent hinges, opening fractions, unknown leaf poses or door mechanics; leave unsupported states unresolved in notes.
    - Preserve true relative spatial ordering observed across frames (e.g., if a sofa sits against a wall flanked between two corner/side plants, place the sofa's center between those two plants along the wall axis; if a waste bin sits flush against the end of a counter with a plant beside it toward the stairs, preserve that exact counter -> bin -> plant -> stairs ordering along the wall).
 
+OUTPUT BUDGET FOR DENSE OR LONG WALKTHROUGHS:
+- Emit at most 25 prominent floor-supported objects or furniture groups. Prioritize fixed obstacles, large furniture, and circulation bottlenecks.
+- Group repeated chairs around a table or catering equipment on a counter into a clearly labeled table/counter unit. Do not emit tabletop dishes or other small surface accessories as floor objects.
+- Group only spatially contiguous items; never bridge an aisle or erase a walkable gap with a group bounding box. Explain any grouping and omitted small details in concise notes.
+- Keep each note string at most 140 characters. Return a complete, compact JSON object without commentary.
+
 EPISTEMIC HONESTY & EVIDENCE LINKING:
 - Every interior wall, floor void, opening, and object MUST reference one or more exact `evidence_frame_ids` from the provided frame catalog where it is visible.
 - Mark `visibility = "observed"` when all relevant edges are clearly visible, `"partial"` when partially occluded, and `"unobserved"` when inferred to close the shell.
@@ -84,7 +90,7 @@ def build_extraction_prompt(media: MediaRecord) -> str:
         "2. `floor_voids`: any non-walkable atrium drop-offs or floor cutouts strictly inside the outer perimeter (empty array `[]` if the entire floor is solid).\n"
         "3. `interior_walls`: any interior dividing walls, glass storefront partitions (`role = \"partition\"`), or atrium balustrades (`role = \"railing\"`, height ~1.05m) inside the perimeter, including optional `color` and `material` hints. Do NOT merge an interior glass partition with the far back wall behind it.\n"
         "4. `openings`: doors/windows/passages attached to the exact `wall_id` (`wall-1`..`wall-N` or an `interior_walls` id) where they physically sit, with non-overlapping `offset_m` and `width_m`.\n"
-        "5. `objects`: all visible furniture, counters, stools, plants, bikes, pillars, or staircases (`category = \"stairs\"`, `movable = false`) placed on the walkable floor without intersecting walls or voids, including optional `color` and `material` hints.\n"
+        "5. `objects`: at most 25 prominent floor-supported objects or contiguous furniture groups, including counters, stools, plants, bikes, pillars, or staircases (`category = \"stairs\"`, `movable = false`) placed on the walkable floor without intersecting walls or voids, including optional `color` and `material` hints.\n"
         "6. `notes`: concise notes on scale assumptions, glass partitions vs. outer walls, atrium voids/railings, and staircase single-level limitations.\n"
         "7. Optional appearance estimates (`floor_color`, `floor_material`, `floor_evidence_frame_ids`, `wall_color`, `wall_material`, `wall_evidence_frame_ids`) citing only exact frame IDs from the catalog above."
     )

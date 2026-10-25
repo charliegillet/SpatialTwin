@@ -205,12 +205,13 @@ export function MyRooms({
                 return (
                   <article
                     key={item.submission_id}
+                    data-submission-id={item.submission_id}
                     className={`rl-room-card ${selected ? "is-selected" : ""}`}
                     aria-label={title}
                   >
                     <button
                       className="rl-room-card-main"
-                      aria-label={`Open ${title}`}
+                      aria-label={`Open ${title}, ${item.filename ?? "saved plan"}, ${when(item.submitted_at)}`}
                       aria-current={selected ? "true" : undefined}
                       onClick={() => onOpen(item, current?.scene_id)}
                       disabled={busy}

@@ -646,6 +646,9 @@ export const RoomEditor: React.FC<RoomEditorProps> = ({
             </button>
           ))}
         </div>
+        <p className="rl-muted-note">
+          Example furniture sizes—adjust them to your item’s measurements.
+        </p>
         <div className="rl-pill-list">
           {objects.map((o) => {
             const active =

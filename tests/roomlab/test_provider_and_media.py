@@ -21,7 +21,7 @@ from backend.app.roomlab.provider_schema import (
     provider_response_json_schema,
 )
 from backend.app.roomlab.validation import validate_scene
-from backend.app.roomlab.video_extractor import MODEL_ID, propose_room
+from backend.app.roomlab.video_extractor import MODEL_ID, MAX_OUTPUT_TOKENS, MAX_OUTPUT_CHARS, propose_room
 
 
 def _make_sample_mp4(tmp_path: pathlib.Path, duration_s: float = 1.6) -> bytes:
@@ -73,9 +73,9 @@ def test_process_media_rejects_bad_container_and_long_video(tmp_path: pathlib.Pa
     with pytest.raises(ValueError, match="Unsupported media format"):
         process_media(b"not a real video file at all 1234567890", "fake.mp4", "video/mp4", media_root)
 
-    monkeypatch.setattr("backend.app.roomlab.media._probe_and_measure_duration", lambda *_a, **_kw: (_ for _ in ()).throw(ValueError("Video duration (125.00s) exceeds the 120s maximum limit.")))
+    monkeypatch.setattr("backend.app.roomlab.media._probe_and_measure_duration", lambda *_a, **_kw: (_ for _ in ()).throw(ValueError("Video duration (605.00s) exceeds the 600s maximum limit.")))
     sample_mp4 = _make_sample_mp4(tmp_path, duration_s=1.0)
-    with pytest.raises(ValueError, match="exceeds the 120s maximum limit"):
+    with pytest.raises(ValueError, match="exceeds the 600s maximum limit"):
         process_media(sample_mp4, "too_long.mp4", "video/mp4", media_root)
 
 
@@ -393,6 +393,10 @@ async def test_propose_room_live_serialization_and_error_handling(tmp_path: path
     assert result.draft.name == "Extracted Conference Room"
     assert len(result.draft.walls) == 4
     assert len(result.draft.objects) == 1
+    assert captured_kwargs["generation_config"]["max_output_tokens"] == 16384
+    assert MAX_OUTPUT_TOKENS == 32768
+    assert MAX_OUTPUT_CHARS == 262144
+    assert "at most 25" in captured_kwargs["system_instruction"]
     assert captured_kwargs["model"] == MODEL_ID
     assert captured_kwargs["response_format"]["mime_type"] == "application/json"
     assert any(part.get("type") == "video" for part in captured_kwargs["input"])
@@ -419,3 +423,17 @@ async def test_critique_scene_sanitizes_provider_errors() -> None:
     assert "secret-token-xyz" not in str(exc_info.value)
     assert "raw payload" not in str(exc_info.value)
     assert "Gemini provider call failed (RuntimeError)." in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_incomplete_extraction_never_parses_partial_room(tmp_path: pathlib.Path) -> None:
+    media_root = tmp_path / "media"
+    media = process_media(_make_sample_mp4(tmp_path), "test.mp4", "video/mp4", media_root)
+
+    class IncompleteInteractions:
+        async def create(self, **kwargs: Any) -> Any:
+            return SimpleNamespace(status="incomplete", output_text='{"name":"Truncated room",')
+
+    client = SimpleNamespace(aio=SimpleNamespace(interactions=IncompleteInteractions()))
+    with pytest.raises(RuntimeError, match="No partial room was saved"):
+        await propose_room(media, media_root, api_key="offline-test-key", client=client)

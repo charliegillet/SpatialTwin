@@ -89,3 +89,23 @@ def test_processing_state_and_duplicate_request_reuse_one_provider_call(tmp_path
         row=c.get('/api/roomlab/rooms').json()['items'][0];assert row['status']=='processing'
         second=c.post('/api/roomlab/extractions',json={'media_id':'media-test'}).json();assert second['job_id']==first['job_id']
         assert finish(c,first['job_id'])['status']=='completed' and len(calls)==1
+
+
+def test_cancelled_attempt_stays_retryable_after_restart(tmp_path):
+    app=create_app(tmp_path);media_record(tmp_path)
+    async def slow(*args,**kwargs):await asyncio.sleep(5.)
+    app.state.extractor=slow
+    with TestClient(app) as c:
+        j=c.post('/api/roomlab/extractions',json={'media_id':'media-test'}).json()
+        assert c.delete('/api/roomlab/jobs/'+j['job_id']).json()['status']=='cancelled'
+    with TestClient(create_app(tmp_path)) as c:
+        row=c.get('/api/roomlab/rooms').json()['items'][0]
+        assert row['status']=='needs_attention' and 'cancelled' in row['error']
+
+
+def test_untrusted_thumbnail_paths_do_not_escape_local_media(tmp_path):
+    app=create_app(tmp_path);record=media_record(tmp_path)
+    record.frames[0].relative_path='../../outside.jpg';record.frames[0].url='https://external.invalid/image.jpg'
+    (tmp_path/'media/media-test/record.json').write_text(record.model_dump_json())
+    (tmp_path/'outside.jpg').write_bytes(b'not source evidence')
+    with TestClient(app) as c:assert c.get('/api/roomlab/rooms').json()['items'][0]['thumbnail_url'] is None

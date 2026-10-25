@@ -21,8 +21,6 @@ class ExtractionJournal:
             try:
                 job=JobRecord.model_validate_json(path.read_text())
                 if path.stem!=job.job_id:continue
-                if job.status in ('queued','running'):
-                    job.status='failed';job.error='Room building stopped when the server restarted. Retry this walkthrough.';self.save(job)
                 jobs[job.job_id]=job
             except (ValueError,OSError):continue
         return jobs

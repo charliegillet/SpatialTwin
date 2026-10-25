@@ -6,6 +6,7 @@ browser-reported duration or legacy board-specific helpers.
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import pathlib
 import re
@@ -20,10 +21,10 @@ from PIL import Image
 
 from backend.app.roomlab.contracts import EvidenceFrame, MediaRecord
 
-MAX_MEDIA_BYTES = 256 * 1024 * 1024
-MAX_DURATION_S = 120.0
+MAX_MEDIA_BYTES = 1024 * 1024 * 1024
+MAX_DURATION_S = 600.0
 MIN_DURATION_S = 0.05
-MAX_FRAMES = 48
+MAX_FRAMES = 200
 TARGET_FRAME_WIDTH = 960
 
 AllowedMime = Literal["video/mp4", "video/webm", "video/quicktime"]
@@ -119,7 +120,7 @@ def _probe_and_measure_duration(ffmpeg_exe: str, video_path: pathlib.Path) -> fl
             cmd,
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=300,
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
@@ -152,8 +153,10 @@ def _select_timestamps(duration_s: float, max_frames: int = MAX_FRAMES) -> list[
         return [0.0]
     if duration_s <= 16.0:
         count = min(max_frames, max(2, int(round(duration_s * 1.25)) + 1))
+    elif duration_s <= 120:
+        count = min(max_frames, 48, max(16, int(round(duration_s * 0.6)) + 1))
     else:
-        count = min(max_frames, max(16, int(round(duration_s * 0.6)) + 1))
+        count = min(max_frames, max(48, math.ceil(duration_s / 2.5) + 1))
     span = max(0.0, duration_s - 0.08)
     if count == 1 or span <= 0:
         return [0.0]
@@ -212,12 +215,12 @@ def process_media(
     mime_type: str,
     media_root: pathlib.Path,
 ) -> MediaRecord:
-    """Validate uploaded video bytes, persist under media_root/media_id, and extract <=48 JPEG frames."""
+    """Validate uploaded video bytes, persist under media_root/media_id, and extract <=200 JPEG frames."""
     if not isinstance(data, (bytes, bytearray)) or len(data) == 0:
         raise ValueError("Uploaded video file is empty.")
     if len(data) > MAX_MEDIA_BYTES:
         raise ValueError(
-            f"Uploaded video ({len(data) / (1024 * 1024):.1f} MiB) exceeds the 256 MiB limit."
+            f"Uploaded video ({len(data) / (1024 * 1024):.1f} MiB) exceeds the 1024 MiB limit."
         )
 
     detected_mime = _detect_container_mime(bytes(data), mime_type or "", filename or "")

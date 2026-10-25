@@ -23,7 +23,7 @@ Open **http://127.0.0.1:8001**. For UI development, `cd frontend && npm run dev`
 
 ## Use
 
-1. Upload an MP4, WebM or MOV, at most 120 seconds and 256 MiB. Walk with overlapping viewpoints; a stationary pan has less geometric information.
+1. Upload an MP4, WebM or MOV, at most 10 minutes and 1 GiB. Walk with overlapping viewpoints; a stationary pan has less geometric information.
 2. RoomLab decodes the actual video and stores up to 48 timestamped evidence frames across its duration locally. Start extraction to make a direct `gemini-4-argon` request. Native video is included up to 20 MiB; larger clips use the timestamped frames with an explicit sampling warning. A missing key or provider error is shown; it never substitutes a canned room.
 3. Inspect the estimated shell and objects in orbit/top views. Select furniture to move, rotate or resize it; source frames remain available for comparison. Numeric editing also works independently of pointer interaction.
 4. Save before calibration. Select a wall/object dimension and supply its actual measured length. An optional held-out measurement reports a residual without participating in the scale fit. Calibrating one dimension does not confirm the rest of the geometry.
@@ -125,3 +125,33 @@ static door leaf can be represented as a fixed `door_leaf` object box, with sour
 citations and pose uncertainty, so a closed/propped leaf is also an obstacle in
 clearance checks. Unsupported leaf poses are not invented. This represents a video
 snapshot, not articulated door operation or a guaranteed future door state.
+
+## My rooms and extraction recovery
+
+The left-side My rooms library lists actual local uploads, source thumbnails, saved
+outputs, and build status. Search or filter Ready/Processing, open a room, or upload
+another walkthrough without replacing the right-side canvas. Outputs from the same
+upload are grouped; scene revisions do not create duplicate submissions. Unsaved
+edits block room switches until saved or undone. Processing is indeterminate because
+the provider does not report a reliable percentage.
+
+Extraction jobs are journaled locally. Completed and failed results survive restarts;
+interrupted jobs become retryable failures at server startup rather than pretending
+to resume. Older failures from before journaling cannot be recovered. Visual-review
+jobs remain in memory. Dense walkthrough extraction uses a 32,768-token output budget
+and asks for at most 25 prominent objects/contiguous furniture groups with concise
+notes. An incomplete response is rejected; no partial room is saved. Grouped proxies
+and omitted small details still require source review. Reference-size presets are
+examples and require actual measurement confirmation before applying scale.
+
+
+Adaptive extraction: clips up to 60 seconds use one model request (16K output tokens
+for clips up to 15 seconds, otherwise 32K). Longer clips are analyzed sequentially
+in overlapping 60-second segments, followed by a visual/text synthesis pass.
+An incomplete request retries once at 64K output tokens; truncated JSON is never
+accepted. The job deadline scales with the number of segments (up to about 170
+minutes in the worst case with all calls using their timeout/retry budget).
+Ten-minute uploads retain up to 200 source frames, approximately one every three
+seconds. Sampling can miss brief events. Longer video support does not turn this
+single-level estimated scene editor into measured whole-building reconstruction:
+unconnected rooms/floors and uncertain cross-segment alignment require review.

@@ -29,6 +29,7 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({
   const [dimension, setDimension] = useState<
     "wall_length" | "object_width" | "object_depth"
   >("wall_length");
+  const [measurementVerified, setMeasurementVerified] = useState(false);
   const [measuredM, setMeasuredM] = useState<string>("3.50");
   const [toleranceM, setToleranceM] = useState<string>("0.02");
 
@@ -62,6 +63,11 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({
     }
   }, [scene?.scene_id, selectedTarget]);
 
+  useEffect(
+    () => setMeasurementVerified(false),
+    [measuredM, anchorId, dimension, scene?.scene_id],
+  );
+
   if (!scene) return null;
 
   const cal = scene.calibration;
@@ -84,7 +90,8 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({
     e.preventDefault();
     const val = parseFloat(measuredM);
     const tol = parseFloat(toleranceM);
-    if (!anchorId || !Number.isFinite(val) || val <= 0) return;
+    if (!measurementVerified || !anchorId || !Number.isFinite(val) || val <= 0)
+      return;
 
     const req: CalibrateRequest = {
       expected_revision: scene.scene_revision ?? 1,
@@ -220,7 +227,7 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({
           </label>
         </div>
 
-        <div className="rl-preset-row" aria-label="Standard reference sizes">
+        <div className="rl-preset-row" aria-label="Example reference sizes">
           {(
             [
               { label: "Stool (0.40m)", val: "0.40" },
@@ -234,7 +241,7 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({
               type="button"
               className={`rl-pill ${measuredM === ref.val ? "rl-pill--active" : ""}`}
               onClick={() => setMeasuredM(ref.val)}
-              title="Prefill standard reference dimension (replace with tape measurement when available)"
+              title="Example only: verify the actual dimension before using it as a measured anchor."
             >
               <span>{ref.label}</span>
             </button>
@@ -304,10 +311,18 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({
           </div>
         )}
 
+        <label className="rl-checkbox-row">
+          <input
+            type="checkbox"
+            checked={measurementVerified}
+            onChange={(e) => setMeasurementVerified(e.target.checked)}
+          />{" "}
+          I measured this reference; the value is not an assumed standard size.
+        </label>
         <button
           type="submit"
           className="rl-btn rl-btn--primary rl-btn--full"
-          disabled={isCalibrating || dirty}
+          disabled={isCalibrating || dirty || !measurementVerified}
           title={
             dirty
               ? "Save or revert local edits before running server scale calibration"

@@ -10,6 +10,8 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
+import math
 import os
 import pathlib
 import time
@@ -32,9 +34,65 @@ from backend.app.roomlab.provider_schema import (
 )
 
 MODEL_ID = "gemini-4-argon"
-MAX_OUTPUT_CHARS = 65_536
+MAX_OUTPUT_TOKENS = 32_768
+MAX_OUTPUT_CHARS = 262_144
+MAX_RETRY_OUTPUT_TOKENS = 65_536
+SEGMENT_SECONDS = 60
+log = logging.getLogger(__name__)
 MAX_INLINE_VIDEO_BYTES = 20 * 1024 * 1024
-SDK_TIMEOUT_MS = 450_000  # 450s, fitting inside the 480s root job timeout
+SDK_TIMEOUT_MS = 450_000  # Per provider request; the job budget scales with segment count.
+
+
+def extraction_timeout_s(duration_s: float) -> int:
+    """Bound sequential segment calls, synthesis and one retry per call."""
+    segments = max(1, math.ceil(duration_s / SEGMENT_SECONDS))
+    calls = segments + (1 if segments > 1 else 0)
+    return min(10_800, calls * 920 + 60)
+
+
+async def _request_payload(client: Any, inputs: list[dict[str, Any]], *,
+                           initial_tokens: int, synthesis: bool = False) -> ProviderRoomPayload:
+    instruction = EXTRACTION_SYSTEM_INSTRUCTION + "\nCite at most six representative source frames per element. Keep notes concise."
+    if synthesis:
+        instruction += ("\nFor synthesis, retain up to 150 distinct prominent objects across all segments. "
+                        "The per-segment 25-object limit does not apply to the combined scene.")
+    for budget in dict.fromkeys((initial_tokens, MAX_RETRY_OUTPUT_TOKENS)):
+        try:
+            interaction = await client.aio.interactions.create(
+                model=MODEL_ID, system_instruction=instruction, input=inputs,
+                generation_config={"thinking_level": "low", "max_output_tokens": budget},
+                response_format={"type": "text", "mime_type": "application/json",
+                                 "schema": provider_response_json_schema()},
+                store=True, stream=False,
+            )
+        except Exception as exc:
+            raise RuntimeError(_sanitize_provider_error(exc)) from exc
+        status = getattr(interaction, "status", "completed")
+        usage = getattr(interaction, "usage", None)
+        output_tokens = getattr(usage, "total_output_tokens", None)
+        # Log only an allowlisted status and numeric usage: never provider text or keys.
+        safe_status = status if status in ("completed", "incomplete", "cancelled", "failed") else "other"
+        log.info("Room extraction response status=%s budget=%d output_tokens=%s",
+                 safe_status, budget, output_tokens if isinstance(output_tokens, int) else "unknown")
+        if status == "incomplete":
+            if budget < MAX_RETRY_OUTPUT_TOKENS:
+                continue  # Fresh complete response, never concatenate truncated JSON.
+            raise RuntimeError("Gemini exhausted the expanded output budget (status=incomplete). "
+                               "No partial room was saved. The uploaded video is preserved.")
+        if status == "cancelled":
+            raise RuntimeError("Gemini room extraction was cancelled.")
+        if status != "completed" or getattr(interaction, "errors", None):
+            raise RuntimeError("Gemini room extraction failed before producing a complete response.")
+        if (getattr(interaction, "model", None) or MODEL_ID) != MODEL_ID:
+            raise RuntimeError("Unexpected provider model during room extraction.")
+        text = _extract_output_text(interaction)
+        if len(text) > MAX_OUTPUT_CHARS:
+            raise RuntimeError("Gemini response exceeded maximum allowed character length.")
+        try:
+            return ProviderRoomPayload.model_validate(json.loads(text))
+        except (json.JSONDecodeError, ValidationError, ValueError) as exc:
+            raise RuntimeError("Gemini room draft failed JSON or schema validation. No partial room was saved.") from exc
+    raise RuntimeError("Gemini room extraction could not complete.")
 
 
 def _resolve_api_key(explicit_key: str | None = None) -> str:
@@ -133,6 +191,8 @@ async def propose_room(
 ) -> RoomDraftResult:
     """Extract an estimated RoomDraft from a processed MediaRecord using direct gemini-4-argon."""
     started = time.monotonic()
+    if not 0 < media.duration_s <= 600.25:
+        raise RuntimeError("Room extraction supports video durations up to 10 minutes.")
     resolved_key = _resolve_api_key(api_key)
 
     if not media.frames:
@@ -143,7 +203,7 @@ async def propose_room(
         {"type": "text", "text": build_extraction_prompt(media)},
     ]
 
-    if include_video_stream and media.video_url:
+    if include_video_stream and media.video_url and media.duration_s <= SEGMENT_SECONDS:
         rel_video = media.video_url.removeprefix("/media/").lstrip("/")
         try:
             video_file = _safe_media_child(root, rel_video)
@@ -162,7 +222,7 @@ async def propose_room(
         except (ValueError, OSError):
             pass
 
-    for frame in media.frames[:48]:
+    for frame in (media.frames if media.duration_s <= SEGMENT_SECONDS else []):
         frame_path = _safe_media_child(root, frame.relative_path)
         frame_bytes = frame_path.read_bytes()
         if not frame_bytes:
@@ -186,63 +246,71 @@ async def propose_room(
         api_key=resolved_key,
         http_options={"timeout": SDK_TIMEOUT_MS},
     )
+    segment_count = max(1, math.ceil(media.duration_s / SEGMENT_SECONDS))
     try:
-        interaction = await active_client.aio.interactions.create(
-            model=MODEL_ID,
-            system_instruction=EXTRACTION_SYSTEM_INSTRUCTION,
-            input=inputs,
-            generation_config={"thinking_level": "low", "max_output_tokens": 8192},
-            response_format={
-                "type": "text",
-                "mime_type": "application/json",
-                "schema": provider_response_json_schema(),
-            },
-            store=True,
-            stream=False,
-        )
-    except Exception as exc:
-        raise RuntimeError(_sanitize_provider_error(exc)) from exc
+        if segment_count == 1:
+            payload = await _request_payload(active_client, inputs,
+                initial_tokens=16_384 if media.duration_s <= 15 else MAX_OUTPUT_TOKENS)
+        else:
+            segments = []
+            for index in range(segment_count):
+                start = index * SEGMENT_SECONDS
+                end = min(media.duration_s, (index + 1) * SEGMENT_SECONDS)
+                frames = [f for f in media.frames if start - 3 <= f.timestamp_s <= end + 3]
+                if not frames:
+                    raise RuntimeError("A video segment has no decoded evidence frames. Re-upload this video.")
+                segment_inputs = [{"type": "text", "text": build_extraction_prompt(media.model_copy(update={"frames": frames})) +
+                    f"\nAnalyze only segment {index + 1}/{segment_count}: {start:.1f}–{end:.1f}s. "
+                    "Coordinates are local estimates. Cite only the frame IDs supplied in this request. "
+                    "Do not invent connections to unseen rooms or assume separate floors share one plane."}]
+                for frame in frames:
+                    segment_inputs.extend([
+                        {"type": "text", "text": f"Frame ID: {frame.frame_id} | Timestamp: {frame.timestamp_s:.2f}s"},
+                        {"type": "image", "mime_type": "image/jpeg", "data": base64.b64encode(
+                            _safe_media_child(root, frame.relative_path).read_bytes()).decode("ascii")},
+                    ])
+                try:
+                    part = await _request_payload(active_client, segment_inputs, initial_tokens=MAX_OUTPUT_TOKENS)
+                except RuntimeError as exc:
+                    raise RuntimeError(f"Video segment {index + 1}/{segment_count} failed. {exc}") from exc
+                segments.append({"start_s": start, "end_s": end, "draft": part.model_dump(mode="json")})
+            synthesis = [{"type": "text", "text": build_extraction_prompt(media) +
+                "\nReconcile these overlapping segment drafts into ONE scene using shared visual landmarks. "
+                "Segment coordinate systems are independent: align them before merging; deduplicate recurring "
+                "objects by evidence and appearance, not merely IDs. Preserve evidence IDs exactly. "
+                "Retain distinct furniture and glass partitions. Never fabricate corridors or metric scale. "
+                "If views cannot be aligned, represent only the best-supported connected single-level area "
+                "and explicitly disclose omitted areas and alignment uncertainty in notes. "
+                "Do not flatten disconnected floors into one room. Up to 150 prominent objects are allowed.\n" +
+                json.dumps(segments, separators=(",", ":"))}]
+            # Shared visual references assist alignment rather than trusting text coordinates alone.
+            overview_count = min(12, len(media.frames))
+            overview_indices = sorted({round(i * (len(media.frames) - 1) / max(1, overview_count - 1))
+                                       for i in range(overview_count)})
+            for frame in [media.frames[i] for i in overview_indices]:
+                synthesis.extend([
+                    {"type": "text", "text": f"Frame ID: {frame.frame_id} | Timestamp: {frame.timestamp_s:.2f}s"},
+                    {"type": "image", "mime_type": "image/jpeg", "data": base64.b64encode(
+                        _safe_media_child(root, frame.relative_path).read_bytes()).decode("ascii")},
+                ])
+            payload = await _request_payload(active_client, synthesis, initial_tokens=MAX_OUTPUT_TOKENS, synthesis=True)
+        try:
+            draft, warnings = normalize_provider_payload(payload, {f.frame_id for f in media.frames})
+        except (ValidationError, ValueError) as exc:
+            raise RuntimeError("Gemini room draft failed local schema or geometric validation.") from exc
     finally:
         if owns_client:
             await _close_sdk_client(active_client)
-
-    status = getattr(interaction, "status", "completed")
-    if status == "cancelled":
-        raise RuntimeError("Gemini room extraction was cancelled.")
-    if status != "completed":
-        raise RuntimeError(f"Gemini room extraction did not complete (status={status}).")
-    if getattr(interaction, "errors", None):
-        raise RuntimeError("Gemini provider reported interaction errors during room extraction.")
-
-    provider_model = getattr(interaction, "model", None) or MODEL_ID
-    if provider_model != MODEL_ID:
-        raise RuntimeError(f"Unexpected provider model '{provider_model}' (expected '{MODEL_ID}').")
-
-    raw_text = _extract_output_text(interaction)
-    if len(raw_text) > MAX_OUTPUT_CHARS:
-        raise RuntimeError("Gemini response exceeded maximum allowed character length.")
-
-    try:
-        parsed_json = json.loads(raw_text)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError("Gemini returned malformed JSON for room extraction.") from exc
-
-    if not isinstance(parsed_json, dict):
-        raise RuntimeError("Gemini room extraction output must be a JSON object.")
-
-    try:
-        payload = ProviderRoomPayload.model_validate(parsed_json)
-        valid_ids = {f.frame_id for f in media.frames}
-        draft, warnings = normalize_provider_payload(payload, valid_ids)
-    except (ValidationError, ValueError) as exc:
-        raise RuntimeError("Gemini room draft failed local schema or geometric validation.") from exc
+    if segment_count > 1:
+        warnings.append(f"Analyzed {segment_count} overlapping time segments and reconciled their estimated layouts. "
+                        "Cross-segment alignment and omitted areas require visual review; this is not a measured multi-room reconstruction.")
 
     if not any(item.get('type')=='video' for item in inputs):
-        warnings.append(f'Analyzed {min(48,len(media.frames))} timestamped frames across {media.duration_s:.2f}s; native video omitted (disabled, unavailable, or over the 20 MiB inline limit). Brief events between sampled frames may be missed.')
+        warnings.append(f'Analyzed {len(media.frames)} timestamped frames across {media.duration_s:.2f}s; native video omitted (disabled, unavailable, or over the 20 MiB inline limit). Brief events between sampled frames may be missed.')
     latency_ms = round((time.monotonic() - started) * 1000.0, 2)
     return RoomDraftResult(
         draft=draft,
-        model=provider_model,
+        model=MODEL_ID,
         provenance="live",
         latency_ms=max(0.01, latency_ms),
         warnings=warnings,

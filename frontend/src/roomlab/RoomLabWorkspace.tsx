@@ -297,10 +297,12 @@ export default function RoomLabWorkspace() {
     setBannerError(null);
     try {
       const id = requestedSceneId ?? entry.scene_id;
-      const loaded = id ? await getScene(id) : null;
-      const restoredMedia = entry.media_id
-        ? await getMedia(entry.media_id).catch(() => null)
-        : null;
+      const [loaded, restoredMedia] = await Promise.all([
+        id ? getScene(id) : Promise.resolve(null),
+        entry.media_id
+          ? getMedia(entry.media_id).catch(() => null)
+          : Promise.resolve(null),
+      ]);
       if (token !== navigationEpoch.current || !requireCleanRoom()) return;
       setSelectedTarget(null);
       setActiveFrameId(null);
@@ -707,7 +709,10 @@ export default function RoomLabWorkspace() {
               onOpen={openLibraryRoom}
               onBuild={buildLibraryRoom}
               onUpload={uploadFromLibrary}
-              onBack={() => {navigationEpoch.current++;setLibraryOpen(false);}}
+              onBack={() => {
+                navigationEpoch.current++;
+                setLibraryOpen(false);
+              }}
             />
           )}
           <div className="rl-editor-panel" hidden={libraryOpen}>
@@ -990,7 +995,7 @@ export default function RoomLabWorkspace() {
           />
           <div className="rl-stage-caption">
             <span className="rl-status-dot" />
-            {scene ? "Room canvas" : "A little room for possibility"}
+            <span className="rl-canvas-title">{scene?.name ?? "A little room for possibility"}</span>
             <span>
               {scene
                 ? history.dirty
@@ -1032,7 +1037,7 @@ export default function RoomLabWorkspace() {
                   (scene.calibration
                     ? " · scale reference added"
                     : " · add a measurement to set scale")
-                : "Up to 2 minutes · MP4, MOV or WebM"}
+                : "Up to 10 minutes · MP4, MOV or WebM"}
             </span>
             <span>Drag to orbit · scroll to zoom</span>
           </div>

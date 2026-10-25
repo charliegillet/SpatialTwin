@@ -332,3 +332,54 @@ Verification:
 - Bicycle proxy now uses bounded round wheel hoops and a slender frame instead
   of solid rectangular wheel blocks, retaining its original canonical footprint.
   These parts also pass the actual-geometry vertex containment tests.
+
+2026-10-25 MY ROOMS / DEMO2 RECOVERY VERIFICATION
+- Supersedes older in-memory extraction statements: extraction jobs now persist in
+  runtime/extraction-jobs, while visual-review jobs remain in memory. Startup marks
+  interrupted extraction jobs as retryable failures; loading/importing the app alone
+  does not mutate jobs. Cancellation and unsafe-thumbnail path cases are covered.
+- My rooms browser checks: search/filter, historical output opening, unsaved-edit
+  navigation protection, actual upload/decode, and live Processing -> Ready. A real
+  six-second synthetic clip completed in 20.55s without stealing the currently viewed
+  corrected scene. Temporary upload-only QA media was removed after verifying it
+  had no extraction job or saved scene. No provider success was fabricated.
+- Measurement presets now require explicit actual-measurement confirmation. Mobility
+  presets are circular model examples, not an ADA compliance check.
+- demo2.mp4 (51.4s, 32 extracted frames) originally returned status=incomplete at the
+  8,192-token budget. This status is consistent with budget exhaustion but the old
+  job did not retain provider usage/reason diagnostics, so the exact cause is unknown.
+- Raised extraction output budget to 32,768 tokens and response text guard to 131,072
+  chars. Prompt requests <=25 prominent/contiguous object groups and concise notes;
+  no grouping across circulation gaps. Incomplete JSON remains rejected, not repaired
+  into a saved partial room. Regression test verifies incomplete response rejection.
+- Real retry job-63df26720e884ba1b85fd409fcc2fa74 completed in 114.16s via gemini-4-argon.
+  Saved scene-f370b964638c4127949d05e7ed348b34: Mezzanine Catering & Lounge Deck, rev1,
+  16 objects, 10 walls, one floor void, 32 source frames, no geometry validation errors.
+  Still uncalibrated, with two lounge-chair/coffee-table overlap warnings, one object
+  auto-translation and one opening-height clamp disclosed. This is an editable
+  approximation; successful extraction is not a claim of accurate reconstruction.
+- Browser opened that exact scene and showed Ready with source thumbnail; the earlier
+  lobby scene remains revision 3. Duplicate historical demo2 upload failures remain
+  visible in history; no failed record was deleted or relabeled as successful.
+- Backend suite: 65 passed (one dependency deprecation warning). Frontend: 13 passed.
+  Production TypeScript/Vite build passed with existing large-bundle warning.
+- RoomLab remains on 0.0.0.0:8001; original app on 8000 also returned HTTP 200.
+
+Adaptive extraction verification (2026-10-25, side conversation):
+- Upload limit is now 600 seconds / 1 GiB, shared by API config and decoder.
+- <=60s: one request; >60s: overlapping 60s evidence batches, then visual/text synthesis.
+- Output budgets: 16K for <=15s, otherwise 32K; incomplete responses retry once at 64K.
+- No truncated JSON accepted, no scene saved if any segment or synthesis fails.
+- Adaptive timeout includes sequential calls and retry budgets; cancellation propagates.
+- Nine adaptive tests passed, including real 600s upload/decode -> explicitly injected
+  offline provider -> persisted evidence -> edit/save, actual 602s duration rejection,
+  5/120/600s provider-call coverage, retry, middle-segment failure and cancellation.
+- Live demo2.mp4 (51.4s, 32 frames) passed the updated real Gemini extraction in 92.2s
+  and edit/save through an isolated FastAPI runtime. This is not a visual accuracy audit.
+- Live result: runtime/roomlab/adaptive-verification/live-result.json;
+  scene-0046aa6e64024ec092122ff6f5d0d642, revision 2 in that isolated runtime.
+- Shared server on port 8001 was NOT restarted by this side conversation. It still
+  advertises the old 120s limit until the main session reloads the updated backend.
+- No claim of live Gemini verification on a ten-minute walkthrough: its provider
+  orchestration was exercised with an explicit offline client; real video decoding
+  and API persistence were exercised with a generated ten-minute test clip.

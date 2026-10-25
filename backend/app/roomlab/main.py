@@ -16,7 +16,8 @@ from .overlap_repair import repair_overlaps
 from .critique_service import CritiqueService,receipt
 
 ROOT=Path(__file__).resolve().parents[3]
-MAX_BYTES=256*1024*1024
+from .media import MAX_MEDIA_BYTES,MAX_DURATION_S
+MAX_BYTES=MAX_MEDIA_BYTES
 log=logging.getLogger('roomlab')
 
 def create_app(runtime:Path|None=None)->FastAPI:
@@ -27,6 +28,9 @@ def create_app(runtime:Path|None=None)->FastAPI:
     critic=CritiqueService(store,media_root)
     @asynccontextmanager
     async def lifespan(_app):
+        for previous in jobs.values():
+            if previous.status in ('queued','running'):
+                previous.status='failed';previous.error='Room building stopped when the server restarted. Retry this walkthrough.';journal.save(previous)
         yield
         await critic.close()
         pending=[task for task in tasks.values() if not task.done()]
@@ -68,7 +72,7 @@ def create_app(runtime:Path|None=None)->FastAPI:
 
     @app.get('/api/roomlab/config')
     def config():return {'gemini_configured':bool(os.environ.get('GEMINI_API_KEY')),'model':'gemini-4-argon',
-        'max_video_seconds':120,'max_upload_bytes':MAX_BYTES,
+        'max_video_seconds':MAX_DURATION_S,'max_upload_bytes':MAX_BYTES,
         'sample_video_url':'/api/roomlab/examples/room-walkthrough.mp4' if (runtime/'sample-room.mp4').exists() else None}
 
     @app.get('/api/roomlab/examples/room-walkthrough.mp4')
@@ -81,7 +85,7 @@ def create_app(runtime:Path|None=None)->FastAPI:
     async def upload(file:UploadFile=File(...)):
         from .media import process_media
         data=await file.read(MAX_BYTES+1)
-        if len(data)>MAX_BYTES:raise HTTPException(413,'Video must be at most 256 MiB.')
+        if len(data)>MAX_BYTES:raise HTTPException(413,'Video must be at most 1024 MiB.')
         processor=app.state.media_processor or process_media
         try:record=await asyncio.to_thread(processor,data,file.filename or 'video.mp4',file.content_type or '',media_root)
         except ValueError as exc:raise HTTPException(422,str(exc))
@@ -98,16 +102,16 @@ def create_app(runtime:Path|None=None)->FastAPI:
         try:
             async with limit:
                 job.status='running';journal.save(job)
-                from .video_extractor import propose_room
+                from .video_extractor import propose_room,extraction_timeout_s
                 extractor=app.state.extractor or propose_room
-                result=await asyncio.wait_for(extractor(media,media_root,api_key=os.environ.get('GEMINI_API_KEY')),timeout=480)
+                result=await asyncio.wait_for(extractor(media,media_root,api_key=os.environ.get('GEMINI_API_KEY')),timeout=extraction_timeout_s(media.duration_s))
                 scene=store.create(result.draft,media.frames)
                 job.scene_id=scene.scene_id;job.model=result.model;job.latency_ms=result.latency_ms;job.warnings=result.warnings
                 report=validate_scene(scene)
                 job.warnings += [x.message for x in report.issues]
                 job.status='completed'
         except asyncio.CancelledError:job.status='cancelled';job.error='Room building was cancelled. You can retry.'
-        except asyncio.TimeoutError:job.status='failed';job.error='Extraction timed out. Your uploaded video is preserved; try a shorter clip.'
+        except asyncio.TimeoutError:job.status='failed';job.error='Extraction exceeded its adaptive time budget. Your uploaded video is preserved; retry the extraction.'
         except Exception as exc:
             job.status='failed'
             # Provider modules supply user-safe RuntimeError/ValueError messages. Never emit key-bearing raw SDK errors.
@@ -136,7 +140,7 @@ def create_app(runtime:Path|None=None)->FastAPI:
     async def cancel(id:str):
         value=job(id)
         if value.status in ('running','queued'):
-            tasks[id].cancel();value.status='cancelled';journal.save(value)
+            tasks[id].cancel();value.status='cancelled';value.error='Room building was cancelled. You can retry.';journal.save(value)
         return value
 
     @app.get('/api/roomlab/rooms',response_model=RoomLibrary)

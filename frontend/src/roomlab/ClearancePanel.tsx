@@ -132,14 +132,14 @@ export const ClearancePanel: React.FC<ClearancePanelProps> = ({
           className={`rl-pill ${Math.abs(agentDiameterM - 0.92) < 0.02 ? "rl-pill--active" : ""}`}
           onClick={() => onChangeAgentDiameter(0.92)}
         >
-          <span>ADA Wheelchair (0.92m)</span>
+          <span>Wide mobility device (0.92m)</span>
         </button>
         <button
           type="button"
           className={`rl-pill ${Math.abs(agentDiameterM - 1.05) < 0.02 ? "rl-pill--active" : ""}`}
           onClick={() => onChangeAgentDiameter(1.05)}
         >
-          <span>Moving Sofa (1.05m)</span>
+          <span>Wide load (1.05m)</span>
         </button>
       </div>
 
