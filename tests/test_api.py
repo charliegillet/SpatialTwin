@@ -1000,15 +1000,16 @@ def test_unanchored_accept_keeps_alignment_and_adds_accepted_iteration(client, f
     assert it["kind"] == "accepted" and it["geometry"]["alignment_hash"] == al0["hash"]
 
 
-def test_scale_alignment_matches_sfm_math_and_hash():
-    """D3 helper: same math and hash recipe as walktwin.sfm (until F4's helper merges)."""
+def test_scale_alignment_delegates_to_sfm_math_and_hash():
+    """D3: the accept path scales the alignment with sfm.scale_alignment (math and hash)."""
     from walktwin import sfm
     from walktwin.sessions import to_jsonable
     from fixtures.sfm_synthetic import make_scene
     res, graph = make_scene(graph_scale=1.25)
     al = sfm.fit_alignment(res, graph)
     d = to_jsonable(al)
-    assert api._scale_alignment(d, 1.0)["hash"] == al.hash  # identical recipe
+    assert api._scale_alignment(d, 1.0)["hash"] == al.hash  # f = 1 reproduces the fit
+    assert api._scale_alignment(d, 0.8) == to_jsonable(sfm.scale_alignment(al, 0.8))
     f = 0.8
     sd = api._scale_alignment(d, f)
     scaled = api._alignment_obj(sd)

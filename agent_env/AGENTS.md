@@ -56,8 +56,9 @@ checker verifies; a human approves. Do not claim a change has been made.
 ## Copy rules (apply to rationale and caveats)
 
 - Never write "survive", "safe", "compliant" or "evacuated".
-- Say "reach a modeled exit in 120 s", "meets ADA §404.2.3 within measured range"
-  or "cannot measure".
+- Say "reach a modeled exit in 120 s", "meets ADA §404.2.3 within the model's
+  estimated range (model-reported)" (say "within measured range" only when the
+  basis is `anchor_measured`), or "cannot measure".
 - Attribute: "Argon proposed", "geometry measured", "checker verified",
   "you approved".
 - Label scores "model-reported" or "measured". Flow parameters are "declared"

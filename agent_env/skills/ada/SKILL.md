@@ -20,8 +20,10 @@ These are paraphrases, not quotations. Cite the section number.
 
 ## How to use
 
-- Compare the **measured range** (low to high) with the minimum. Say "meets ADA
-  §404.2.3 within measured range" only if the low end meets it.
+- Compare the **estimated range** (low to high) with the minimum. Say "meets ADA
+  §404.2.3 within the model's estimated range (model-reported)" only if the low
+  end meets it. Say "within measured range" only when the door's basis is
+  `anchor_measured`.
 - If the range straddles the minimum, or the width is assumed rather than
   measured, say "cannot measure".
 - Never say "compliant". ADA clear width is an accessibility rule, not an
