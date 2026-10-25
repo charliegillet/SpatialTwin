@@ -15,7 +15,7 @@ It is not a real venue and must not be cited as a result.
 }
 ```
 
-- `kind`: `door`, `opening`, `exit` or `stair`. Doors and openings match each other; exits and stairs match each other.
+- `kind`: `door`, `opening`, `exit` or `stair`. Doors and openings match each other; exits and stairs match each other. Precision counts every extracted door, stair and exit, so an unlisted stair or exit lowers it.
 - `source`: `tape` (hand-measured) or `roomplan` (LiDAR iPhone scan, saved as a second key).
 - `t_s`: seconds into the **prepared** video. `measured_width_m` is the clear width, or `null`.
 
@@ -34,8 +34,8 @@ Place the raw video at `bench/<venue>/walkthrough.mp4` (not committed) or pass `
 ## Running
 
 ```
-python -m walktwin.benchmark run --venue bench/office --modes static,static_hifps,agentic,agentic_loop
+PYTHONPATH=backend python -m walktwin.benchmark run --venue bench/office --modes static,static_hifps,agentic,agentic_loop
 ```
 
-Writes `runtime/bench/<venue>.json` (one score per mode) and receipts in `runtime/bench/receipts/`.
+Writes `runtime/bench/<venue>.json` after each mode (one row per mode; the `agentic_loop` receipt is the agentic extraction it started from; geometry is "unavailable" with a reason when SfM failed) and receipts in `runtime/bench/receipts/`.
 Needs `GEMINI_API_KEY`. Only numbers this CLI produces may be reported.

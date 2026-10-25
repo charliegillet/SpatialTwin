@@ -17,10 +17,10 @@ Full runbook, script, checklists and fallbacks: [docs/DEMO.md](docs/DEMO.md).
 To run: set `GEMINI_API_KEY` in `.env` (see `.env.example`), build the frontend with `cd frontend && npm ci && npm run build`, then from the repo root:
 
 ```
-PYTHONPATH=backend .venv/bin/uvicorn walktwin.api:app --host 0.0.0.0 --port 8000
+PYTHONPATH=backend uvicorn walktwin.api:app --host 0.0.0.0 --port 8000
 ```
 
-Open `http://<laptop-ip>:8000` on the laptop or the phone. Live probes: `python tools/probe.py all` (live: pending key).
+Open `http://<laptop-ip>:8000` on the laptop or the phone. Live probes: `python tools/probe.py all --clip runtime/probe_clip.mp4`, run from the repo root with `PYTHONPATH=backend` in the project virtualenv (live: pending key).
 
 ## Limits
 
@@ -53,4 +53,4 @@ live: pending key. No benchmark has been run yet; numbers will be pasted here on
 
 ## Session API (Task 14)
 
-From the repo root: `PYTHONPATH=backend .venv/bin/uvicorn walktwin.api:app --port 8000`. It serves `/api/*` and, if built, `frontend/dist` (mounted last). Session state is written to `runtime/sessions/<id>/session.json`.
+From the repo root: `PYTHONPATH=backend uvicorn walktwin.api:app --port 8000` in the project virtualenv. It serves `/api/*` and, if built, `frontend/dist` (mounted last). Session state is written to `runtime/sessions/<id>/session.json`.
