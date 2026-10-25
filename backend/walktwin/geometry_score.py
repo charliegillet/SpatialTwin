@@ -3,19 +3,27 @@
 Nothing here asks a model anything. Three measurements against the SfM
 reconstruction, through the alignment frozen on iteration 0:
 
-- Illegal crossings. The walker cannot walk through a wall, so every segment
-  of the SfM camera path (projected to graph xy) that crosses a modelled wall
-  away from a door is a timestamped error in the graph. Leaving every zone is
-  also an error, reported once per run of outside frames with edge "outside".
+- Illegal crossings. The walker cannot walk through a wall, so every time the
+  SfM camera path (projected to graph xy) crosses a modelled wall away from a
+  door is a timestamped error in the graph. A crossing needs the path to go
+  from more than CROSSING_DEPTH_M on one side to more than it on the other
+  (hysteresis), so SfM jitter at a wall is not a crossing. Leaving every zone
+  is also an error, reported once per run of outside frames with edge
+  "outside", unless the path leaves (and re-enters) through an exit door: a
+  door with an "OUTSIDE" side, of any kind (Ruling R26).
 - Wall support / unexplained points. Of the SfM points in the wall-height band,
   the share near a modelled wall, and the share outside every zone.
-- Edge alignment, held-out frames only. The twin's floor-wall lines and door
-  jambs are projected through the SfM poses into frames never sent to the
-  critique, and compared with Canny edges by a distance transform (chamfer).
+- Edge alignment, held-out frames only: frames held out from the critique's
+  frame pairs (the critique model may still have seen the whole video). The
+  twin's floor-wall lines and door jambs are projected through the SfM poses
+  and compared with Canny edges by a distance transform (chamfer). Samples
+  hidden behind a modelled wall are culled from the chamfer but counted as
+  misses in `edge_within_5px`, so culling can never raise that share.
   Appearance metrics (SSIM, LPIPS) are deliberately not used.
 
 Walls are zone-rect edges minus door gaps (door position +/- mid width / 2) for
-each door within DOOR_ON_EDGE_M of the edge. Collinear overlapping edges of
+each door within DOOR_ON_EDGE_M of the edge whose along-edge position lies
+strictly inside the edge (so a door at a corner does not cut the other wall). Collinear overlapping edges of
 neighbouring zones count once (the first zone in graph order names them).
 Edge names are "<zone id>.<north|south|east|west>"; north is the +y side.
 
@@ -40,6 +48,7 @@ from walktwin.sfm import Alignment, SfmFrame, SfmResult, from_graph_xyz, height_
 # Declared parameters (model assumptions, not measurements).
 DOOR_ON_EDGE_M = 0.5          # a door within this distance of a rect edge cuts a gap in it
 DOOR_TOLERANCE_M = 0.5        # crossings within this distance of a door gap are tolerated
+CROSSING_DEPTH_M = 0.15       # a crossing goes from beyond this on one side to beyond it on the other
 WALL_NEAR_M = 0.15            # "near a wall" for wall support
 OUTSIDE_M = 0.15              # "outside every zone" beyond this distance from all rects
 WALL_BAND_LOW_M = 0.5         # SfM points counted for wall support: this band above the floor
@@ -49,11 +58,13 @@ SAMPLE_STEP_PX = 5.0          # spacing of projected model samples
 JAMB_HEIGHT_M = 2.0           # door jambs run 0 - 2.0 m at the gap ends
 CANNY_LOW, CANNY_HIGH = 50, 150
 HELDOUT_MIN_GAP_S = 1.0       # held-out frames are this far from every keyframe
+MAX_HELDOUT_FRAMES = 24       # cost cap: at most this many held-out frames, evenly spread
 NEAR_PLANE_M = 0.1            # model geometry closer to the camera than this is skipped
 OCCLUSION_MARGIN_M = 0.05     # a wall must be this much nearer than a sample to hide it
 HELDOUT_MATCH_S = 0.05        # a held-out t_s must match an SfM frame this closely
 REGRESSION_WALL_SUPPORT = 0.02
 REGRESSION_EDGE_WITHIN = 0.05
+REGRESSION_KEPT_FRACTION = 0.2
 
 _COLLINEAR_EPS = 1e-6
 _SIDES = ("north", "south", "east", "west")
@@ -75,7 +86,9 @@ class GeometryScore:
     unexplained_points: float
     edge_chamfer_px: float | None
     edge_within_5px: float | None
-    heldout_t_s: list[float] = field(default_factory=list)
+    heldout_t_s: list[float] = field(default_factory=list)  # frames that contributed samples
+    edge_samples_projected: int | None = None  # in front of the camera and inside the image
+    edge_samples_kept: int | None = None       # of those, not hidden behind a modelled wall
 
 
 # ------------------------------------------------------------------------ walls
@@ -123,8 +136,7 @@ def _door_gaps(graph: VenueGraph, e: _Edge, pad: float) -> list[tuple[float, flo
     for d in graph.doors:
         px, py = d.position
         along, across = (px, py) if e.horizontal else (py, px)
-        off = max(e.lo - along, 0.0, along - e.hi)
-        if math.hypot(off, across - e.c) > DOOR_ON_EDGE_M:
+        if not (e.lo < along < e.hi) or abs(across - e.c) > DOOR_ON_EDGE_M:
             continue
         half = (d.clear_width.low_m + d.clear_width.high_m) / 4 + pad
         gaps.append((along - half, along + half))
@@ -195,22 +207,90 @@ def _dist_outside_rects(xy: np.ndarray, graph: VenueGraph) -> np.ndarray:
 # -------------------------------------------------------------------- crossings
 
 
-def _segment_crossings(p0: np.ndarray, p1: np.ndarray, walls: list[_Edge]) -> list[tuple[float, float, float, str]]:
-    """(segment param, x, y, edge name) for each wall piece the segment p0 -> p1 crosses.
+def _point_seg_dist(p: np.ndarray, a: np.ndarray, b: np.ndarray) -> float:
+    d = b - a
+    L2 = float(d @ d)
+    t = 0.0 if L2 == 0 else min(max(float((p - a) @ d) / L2, 0.0), 1.0)
+    return float(np.linalg.norm(p - (a + t * d)))
 
-    Half-open sign test so a frame lying exactly on a wall is crossed once, and
-    a segment running along a wall does not cross it."""
+
+def _seg_seg_dist(p0: np.ndarray, p1: np.ndarray, q0: np.ndarray, q1: np.ndarray) -> float:
+    def orient(a, b, c):
+        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+    o1, o2 = orient(p0, p1, q0), orient(p0, p1, q1)
+    o3, o4 = orient(q0, q1, p0), orient(q0, q1, p1)
+    if o1 * o2 < 0 and o3 * o4 < 0:
+        return 0.0
+    return min(_point_seg_dist(p0, q0, q1), _point_seg_dist(p1, q0, q1),
+               _point_seg_dist(q0, p0, p1), _point_seg_dist(q1, p0, p1))
+
+
+def _exit_gaps(graph: VenueGraph) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Gap segments of exit doors (an "OUTSIDE" side, any kind: Ruling R26)."""
+    exits = [d for d in graph.doors if "OUTSIDE" in (d.a, d.b)]
+    if not exits:
+        return []
+    sub = graph.model_copy(update={"doors": exits})
+    out = []
+    for e in _rect_edges(graph):
+        for a, b in _door_gaps(sub, e, 0.0):
+            if e.horizontal:
+                out.append((np.array([a, e.c]), np.array([b, e.c])))
+            else:
+                out.append((np.array([e.c, a]), np.array([e.c, b])))
+    return out
+
+
+def _outside_crossings(graph: VenueGraph, t: np.ndarray, xy: np.ndarray, outside: np.ndarray) -> list[Crossing]:
+    """One crossing per maximal run of outside frames, unless every boundary
+    segment of the run (leaving, re-entering) passes through an exit door gap."""
+    gaps = _exit_gaps(graph)
+    n, out, i = len(t), [], 0
+    while i < n:
+        if not outside[i]:
+            i += 1
+            continue
+        j = i
+        while j + 1 < n and outside[j + 1]:
+            j += 1
+        bounds = ([(i - 1, i)] if i > 0 else []) + ([(j, j + 1)] if j + 1 < n else [])
+        legal = bool(bounds) and all(
+            any(_seg_seg_dist(xy[a], xy[b], g0, g1) <= DOOR_TOLERANCE_M for g0, g1 in gaps)
+            for a, b in bounds)
+        if not legal:
+            t_s = (t[i - 1] + t[i]) / 2 if i > 0 else t[i]
+            out.append(Crossing(t_s=float(t_s), x=float(xy[i, 0]), y=float(xy[i, 1]), edge="outside"))
+        i = j + 1
+    return out
+
+
+def _wall_crossings(walls: list[_Edge], t: np.ndarray, xy: np.ndarray, outside: np.ndarray) -> list[Crossing]:
+    """Hysteresis per wall piece: a crossing is a change of confident side (more
+    than CROSSING_DEPTH_M from the wall line), located at the last actual sign
+    change of the path in between and counted if that point lies on the piece.
+    Outside frames break the chain (they are scored as "outside" runs)."""
     out = []
     for w in walls:
-        a0, a1 = (p0[1], p1[1]) if w.horizontal else (p0[0], p1[0])
-        d0, d1 = a0 - w.c, a1 - w.c
-        if (d0 < 0) == (d1 < 0) or d0 == d1:
-            continue
-        s = d0 / (d0 - d1)
-        q = p0 + s * (p1 - p0)
-        along = q[0] if w.horizontal else q[1]
-        if w.lo <= along <= w.hi:
-            out.append((float(s), float(q[0]), float(q[1]), w.name))
+        d = (xy[:, 1] if w.horizontal else xy[:, 0]) - w.c
+        side, last = None, None
+        for m in range(len(t)):
+            if outside[m]:
+                side = last = None
+                continue
+            if abs(d[m]) <= CROSSING_DEPTH_M:
+                continue  # within the depth band: keep the last confident side
+            s = bool(d[m] > 0)
+            if side is not None and s != side:
+                for k in range(m - 1, last - 1, -1):
+                    if (d[k] < 0) != (d[k + 1] < 0):
+                        f = d[k] / (d[k] - d[k + 1])
+                        q = xy[k] + f * (xy[k + 1] - xy[k])
+                        along = q[0] if w.horizontal else q[1]
+                        if w.lo <= along <= w.hi:
+                            out.append(Crossing(t_s=float((t[k] + t[k + 1]) / 2), x=float(q[0]),
+                                                y=float(q[1]), edge=w.name))
+                        break
+            side, last = s, m
     return out
 
 
@@ -219,25 +299,8 @@ def _crossings(graph: VenueGraph, frames: list[SfmFrame], xy: np.ndarray) -> lis
         return []
     t = np.array([f.t_s for f in frames], float)
     outside = _dist_outside_rects(xy, graph) > OUTSIDE_M
-    walls = _walls(graph, pad=DOOR_TOLERANCE_M)
-    out: list[Crossing] = []
-    # one "outside" crossing per maximal run of outside frames
-    i = 0
-    while i < len(frames):
-        if not outside[i]:
-            i += 1
-            continue
-        t_s = (t[i - 1] + t[i]) / 2 if i > 0 else t[i]
-        out.append(Crossing(t_s=float(t_s), x=float(xy[i, 0]), y=float(xy[i, 1]), edge="outside"))
-        while i < len(frames) and outside[i]:
-            i += 1
-    # wall crossings on segments with both ends inside (or near) some zone
-    for k in range(len(frames) - 1):
-        if outside[k] or outside[k + 1]:
-            continue
-        t_mid = float((t[k] + t[k + 1]) / 2)
-        for _, x, y, name in _segment_crossings(xy[k], xy[k + 1], walls):
-            out.append(Crossing(t_s=t_mid, x=x, y=y, edge=name))
+    out = (_outside_crossings(graph, t, xy, outside)
+           + _wall_crossings(_walls(graph, pad=DOOR_TOLERANCE_M), t, xy, outside))
     out.sort(key=lambda c: c.t_s)
     return out
 
@@ -318,19 +381,28 @@ def _occluded(cam_xy: np.ndarray, q: np.ndarray, walls: list[_Edge]) -> np.ndarr
 
 def _model_samples(frame: SfmFrame, alignment: Alignment, walls: list[_Edge],
                    jambs: list[tuple[float, float]], width: int, height: int) -> np.ndarray:
-    """Pixel samples (N, 2), every SAMPLE_STEP_PX, of the visible floor-wall lines and
-    door jambs. Pixel centres follow COLMAP: pixel (i, j) covers [j, j+1) x [i, i+1)."""
+    """The visible (not culled) samples of `_project_model`."""
+    uv, visible = _project_model(frame, alignment, walls, jambs, width, height)
+    return uv[visible]
+
+
+def _project_model(frame: SfmFrame, alignment: Alignment, walls: list[_Edge],
+                   jambs: list[tuple[float, float]], width: int,
+                   height: int) -> tuple[np.ndarray, np.ndarray]:
+    """Pixel samples (N, 2), every SAMPLE_STEP_PX, of the floor-wall lines and door
+    jambs in front of the camera and inside the image, plus a mask of those not
+    hidden behind a modelled wall. Pixel (i, j) covers [j, j+1) x [i, i+1) (COLMAP)."""
     segs = [((w.lo, w.c, 0.0), (w.hi, w.c, 0.0)) if w.horizontal else ((w.c, w.lo, 0.0), (w.c, w.hi, 0.0))
             for w in walls]
     segs += [((x, y, 0.0), (x, y, JAMB_HEIGHT_M)) for x, y in jambs]
     if not segs:
-        return np.zeros((0, 2))
+        return np.zeros((0, 2)), np.zeros(0, bool)
     R = np.asarray(frame.R, float)
     Km = np.asarray(frame.K, float)
     c = np.asarray(frame.center, float)
     cam_xy = np.array(to_graph_xy(alignment, c))
     near = NEAR_PLANE_M / alignment.scale
-    out = []
+    out, vis = [], []
     for A, B in segs:
         a = R.T @ (np.array(from_graph_xyz(alignment, *A)) - c)
         b = R.T @ (np.array(from_graph_xyz(alignment, *B)) - c)
@@ -355,19 +427,38 @@ def _model_samples(frame: SfmFrame, alignment: Alignment, walls: list[_Edge],
         za, zb = a3[2], b3[2]
         t3 = t0 + (s * za / ((1 - s) * zb + s * za)) * (t1 - t0)
         q = np.asarray(A[:2]) + t3[:, None] * (np.asarray(B[:2]) - np.asarray(A[:2]))
-        keep = ((uv[:, 0] >= 0) & (uv[:, 0] < width) & (uv[:, 1] >= 0) & (uv[:, 1] < height)
-                & ~_occluded(cam_xy, q, walls))
-        out.append(uv[keep])
-    return np.vstack(out) if out else np.zeros((0, 2))
+        inside = (uv[:, 0] >= 0) & (uv[:, 0] < width) & (uv[:, 1] >= 0) & (uv[:, 1] < height)
+        out.append(uv[inside])
+        vis.append(~_occluded(cam_xy, q[inside], walls))
+    if not out:
+        return np.zeros((0, 2)), np.zeros(0, bool)
+    return np.vstack(out), np.concatenate(vis)
+
+
+@dataclass(frozen=True)
+class _EdgeResult:
+    chamfer_px: float | None
+    within: float | None
+    projected: int
+    kept: int
+    t_s: list[float]
+
+
+def _stride(ts: Sequence[float], cap: int) -> list[float]:
+    ts = list(ts)
+    if len(ts) <= cap:
+        return ts
+    idx = np.unique(np.round(np.linspace(0, len(ts) - 1, cap)).astype(int))
+    return [ts[i] for i in idx]
 
 
 def _edge_alignment(graph: VenueGraph, sfm: SfmResult, alignment: Alignment,
-                    video: PreparedVideo, heldout_t_s: Sequence[float]) -> tuple[float | None, float | None]:
+                    video: PreparedVideo, heldout_t_s: Sequence[float]) -> _EdgeResult:
     walls, jambs = _walls(graph), _jambs(graph)
     ts = np.array([f.t_s for f in sfm.frames], float)
-    dists = []
+    kept_d, projected, used = [], 0, []
     with tempfile.TemporaryDirectory(prefix="walktwin-geom-") as tmp:
-        for k, t in enumerate(heldout_t_s):
+        for k, t in enumerate(_stride(heldout_t_s, MAX_HELDOUT_FRAMES)):
             if len(ts) == 0:
                 break
             i = int(np.argmin(np.abs(ts - t)))
@@ -380,23 +471,29 @@ def _edge_alignment(graph: VenueGraph, sfm: SfmResult, alignment: Alignment,
             edges = cv2.Canny(img, CANNY_LOW, CANNY_HIGH)
             if not edges.any():
                 continue  # no image edges: nothing to measure against
-            dt = cv2.distanceTransform(255 - edges, cv2.DIST_L2, cv2.DIST_MASK_PRECISE)
-            uv = _model_samples(sfm.frames[i], alignment, walls, jambs, img.shape[1], img.shape[0])
+            uv, visible = _project_model(sfm.frames[i], alignment, walls, jambs, img.shape[1], img.shape[0])
             if len(uv) == 0:
                 continue
-            j = np.floor(uv).astype(int)
-            dists.append(dt[j[:, 1], j[:, 0]])
-    if not dists:
-        return None, None
-    d = np.concatenate(dists)
-    return float(d.mean()), float((d <= EDGE_WITHIN_PX).mean())
+            dt = cv2.distanceTransform(255 - edges, cv2.DIST_L2, cv2.DIST_MASK_PRECISE)
+            j = np.floor(uv[visible]).astype(int)
+            kept_d.append(dt[j[:, 1], j[:, 0]])
+            projected += len(uv)
+            used.append(float(t))
+    if projected == 0:
+        return _EdgeResult(None, None, 0, 0, [])
+    d = np.concatenate(kept_d)
+    chamfer = float(d.mean()) if len(d) else None
+    # culled samples count as misses: the share is over every projected sample
+    within = float((d <= EDGE_WITHIN_PX).sum() / projected)
+    return _EdgeResult(chamfer, within, projected, len(d), used)
 
 
 # ----------------------------------------------------------------------- public
 
 
 def select_heldout_t_s(sfm: SfmResult, graph: VenueGraph) -> list[float]:
-    """SfM frame times more than HELDOUT_MIN_GAP_S from every keyframe (never critiqued)."""
+    """SfM frame times more than HELDOUT_MIN_GAP_S from every keyframe: frames held
+    out from the critique's frame pairs."""
     kts = np.array([k.t_s for k in graph.keyframes], float)
     out = []
     for f in sorted(sfm.frames, key=lambda f: f.t_s):
@@ -412,30 +509,45 @@ def score_geometry(graph: VenueGraph, sfm: SfmResult, alignment: Alignment,
     frames = sorted(sfm.frames, key=lambda f: f.t_s)
     xy = np.array([to_graph_xy(alignment, f.center) for f in frames], float).reshape(-1, 2)
     support, unexplained = _point_scores(graph, sfm, alignment)
-    chamfer = within = None
+    edge = None
     if video is not None and heldout_t_s:
-        chamfer, within = _edge_alignment(graph, sfm, alignment, video, heldout_t_s)
+        edge = _edge_alignment(graph, sfm, alignment, video, heldout_t_s)
     return GeometryScore(
         alignment_hash=alignment.hash,
         illegal_crossings=_crossings(graph, frames, xy),
         wall_support=support,
         unexplained_points=unexplained,
-        edge_chamfer_px=chamfer,
-        edge_within_5px=within,
-        heldout_t_s=[float(t) for t in heldout_t_s],
+        edge_chamfer_px=edge.chamfer_px if edge else None,
+        edge_within_5px=edge.within if edge else None,
+        heldout_t_s=edge.t_s if edge else [],
+        edge_samples_projected=edge.projected if edge else None,
+        edge_samples_kept=edge.kept if edge else None,
     )
 
 
 def is_regression(before: GeometryScore, after: GeometryScore) -> bool:
-    """True if `after` measures worse than `before`. Scores under different
-    alignments are not comparable: ValueError."""
+    """True if `after` measures worse than `before`: more crossings, wall support
+    down > 0.02, edge_within_5px down > 0.05 or lost, or the share of edge samples
+    kept after culling down > 0.2. Scores under different alignments are not
+    comparable: ValueError."""
     if before.alignment_hash != after.alignment_hash:
         raise ValueError("alignment_mismatch: scores were measured under different alignments")
     if len(after.illegal_crossings) > len(before.illegal_crossings):
         return True
     if after.wall_support < before.wall_support - REGRESSION_WALL_SUPPORT:
         return True
-    if (before.edge_within_5px is not None and after.edge_within_5px is not None
-            and after.edge_within_5px < before.edge_within_5px - REGRESSION_EDGE_WITHIN):
+    if before.edge_within_5px is not None:
+        if after.edge_within_5px is None:
+            return True  # the edge measurement was lost (e.g. everything culled)
+        if after.edge_within_5px < before.edge_within_5px - REGRESSION_EDGE_WITHIN:
+            return True
+    kb, ka = _kept_fraction(before), _kept_fraction(after)
+    if kb is not None and ka is not None and ka < kb - REGRESSION_KEPT_FRACTION:
         return True
     return False
+
+
+def _kept_fraction(s: GeometryScore) -> float | None:
+    if not s.edge_samples_projected or s.edge_samples_kept is None:
+        return None
+    return s.edge_samples_kept / s.edge_samples_projected
