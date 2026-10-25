@@ -111,7 +111,7 @@ def render_overlay(image_bytes: bytes, draft: VenueDraftV1, result: CompileResul
         base = base.resize((max(1, round(src_w * shrink)), max(1, round(src_h * shrink))), Image.LANCZOS)
     width, height = base.size
     unit = max(1.0, min(width, height) / 700)             # line weights and fonts scale with the picture
-    font, small = _font(14 * unit), _font(11 * unit)
+    small = _font(11 * unit)
 
     # The compiler's frame works in the original pixels; scale into the possibly shrunk image.
     frame = _Frame(SourceImage(src_w, src_h, ""), draft)

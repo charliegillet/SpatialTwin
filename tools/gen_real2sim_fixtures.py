@@ -171,10 +171,12 @@ def build_office() -> Tuple[Image.Image, dict, dict]:
                   for key, room, x, y, o, w, kind, label in exits],
         "you_are_here": c.pt(*yah), "unreadable": [], "notes": "Synthetic evacuation map drawn by our tool.",
     }
-    meta = {"fixture_id": "evac-office", "title": "Evacuation map: nine-room office floor", "source_kind": "pdf",
+    # source_kind "photo": a PNG standing in for a photo of a posted map (it is not a PDF).
+    meta = {"fixture_id": "evac-office", "title": "Evacuation map: nine-room office floor", "source_kind": "photo",
             "provenance": "synthetic", "recorded_at": None, "interaction_id_hash": None,
-            "note": "Synthetic image drawn by tools/gen_real2sim_fixtures.py; draft.json is what a perfect reading "
-                    "would return. Not a photograph and not a recorded Gemini run."}
+            "note": "Synthetic PNG drawn by tools/gen_real2sim_fixtures.py, standing in for a photo of a posted map; "
+                    "draft.json is what a perfect reading would return. Not a real photograph and not a recorded "
+                    "Gemini run."}
     return c.img, draft, meta
 
 
@@ -225,7 +227,8 @@ def build_home() -> Tuple[Image.Image, dict, dict]:
     exits = [
         ("X_FRONT", "LIVING", X0, 290, "v", 58, "door", "Front door"),
         ("X_BACK", "KITCHEN", X1, 290, "v", 58, "door", "Back door"),
-        ("X_WIN", "BED_1", X0, 610, "v", 40, "window", "Escape window"),
+        # Short label: the left margin is ~100 px, so "escape window" would be cut off at the image edge.
+        ("X_WIN", "BED_1", X0, 610, "v", 40, "window", "Window"),
     ]
     def wall(x0, y0, x1, y1):
         """Draw a wall as pen strokes with gaps wherever a door or exit lies on it."""

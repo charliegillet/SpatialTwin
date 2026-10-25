@@ -3,14 +3,20 @@
 Free set F = doors the planner may open (planner_can_open, default closed, not gas-locked). All 2^|F| states are
 solved with the forked v2 solver and checked independently; the best checker-valid state wins. AI is not involved:
 the plan is hypothetical and local (provenance local_door_planner_v1).
+
+``evaluate_with_faults`` evaluates one door-state candidate under declared faults (a door stuck closed, an exit
+blocked from t=0, a partial jam as a throughput multiplier). It is the same enumeration ``plan_doors`` uses, so a
+fault-free evaluation is the planner's own number; the agent team uses it to re-verify every number an agent
+claims and as the offline robustness lane. Faults only remove or slow capacity; they never add any.
 """
 from __future__ import annotations
 
 import itertools
+import math
 import time
 from collections import OrderedDict
-from dataclasses import replace
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass, field, replace
+from typing import Any, Dict, FrozenSet, Iterator, List, Mapping, Optional, Tuple
 from uuid import uuid4
 
 from backend.app.hazard.announce import build_announcement
@@ -30,7 +36,8 @@ EXIT_CODE = {"green_flash": "F", "green": "g", "red_x": "X", "red_static": "S"}
 
 MIN_PIXELS = 24
 # Bounded: compiled venues each add a geometry revision.
-_NO_HAZARD_CACHE: "OrderedDict[Tuple[str, int], int]" = OrderedDict()
+# Keyed by venue id too: two venues may share a geometry revision string.
+_NO_HAZARD_CACHE: "OrderedDict[Tuple[str, str, int], int]" = OrderedDict()
 _NO_HAZARD_CACHE_SIZE = 64
 
 
@@ -132,7 +139,7 @@ def _decompose_routes(venue: VenueV2, outcome: SolveOutcome, multipliers: Dict[s
 
 
 def _no_hazard_completed(venue: VenueV2, solver: FlowSolverV2, horizon: int) -> int:
-    key = (venue.geometry_revision, horizon)
+    key = (venue.venue_id, venue.geometry_revision, horizon)
     if key in _NO_HAZARD_CACHE:
         _NO_HAZARD_CACHE.move_to_end(key)
         return _NO_HAZARD_CACHE[key]
@@ -144,28 +151,216 @@ def _no_hazard_completed(venue: VenueV2, solver: FlowSolverV2, horizon: int) -> 
     return completed
 
 
-def plan_doors(venue: VenueV2, request: DoorPlanRequest) -> DoorPlanResponse:
-    started = time.perf_counter()
-    horizon, hazards = resolve_request(venue, request)
-    dt = venue.time_step_seconds
-    fx: HazardEffects = compute_effects(venue, hazards, horizon)
-    solver = FlowSolverV2(venue)
+# --- Candidate evaluation (shared by plan_doors, evaluate_with_faults and the robustness sweep) ---------------
 
+MAX_FAULT_TERMS = 8  # elements named in one Faults value; the agent's scenario grammar allows at most 3
+
+
+@dataclass(frozen=True)
+class Faults:
+    """Declared faults layered on a hazard scenario; every one only removes or slows capacity.
+
+    * ``stuck_closed``: doors that cannot open for the whole horizon (whatever the candidate says);
+    * ``blocked_exits``: exits blocked from t=0;
+    * ``jams``: (door or exit id, throughput factor in (0, 1)) pairs; the factor multiplies any hazard slowdown
+      already on that element (a half-jammed door in smoke passes x0.25), travel time is unchanged.
+    """
+
+    stuck_closed: FrozenSet[str] = frozenset()
+    blocked_exits: FrozenSet[str] = frozenset()
+    jams: Tuple[Tuple[str, float], ...] = ()
+
+    @property
+    def empty(self) -> bool:
+        return not (self.stuck_closed or self.blocked_exits or self.jams)
+
+    def canonical(self) -> dict:
+        return {"stuck_closed": sorted(self.stuck_closed), "blocked_exits": sorted(self.blocked_exits),
+                "jams": sorted([element, factor] for element, factor in self.jams)}
+
+
+NO_FAULTS = Faults()
+
+
+@dataclass
+class PlanContext:
+    """One resolved hazard scenario: effects, solver and the free set, reused across candidates and faults."""
+
+    venue: VenueV2
+    horizon: int
+    hazards: List[dict]
+    fx: HazardEffects
+    solver: FlowSolverV2
+    default_closed: FrozenSet[str]
+    free: List[str]
+    _cache: Dict[Any, dict] = field(default_factory=dict, repr=False)
+
+
+def plan_context_resolved(venue: VenueV2, horizon: int, hazards: List[dict]) -> PlanContext:
+    """Context from already-resolved hazards (id, type, zone_id, untenable_s, ...), as ``resolve_request`` returns."""
+    fx: HazardEffects = compute_effects(venue, hazards, horizon)
     default_closed = frozenset(d.id for d in venue.doors if d.default_state == "closed")
     free = sorted(d.id for d in venue.doors
                   if d.planner_can_open and d.default_state == "closed" and d.id not in fx.gas_locked_doors)
+    return PlanContext(venue=venue, horizon=horizon, hazards=hazards, fx=fx, solver=FlowSolverV2(venue),
+                       default_closed=default_closed, free=free)
+
+
+def plan_context(venue: VenueV2, request: DoorPlanRequest) -> PlanContext:
+    horizon, hazards = resolve_request(venue, request)
+    return plan_context_resolved(venue, horizon, hazards)
+
+
+def free_states(free: List[str]) -> Iterator[FrozenSet[str]]:
+    """Every open/closed state of the free set, as the set of opened doors, in the planner's fixed order."""
+    for bits in itertools.product((False, True), repeat=len(free)):
+        yield frozenset(d for d, on in zip(free, bits) if on)
+
+
+def validate_faults(venue: VenueV2, faults: Faults) -> None:
+    doors = {d.id for d in venue.doors}
+    exits = {e.id for e in venue.exits}
+    if len(faults.stuck_closed) + len(faults.blocked_exits) + len(faults.jams) > MAX_FAULT_TERMS:
+        raise DoorPlanError("too_many_faults")
+    if any(door not in doors for door in faults.stuck_closed):
+        raise DoorPlanError("unknown_fault_door")
+    if any(exit_id not in exits for exit_id in faults.blocked_exits):
+        raise DoorPlanError("unknown_fault_exit")
+    seen = set()
+    for element, factor in faults.jams:
+        if element not in doors and element not in exits:
+            raise DoorPlanError("unknown_fault_element")
+        if element in seen:
+            raise DoorPlanError("duplicate_fault_element")
+        seen.add(element)
+        if type(factor) not in (int, float) or not math.isfinite(factor) or not 0 < factor < 1:
+            raise DoorPlanError("invalid_jam_factor")
+
+
+def apply_faults(ctx: PlanContext, opened: FrozenSet[str], faults: Faults = NO_FAULTS) -> SolveInputs:
+    """Solver inputs for one candidate. Without faults this is exactly the planner's own input."""
+    inputs = replace(ctx.fx.inputs_base, closed_doors=ctx.default_closed - opened)
+    if faults.empty:
+        return inputs
+    exit_closed = dict(inputs.exit_closed_from)
+    for exit_id in faults.blocked_exits:
+        exit_closed[exit_id] = 0
+    multipliers = dict(inputs.multipliers)
+    for element, factor in faults.jams:
+        thr, trv = multipliers.get(element, (1.0, 1.0))
+        multipliers[element] = (thr * float(factor), trv)
+    return replace(inputs, closed_doors=inputs.closed_doors | faults.stuck_closed,
+                   exit_closed_from=exit_closed, multipliers=multipliers)
+
+
+def _rank_key(candidate: dict) -> tuple:
+    return (not candidate["valid"], -candidate["outcome"].completed_crossings, candidate["exposure"],
+            len(candidate["opened"]), tuple(sorted(candidate["opened"])))
+
+
+def evaluate_candidate(ctx: PlanContext, opened: FrozenSet[str], faults: Faults = NO_FAULTS) -> dict:
+    """Solve and independently check one candidate; cached per context (the solver is deterministic)."""
+    key = (opened, faults.stuck_closed, faults.blocked_exits, tuple(sorted(faults.jams)))
+    cached = ctx._cache.get(key)
+    if cached is not None:
+        return cached
+    outcome = ctx.solver.solve(apply_faults(ctx, opened, faults), ctx.horizon)
+    candidate = {"opened": opened, "outcome": outcome, "valid": outcome.validator_report["is_valid"],
+                 "exposure": _exposure(outcome, ctx.fx.hazard_zone_types)}
+    ctx._cache[key] = candidate
+    return candidate
+
+
+def evaluate_states(ctx: PlanContext, faults: Faults = NO_FAULTS) -> List[dict]:
+    """Every free-set state under ``faults``, ranked like the planner (valid, crossings, exposure, fewest opened)."""
+    candidates = [evaluate_candidate(ctx, opened, faults) for opened in free_states(ctx.free)]
+    candidates.sort(key=_rank_key)
+    return candidates
+
+
+@dataclass(frozen=True)
+class FaultOutcome:
+    """Checked outcome of one door-state candidate under declared faults. Modeled crossings, never survival."""
+
+    door_states: Dict[str, str]
+    faults: Dict[str, Any]
+    completed_crossings: int
+    initial_population: int
+    remaining_population: int
+    modeled_exposure_people_seconds: int
+    is_valid: bool
+    candidate_hash: str
+    status: str
+    exit_breakdown: Dict[str, int]
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {"door_states": dict(self.door_states), "faults": self.faults,
+                "completed_crossings": self.completed_crossings, "initial_population": self.initial_population,
+                "remaining_population": self.remaining_population,
+                "modeled_exposure_people_seconds": self.modeled_exposure_people_seconds,
+                "is_valid": self.is_valid, "candidate_hash": self.candidate_hash, "status": self.status,
+                "exit_breakdown": dict(self.exit_breakdown)}
+
+
+def opened_from_states(ctx: PlanContext, door_states: Mapping[str, Any]) -> FrozenSet[str]:
+    """Strict: exactly the free doors, each 'open' or 'closed'."""
+    if not isinstance(door_states, Mapping) or set(door_states) != set(ctx.free):
+        raise DoorPlanError("invalid_door_states")
+    if any(type(state) is not str or state not in ("open", "closed") for state in door_states.values()):
+        raise DoorPlanError("invalid_door_states")
+    return frozenset(door for door, state in door_states.items() if state == "open")
+
+
+def fault_outcome(ctx: PlanContext, candidate: dict, faults: Faults = NO_FAULTS) -> FaultOutcome:
+    outcome: SolveOutcome = candidate["outcome"]
+    return FaultOutcome(
+        door_states={d: ("open" if d in candidate["opened"] else "closed") for d in ctx.free},
+        faults=faults.canonical(), completed_crossings=outcome.completed_crossings,
+        initial_population=outcome.initial_population, remaining_population=outcome.remaining_population,
+        modeled_exposure_people_seconds=candidate["exposure"], is_valid=candidate["valid"],
+        candidate_hash=outcome.candidate_hash, status=outcome.status, exit_breakdown=dict(outcome.exit_breakdown))
+
+
+def evaluate_with_faults(venue: VenueV2, request: Optional[DoorPlanRequest], door_states: Mapping[str, Any],
+                         faults: Optional[Faults] = None, *, context: Optional[PlanContext] = None) -> FaultOutcome:
+    """Evaluate one door-state candidate (exactly the free doors) under ``faults``.
+
+    With no faults the number equals the planner's own alternative for that state. Pass ``context`` to reuse one
+    resolved scenario across many calls (the robustness sweep and claim verification do).
+    """
+    ctx = context if context is not None else plan_context(venue, request)
+    faults = faults or NO_FAULTS
+    validate_faults(ctx.venue, faults)
+    opened = opened_from_states(ctx, door_states)
+    return fault_outcome(ctx, evaluate_candidate(ctx, opened, faults), faults)
+
+
+def zone_point(venue: VenueV2, zone_id: str) -> Optional[Tuple[float, float]]:
+    """A point that ``locate_zone`` maps to ``zone_id`` (vertex mean first, then a coarse grid), or None."""
+    zone = next((z for z in venue.zones if z.id == zone_id), None)
+    if zone is None:
+        return None
+    xs = [p[0] for p in zone.polygon]
+    ys = [p[1] for p in zone.polygon]
+    tries = [(sum(xs) / len(xs), sum(ys) / len(ys))]
+    for i in range(1, 8):
+        for j in range(1, 8):
+            tries.append((min(xs) + (max(xs) - min(xs)) * i / 8, min(ys) + (max(ys) - min(ys)) * j / 8))
+    for x, y in tries:
+        if venue.locate_zone(x, y) == zone_id:
+            return (round(x, 3), round(y, 3))
+    return None
+
+
+def plan_doors(venue: VenueV2, request: DoorPlanRequest) -> DoorPlanResponse:
+    started = time.perf_counter()
+    ctx = plan_context(venue, request)
+    horizon, hazards, fx, solver = ctx.horizon, ctx.hazards, ctx.fx, ctx.solver
+    dt = venue.time_step_seconds
+    free = ctx.free
 
     # Enumerate every open/closed state of the free set.
-    candidates: List[dict] = []
-    for bits in itertools.product((False, True), repeat=len(free)):
-        opened = frozenset(d for d, on in zip(free, bits) if on)
-        inputs = replace(fx.inputs_base, closed_doors=default_closed - opened)
-        outcome = solver.solve(inputs, horizon)
-        candidates.append({"opened": opened, "outcome": outcome,
-                           "valid": outcome.validator_report["is_valid"],
-                           "exposure": _exposure(outcome, fx.hazard_zone_types)})
-    candidates.sort(key=lambda c: (not c["valid"], -c["outcome"].completed_crossings, c["exposure"],
-                                   len(c["opened"]), tuple(sorted(c["opened"]))))
+    candidates = evaluate_states(ctx)
     best = candidates[0]
     chosen: SolveOutcome = best["outcome"]
     # With no checker-valid state the doors stay at their defaults on screen and no announcement is made;

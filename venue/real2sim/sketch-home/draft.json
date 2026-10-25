@@ -235,7 +235,7 @@
       ],
       "width_m": null,
       "kind": "window",
-      "label": "Escape window",
+      "label": "Window",
       "confidence": 0.9,
       "evidence": "labelled in the margin"
     }

@@ -1,0 +1,32 @@
+{
+  "inputs-readonly-guardrail": {
+    "enabled": true,
+    "pre_tool_execution": [
+      {
+        "matcher": "code_execution|write_to_file|replace_file_content|delete_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /.agents/hooks-scripts/guard.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
+  "audit-log": {
+    "enabled": true,
+    "post_tool_execution": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /.agents/hooks-scripts/audit.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

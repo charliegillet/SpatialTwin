@@ -14,6 +14,11 @@ class LedgerConflict(Exception):
 PUBLISH_BUSY_TIMEOUT_MS = 5000
 DEFAULT_BUSY_TIMEOUT_MS = 100
 _BUSY_CODES = frozenset({5, 6})  # SQLITE_BUSY, SQLITE_LOCKED
+# Lifecycle receipts per run. Two-lane runs with retries and streaming emit more than the old 64; durable trace rows
+# (one per finished agent step) live in the same table under phase "trace" and are read separately.
+DEFAULT_EVENT_LIMIT = 256
+MAX_EVENT_LIMIT = 1024
+TRACE_PHASE = "trace"
 
 
 def _storage_code(error: sqlite3.Error, busy: str, failed: str) -> str:
@@ -234,13 +239,27 @@ class ManagedLedger:
                 (investigation_id, elapsed_ms, phase, self.encode(data)),
             )
 
-    def events(self, investigation_id: str, limit: int = 64) -> list[dict]:
+    def events(self, investigation_id: str, limit: int = DEFAULT_EVENT_LIMIT, *,
+               phases: tuple[str, ...] | None = None, exclude_phases: tuple[str, ...] = (TRACE_PHASE,)) -> list[dict]:
+        """The newest ``limit`` lifecycle receipts, oldest first. Trace rows are excluded unless asked for."""
+        clauses, params = ["investigation_id=?"], [investigation_id]
+        if phases:
+            clauses.append(f"phase IN ({','.join('?' * len(phases))})")
+            params.extend(phases)
+        if exclude_phases:
+            clauses.append(f"phase NOT IN ({','.join('?' * len(exclude_phases))})")
+            params.extend(exclude_phases)
+        params.append(max(1, min(MAX_EVENT_LIMIT, limit)))
         with self._lock:
             rows = self._connection.execute(
-                "SELECT elapsed_ms, phase, data_json FROM managed_events_v1 WHERE investigation_id=? ORDER BY event_id DESC LIMIT ?",
-                (investigation_id, max(1, min(64, limit))),
+                "SELECT elapsed_ms, phase, data_json FROM managed_events_v1 WHERE " + " AND ".join(clauses)
+                + " ORDER BY event_id DESC LIMIT ?", params,
             ).fetchall()
             return [{"elapsed_ms": row["elapsed_ms"], "phase": row["phase"], **json.loads(row["data_json"])} for row in reversed(rows)]
+
+    def trace_events(self, investigation_id: str, limit: int = MAX_EVENT_LIMIT) -> list[dict]:
+        """Durable trace rows (phase ``trace``), oldest first; each carries its stream ``seq``."""
+        return self.events(investigation_id, limit, phases=(TRACE_PHASE,), exclude_phases=())
 
     def close(self) -> None:
         with self._lock:

@@ -1,0 +1,177 @@
+"""Fault-scenario grammar shared by the local checker and the agent sandbox (standard library only).
+
+``tools/build_sandbox_kit.py`` copies this file verbatim into the sandbox kit, so a scenario string an agent writes
+in the sandbox means exactly what the local checker re-evaluates. Grammar (terms joined with ``+``, at most 3):
+
+    baseline                      the declared hazards, no fault (only on its own)
+    stuck_closed:<DOOR>           a door that cannot open for the whole horizon
+    exit_blocked:<EXIT>           an exit blocked from t=0
+    jam:<DOOR|EXIT>@<FACTOR>      throughput x FACTOR on that element, 0 < FACTOR < 1, at most 2 decimals
+    untenable:<HAZARD_ID>=<S>     a declared hazard's untenable time set to S seconds (sensitivity)
+    second_hazard:<TYPE>@<ZONE>   one more hazard of TYPE in ZONE (whole-zone model)
+
+Element ids follow the venue rule ``[A-Z0-9_]+``; hazard ids the request rule ``[A-Za-z0-9_.-]+``. Parsing is
+strict and never guesses: an unknown form raises ``ScenarioError`` with a short code. ``fault_fields`` is the one
+place the fault arithmetic lives for the sandbox; ``backend/app/hazard/door_planner.apply_faults`` is the local
+copy and a test keeps the two identical.
+"""
+from __future__ import annotations
+
+import math
+import re
+from dataclasses import dataclass, field
+from typing import Dict, FrozenSet, List, Optional, Tuple
+
+MAX_TERMS = 3
+MAX_SCENARIO_CHARS = 120
+HAZARD_TYPES = ("FIRE", "SMOKE", "GAS", "CHEMICAL", "WATER")
+_ELEMENT = r"[A-Z0-9_]{1,32}"
+_HAZARD_ID = r"[A-Za-z0-9_.-]{1,64}"
+_TERM_PATTERNS = {
+    "stuck_closed": re.compile(rf"^stuck_closed:({_ELEMENT})$"),
+    "exit_blocked": re.compile(rf"^exit_blocked:({_ELEMENT})$"),
+    "jam": re.compile(rf"^jam:({_ELEMENT})@(0\.\d{{1,2}})$"),
+    "untenable": re.compile(rf"^untenable:({_HAZARD_ID})=(\d{{1,3}})$"),
+    "second_hazard": re.compile(rf"^second_hazard:({'|'.join(HAZARD_TYPES)})@({_ELEMENT})$"),
+}
+
+
+class ScenarioError(ValueError):
+    """Carries only a short code."""
+
+
+@dataclass(frozen=True)
+class Scenario:
+    """A parsed scenario. ``label`` is the canonical spelling (terms sorted), used as its identity."""
+
+    label: str
+    stuck_closed: FrozenSet[str] = frozenset()
+    blocked_exits: FrozenSet[str] = frozenset()
+    jams: Tuple[Tuple[str, float], ...] = ()
+    untenable: Tuple[Tuple[str, int], ...] = ()
+    second_hazard: Optional[Tuple[str, str]] = None  # (type, zone)
+    terms: Tuple[str, ...] = field(default=())
+
+    @property
+    def is_baseline(self) -> bool:
+        return self.label == "baseline"
+
+    @property
+    def changes_hazards(self) -> bool:
+        return bool(self.untenable or self.second_hazard)
+
+
+def parse_scenario(text: object) -> Scenario:
+    if not isinstance(text, str) or not text.strip():
+        raise ScenarioError("scenario_missing")
+    if len(text) > MAX_SCENARIO_CHARS:
+        raise ScenarioError("scenario_too_long")
+    raw = text.strip()
+    if raw == "baseline":
+        return Scenario(label="baseline", terms=("baseline",))
+    terms = [term.strip() for term in raw.split("+")]
+    if not terms or len(terms) > MAX_TERMS or any(not term for term in terms):
+        raise ScenarioError("scenario_term_count")
+    stuck, blocked, jams, untenable = set(), set(), {}, {}
+    second: Optional[Tuple[str, str]] = None
+    elements_named = set()
+    for term in terms:
+        if term == "baseline":
+            raise ScenarioError("scenario_baseline_not_alone")
+        kind = term.split(":", 1)[0]
+        pattern = _TERM_PATTERNS.get(kind)
+        match = pattern.match(term) if pattern else None
+        if match is None:
+            raise ScenarioError("scenario_unrecognized")
+        if kind in ("stuck_closed", "exit_blocked", "jam"):
+            element = match.group(1)
+            if element in elements_named:
+                raise ScenarioError("scenario_duplicate_element")
+            elements_named.add(element)
+            if kind == "stuck_closed":
+                stuck.add(element)
+            elif kind == "exit_blocked":
+                blocked.add(element)
+            else:
+                factor = float(match.group(2))
+                if not math.isfinite(factor) or not 0 < factor < 1:
+                    raise ScenarioError("scenario_bad_factor")
+                jams[element] = factor
+        elif kind == "untenable":
+            if match.group(1) in untenable:
+                raise ScenarioError("scenario_duplicate_hazard")
+            untenable[match.group(1)] = int(match.group(2))
+        else:
+            if second is not None:
+                raise ScenarioError("scenario_duplicate_hazard")
+            second = (match.group(1), match.group(2))
+    canonical = tuple(sorted(
+        [f"stuck_closed:{d}" for d in stuck] + [f"exit_blocked:{x}" for x in blocked]
+        + [format_jam(e, f) for e, f in jams.items()] + [f"untenable:{h}={s}" for h, s in untenable.items()]
+        + ([f"second_hazard:{second[0]}@{second[1]}"] if second else [])))
+    return Scenario(label="+".join(canonical), stuck_closed=frozenset(stuck), blocked_exits=frozenset(blocked),
+                    jams=tuple(sorted(jams.items())), untenable=tuple(sorted(untenable.items())),
+                    second_hazard=second, terms=canonical)
+
+
+def format_jam(element: str, factor: float) -> str:
+    return f"jam:{element}@{factor:.2f}"
+
+
+def fault_fields(closed_doors: FrozenSet[str], exit_closed_from: Dict[str, int],
+                 multipliers: Dict[str, Tuple[float, float]], scenario: Scenario
+                 ) -> Tuple[FrozenSet[str], Dict[str, int], Dict[str, Tuple[float, float]]]:
+    """Solver input fields after the scenario's faults (stuck doors closed, blocked exits closed from 0, jams
+    multiply throughput). Mirrors ``door_planner.apply_faults``."""
+    if not (scenario.stuck_closed or scenario.blocked_exits or scenario.jams):
+        return closed_doors, exit_closed_from, multipliers
+    exits = dict(exit_closed_from)
+    for exit_id in scenario.blocked_exits:
+        exits[exit_id] = 0
+    mult = dict(multipliers)
+    for element, factor in scenario.jams:
+        thr, trv = mult.get(element, (1.0, 1.0))
+        mult[element] = (thr * float(factor), trv)
+    return frozenset(closed_doors) | scenario.stuck_closed, exits, mult
+
+
+def resolve_untenable(kind: str, explicit: Optional[int], default: Optional[int], horizon: int, dt: int) -> Optional[int]:
+    """Untenable time for a hazard, as ``door_planner.resolve_request`` resolves it (WATER has none)."""
+    if kind == "WATER":
+        return None
+    if explicit is not None:
+        if explicit % dt or not 0 <= explicit < horizon:
+            raise ScenarioError("scenario_bad_untenable")
+        return int(explicit)
+    return None if default is None else min(default, horizon - dt)
+
+
+def scenario_hazards(hazards: List[dict], scenario: Scenario, *, horizon: int, dt: int,
+                     defaults: Dict[str, Optional[int]], zones: FrozenSet[str], max_hazards: int = 6) -> List[dict]:
+    """Resolved hazard list for a scenario that changes hazards (untenable sensitivity or a second hazard).
+
+    ``hazards`` are resolved dicts (id, type, zone_id, untenable_s, ...); ``defaults`` maps a hazard type to the
+    venue's default untenable seconds. The second hazard is named ``sweep-2nd`` (suffixed if that id is taken).
+    """
+    out = [dict(h) for h in hazards]
+    by_id = {h["id"]: h for h in out}
+    for hazard_id, seconds in scenario.untenable:
+        hazard = by_id.get(hazard_id)
+        if hazard is None:
+            raise ScenarioError("scenario_unknown_hazard")
+        if hazard["type"] == "WATER":
+            raise ScenarioError("scenario_untenable_not_applicable")
+        hazard["untenable_s"] = resolve_untenable(hazard["type"], seconds, None, horizon, dt)
+    if scenario.second_hazard is not None:
+        kind, zone = scenario.second_hazard
+        if zone not in zones:
+            raise ScenarioError("scenario_unknown_zone")
+        if len(out) + 1 > max_hazards:
+            raise ScenarioError("scenario_too_many_hazards")
+        name, suffix = "sweep-2nd", 0
+        while name in by_id:
+            suffix += 1
+            name = f"sweep-2nd-{suffix}"
+        out.append({"id": name, "type": kind, "zone_id": zone, "source": "simulated", "proposal_id": None,
+                    "untenable_s": resolve_untenable(kind, None, defaults.get(kind), horizon, dt)})
+    return out
