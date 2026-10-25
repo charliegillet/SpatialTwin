@@ -14,7 +14,7 @@ from google import genai
 from google.genai import types
 from google.genai._gaos.lib.compat_errors import APIConnectionError, APITimeoutError
 from backend.app.contracts import (
-    AlternativeId, EvaluationEnvelope, InvestigationResult, InvestigationStatus,
+    AlternativeId, EvaluationEnvelope, GateObservedState, InvestigationResult, InvestigationStatus,
     RunContext, ToolCallLedgerEntry,
 )
 from backend.app.state.service import ScenarioService
@@ -164,17 +164,29 @@ class ManagedAgentAdapter:
                        context: RunContext) -> dict:
         """Read-only: result comes from the local checker; nothing is persisted or actuated."""
         envelopes = {}
+        baseline_reason = None
         try:
             saved = [ToolCallLedgerEntry.model_validate(e) for e in self.ledger.calls(investigation_id)]
             envelopes = {c.alternative_id: c for c in self._candidates(saved, context)}
+        except InvestigationError as error:
+            baseline_reason = str(error)
         except Exception:
-            envelopes = {}
-        ctx = ToolContext(venue=self.scenario_service.state_manager.venue_graph,
-                          base_context=context, envelopes=envelopes)
+            baseline_reason = "baseline_load_failed"
+        manager = self.scenario_service.state_manager
+        with manager._state_lock:  # read-only snapshot of live state, same basis as the baselines
+            blocked_portals = frozenset(manager.blocked_portals)
+            blocked_boundaries = frozenset(manager.blocked_boundaries)
+            p3_physical_open = manager.physical_gate_state == GateObservedState.OPEN
+        ctx = ToolContext(venue=manager.venue_graph, base_context=context, envelopes=envelopes,
+                          blocked_portals=blocked_portals, blocked_boundaries=blocked_boundaries,
+                          p3_physical_open=p3_physical_open)
         try:
-            return execute_hazard_tool(name, arguments, ctx)
+            result = execute_hazard_tool(name, arguments, ctx)
         except HazardToolError as error:
             raise InvestigationError(error.code) from None
+        if baseline_reason is not None:
+            result["baseline_unavailable_reason"] = baseline_reason
+        return result
 
     def _worker(self, investigation_id: str, call_id: str, name: str,
                 arguments: dict, context: RunContext) -> ToolCallLedgerEntry:
@@ -205,7 +217,17 @@ class ManagedAgentAdapter:
             entry = ToolCallLedgerEntry(call_id=call_id, function_name=name, arguments=arguments,
                 status="failed", result={"error": code}, error=code,
                 execution_time_ms=(time.perf_counter() - start) * 1000)
-        self.ledger.finish_call(investigation_id, call_id, entry.model_dump(mode="json"))
+        try:
+            self.ledger.finish_call(investigation_id, call_id, entry.model_dump(mode="json"))
+        except Exception:
+            # Never leave the call 'requested' forever: record a terminal call error instead.
+            entry = ToolCallLedgerEntry(call_id=call_id, function_name=name, arguments=arguments,
+                status="failed", result={"error": "call_finalization_failed"}, error="call_finalization_failed",
+                execution_time_ms=(time.perf_counter() - start) * 1000)
+            try:
+                self.ledger.finish_call(investigation_id, call_id, entry.model_dump(mode="json"))
+            except Exception:
+                pass  # storage is down; the row stays uncertain and recovery reports tool_execution_uncertain
         return entry
 
     async def _execute_local_tool(self, function_name: str, arguments: dict,
@@ -281,6 +303,8 @@ class ManagedAgentAdapter:
         if entry.function_name == "evaluate_allowed_alternative":
             return summary(result)
         if entry.function_name == "get_checked_comparison":
+            if not all(isinstance(result.get(key), dict) for key in ("context", "keep_current", "open_p3")):
+                raise InvestigationError("invalid_comparison_result")
             return {"context": result["context"], "keep_current": summary(result["keep_current"]),
                     "open_p3": summary(result["open_p3"]),
                     "net_gain_completed": result["open_p3"]["completed_crossings"] - result["keep_current"]["completed_crossings"]}
@@ -451,11 +475,11 @@ class ManagedAgentAdapter:
                     try:
                         interaction = await provider("create", **create_args)
                     except InvestigationError as error:
-                        if self.environment == "remote" or str(error) != "provider_request_rejected":
-                            raise
-                        # Network-deny config rejected: fall back once and record it.
-                        await progress("environment_fallback", requested="network_disabled", used="remote")
-                        interaction = await provider("create", **{**create_args, "environment": "remote"})
+                        if self.environment != "remote" and str(error) == "provider_request_rejected":
+                            # A requested network-deny environment is never downgraded to a networked one.
+                            await progress("network_deny_rejected", requested="network_disabled")
+                            raise InvestigationError("network_deny_rejected") from None
+                        raise
                     while True:
                         remote_active = field(interaction, "status") in ("queued", "in_progress", "requires_action")
                         await observe(interaction)
@@ -586,29 +610,48 @@ class ManagedAgentAdapter:
         if status != InvestigationStatus.COMPLETED:
             recommendation = None
             explanation = "Investigation incomplete. Review the diagnostic code before starting a new investigation."
-        result = InvestigationResult(investigation_id=inv_id, base_context=context, status=status,
-            configured_agent=self.agent, configured_model=self.model, candidate_envelopes=candidates,
-            recommended_alternative=recommendation, tool_ledger=entries, agent_explanation=explanation,
-            token_usage=total_usage(), deadline_seconds=deadline_seconds, errors=errors,
-            provenance=provenance, provider_interaction_id=provider_id,
-            provider_environment_id=environment_id, provider_model=provider_model,
-            last_provider_status=last_provider_status,
-            provider_progress=provider_progress,
-            sdk_version=self.sdk_version, latency_ms=(time.monotonic() - started) * 1000)
-        if owned:
+        published = False
+        try:
             try:
-                await asyncio.wait_for(asyncio.to_thread(self.ledger.finish, inv_id, result.model_dump_json()),
-                                       timeout=max(0.001, overall - time.monotonic()))
-            except asyncio.CancelledError:
-                result = self._terminal_failure(result, InvestigationStatus.CANCELLED, "investigation_cancelled")
-            except TimeoutError:
-                result = self._terminal_failure(result, InvestigationStatus.TIMED_OUT, "investigation_deadline")
+                result = InvestigationResult(investigation_id=inv_id, base_context=context, status=status,
+                    configured_agent=self.agent, configured_model=self.model, candidate_envelopes=candidates,
+                    recommended_alternative=recommendation, tool_ledger=entries, agent_explanation=explanation,
+                    token_usage=total_usage(), deadline_seconds=deadline_seconds, errors=errors,
+                    provenance=provenance, provider_interaction_id=provider_id,
+                    provider_environment_id=environment_id, provider_model=provider_model,
+                    last_provider_status=last_provider_status,
+                    provider_progress=provider_progress,
+                    sdk_version=self.sdk_version, latency_ms=(time.monotonic() - started) * 1000)
             except Exception:
-                result = self._terminal_failure(result, InvestigationStatus.FAILED, "result_persistence_failed")
-            # No await between the locked current-context check, terminal CAS
-            # and return. Late finish threads can only stage unfinished rows.
-            result = self._publish_result(result, overall, started)
-        return result
+                # Fall back to a minimal terminal result so the owner row is still finalized.
+                result = InvestigationResult(investigation_id=inv_id, base_context=context,
+                    status=InvestigationStatus.FAILED, configured_agent=self.agent, configured_model=self.model,
+                    agent_explanation="Investigation incomplete. Review the diagnostic code before starting a new investigation.",
+                    deadline_seconds=deadline_seconds, errors=[*errors[:8], "result_construction_failed"],
+                    provenance=provenance, sdk_version=self.sdk_version,
+                    latency_ms=(time.monotonic() - started) * 1000)
+            if owned:
+                try:
+                    await asyncio.wait_for(asyncio.to_thread(self.ledger.finish, inv_id, result.model_dump_json()),
+                                           timeout=max(0.001, overall - time.monotonic()))
+                except asyncio.CancelledError:
+                    result = self._terminal_failure(result, InvestigationStatus.CANCELLED, "investigation_cancelled")
+                except TimeoutError:
+                    result = self._terminal_failure(result, InvestigationStatus.TIMED_OUT, "investigation_deadline")
+                except Exception:
+                    result = self._terminal_failure(result, InvestigationStatus.FAILED, "result_persistence_failed")
+                # No await between the locked current-context check, terminal CAS
+                # and return. Late finish threads can only stage unfinished rows.
+                result = self._publish_result(result, overall, started)
+                published = True
+            return result
+        finally:
+            if owned and not published:
+                # Never leave the owner row 'running' forever when finalization itself failed.
+                try:
+                    self.ledger.abort(inv_id)
+                except Exception:
+                    pass
 
     async def aclose(self) -> None:
         if self.client:

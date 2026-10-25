@@ -6,6 +6,7 @@ import hashlib
 import json
 import sqlite3
 import threading
+from contextlib import closing
 from typing import List, Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -30,7 +31,7 @@ class EscalationLog:
     def __init__(self, path: str):
         self._path = path
         self._lock = threading.Lock()
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             connection.execute("""
                 CREATE TABLE IF NOT EXISTS review_escalations_v1 (
                     record_id TEXT PRIMARY KEY, context_hash TEXT NOT NULL,
@@ -50,7 +51,7 @@ class EscalationLog:
         candidate = EscalationRecord(record_id=f"esc-{digest[:20]}", created_at_iso=created_at_iso,
                                      context_hash=watch.base_context.context_hash, run_id=watch.run_id,
                                      reasons=watch.escalation_reasons, next_step=watch.next_step)
-        with self._lock, self._connect() as connection:
+        with self._lock, closing(self._connect()) as connection, connection:
             connection.execute(
                 "INSERT OR IGNORE INTO review_escalations_v1 VALUES (?, ?, ?, ?, ?)",
                 (candidate.record_id, candidate.context_hash, candidate.run_id, created_at_iso,
@@ -60,7 +61,7 @@ class EscalationLog:
         return EscalationRecord.model_validate(json.loads(row["record_json"]))
 
     def records(self, limit: int = 32) -> List[EscalationRecord]:
-        with self._lock, self._connect() as connection:
+        with self._lock, closing(self._connect()) as connection, connection:
             rows = connection.execute("SELECT record_json FROM review_escalations_v1 ORDER BY rowid DESC LIMIT ?",
                                       (max(1, min(64, limit)),)).fetchall()
         return [EscalationRecord.model_validate(json.loads(row["record_json"])) for row in rows]

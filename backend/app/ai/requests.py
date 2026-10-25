@@ -1,7 +1,10 @@
 """Typed public intake: preserve the original capture context and timestamp."""
+from datetime import datetime
 from typing import Literal, Optional, Tuple
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from backend.app.contracts import EntityType, RunContext, TargetId
+
+MAX_DIMENSION = 8192
 
 
 class GroundingRequest(BaseModel):
@@ -22,6 +25,25 @@ class GroundingRequest(BaseModel):
     video_base64: Optional[str] = Field(default=None, max_length=12_000_000)
     video_mime: Literal["video/mp4", "video/webm"] = "video/mp4"
     video_duration_seconds: Optional[float] = Field(default=None, ge=0, le=3600, allow_inf_nan=False)
+
+    @field_validator("timestamp_iso")
+    @classmethod
+    def timestamp_is_aware_iso(cls, value: str) -> str:
+        # Parsed here so later staleness checks never meet an unparseable or timezone-less capture time.
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            raise ValueError("timestamp_iso must be an ISO-8601 timestamp") from None
+        if parsed.tzinfo is None:
+            raise ValueError("timestamp_iso must include a timezone")
+        return value
+
+    @field_validator("dimensions")
+    @classmethod
+    def dimensions_are_bounded(cls, value: Tuple[int, int]) -> Tuple[int, int]:
+        if any(not 1 <= side <= MAX_DIMENSION for side in value):
+            raise ValueError(f"dimensions must be between 1 and {MAX_DIMENSION}")
+        return value
 
 
 class InvestigationRequest(BaseModel):

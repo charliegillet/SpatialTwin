@@ -101,3 +101,52 @@ def test_investigation_concurrency_is_capped(api, monkeypatch):
     response = client.post("/api/scenarios/facility-demo/investigate", json={
         "expected_context": manager.context.model_dump(), "investigation_id": uuid4().hex, "mode": "local"})
     assert response.status_code == 429
+
+
+def _entry(name, token):
+    from tools.operator_token import make_entry
+    return make_entry(name, token)
+
+
+def test_named_operator_is_authorized_and_identified(api, monkeypatch):
+    from backend.app import main as main_module
+    monkeypatch.setenv("SPATIALTWIN_OPERATORS", ",".join([_entry("alice", "alice-secret"), _entry("bob", "bob-secret")]))
+    monkeypatch.delenv("SPATIALTWIN_OPERATOR_TOKEN", raising=False)
+    assert main_module._authorize_physical_operator("bob-secret") == "operator:bob"
+    assert main_module._authorize_physical_operator("alice-secret") == "operator:alice"
+
+
+def test_named_operator_wrong_or_missing_token_is_rejected(api, monkeypatch):
+    client, manager, main = api
+    physical(monkeypatch, main)
+    monkeypatch.setenv("SPATIALTWIN_OPERATORS", _entry("alice", "alice-secret"))
+    monkeypatch.delenv("SPATIALTWIN_OPERATOR_TOKEN", raising=False)
+    for headers in ({}, {"X-Operator-Token": ""}, {"X-Operator-Token": "bob-secret"}):
+        response = client.post("/api/hardware/operator-approve", json=base_body(manager.context, "k-named"), headers=headers)
+        assert response.status_code == 403 and response.json()["detail"] == "operator_token_rejected"
+
+
+def test_malformed_operator_config_fails_closed(api, monkeypatch):
+    client, manager, main = api
+    physical(monkeypatch, main)
+    monkeypatch.setenv("SPATIALTWIN_OPERATORS", "alice:not-a-hash")
+    response = client.post("/api/hardware/operator-approve", json=base_body(manager.context, "k-bad"),
+                           headers={"X-Operator-Token": "anything"})
+    assert response.status_code == 403 and response.json()["detail"] == "operator_config_invalid"
+
+
+def test_legacy_shared_token_is_recorded_as_shared(api, monkeypatch):
+    from backend.app import main as main_module
+    monkeypatch.delenv("SPATIALTWIN_OPERATORS", raising=False)
+    monkeypatch.setenv("SPATIALTWIN_OPERATOR_TOKEN", "shared-secret")
+    assert main_module._authorize_physical_operator("shared-secret") == "operator:shared-operator"
+
+
+def test_operator_token_tool_entry_matches_server_check(monkeypatch):
+    from backend.app import main as main_module
+    from tools.operator_token import make_entry
+    monkeypatch.setenv("SPATIALTWIN_OPERATORS", make_entry("carol", "carol-token"))
+    monkeypatch.delenv("SPATIALTWIN_OPERATOR_TOKEN", raising=False)
+    assert main_module._authorize_physical_operator("carol-token") == "operator:carol"
+    with pytest.raises(ValueError):
+        make_entry("bad name!", "x")

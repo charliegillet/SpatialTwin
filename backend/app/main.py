@@ -11,7 +11,8 @@ import base64
 import binascii
 import hashlib
 import hmac
-import importlib.metadata
+import ipaddress
+import re
 from uuid import uuid4
 from contextlib import asynccontextmanager
 import json
@@ -55,6 +56,7 @@ from backend.app.contracts import (
 )
 from backend.app.hardware.bridge import HardwareBridge
 from backend.app.state.manager import StateManager
+from backend.app.state.store import ProposalAlreadyReviewed
 from backend.app.state.service import ScenarioService
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -112,6 +114,54 @@ app.add_middleware(
 )
 
 
+API_TOKEN_ENV = "SPATIALTWIN_API_TOKEN"
+
+
+def is_loopback_client(host: Optional[str]) -> bool:
+    """True for 127.0.0.0/8, ::1 and IPv4-mapped loopback. Anything unparseable is not loopback."""
+    try:
+        address = ipaddress.ip_address(host or "")
+    except ValueError:
+        return False
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
+        address = address.ipv4_mapped
+    return address.is_loopback
+
+
+class NetworkGuard:
+    """Rejects non-loopback clients unless they present SPATIALTWIN_API_TOKEN in X-API-Token.
+
+    Applies to every route, SSE and the static frontend. With the variable unset, remote clients are
+    always rejected. The peer address is used as is: X-Forwarded-For is deliberately not trusted.
+    """
+
+    def __init__(self, inner):
+        self.inner = inner
+
+    @staticmethod
+    def _token_ok(scope) -> bool:
+        expected = os.environ.get(API_TOKEN_ENV, "")
+        if not expected:
+            return False
+        presented = next((value for name, value in scope.get("headers", []) if name == b"x-api-token"), b"")
+        # Digests make the comparison constant-time regardless of the presented length.
+        return hmac.compare_digest(hashlib.sha256(presented).digest(), hashlib.sha256(expected.encode("utf-8")).digest())
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            client = scope.get("client")
+            if not (client and is_loopback_client(client[0])) and not self._token_ok(scope):
+                if scope["type"] == "websocket":
+                    await send({"type": "websocket.close", "code": 1008})
+                else:
+                    await JSONResponse(status_code=403, content={"detail": "remote_access_denied"})(scope, receive, send)
+                return
+        await self.inner(scope, receive, send)
+
+
+app.add_middleware(NetworkGuard)
+
+
 @app.exception_handler(RequestValidationError)
 async def validation_error(request: Request, exc: RequestValidationError):
     # Do not echo image bytes or arbitrary request values.
@@ -119,17 +169,47 @@ async def validation_error(request: Request, exc: RequestValidationError):
 
 
 OPERATOR_TOKEN_ENV = "SPATIALTWIN_OPERATOR_TOKEN"
+OPERATORS_ENV = "SPATIALTWIN_OPERATORS"
+_OPERATOR_NAME = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+_SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _operator_registry() -> Dict[str, str]:
+    """Named operators from SPATIALTWIN_OPERATORS ("name:sha256hex,..."), plus the legacy shared token.
+
+    Only token hashes are configured for named operators. A malformed entry fails closed rather than
+    being skipped, so a typo can never silently remove the check.
+    """
+    registry: Dict[str, str] = {}
+    for entry in filter(None, (part.strip() for part in os.environ.get(OPERATORS_ENV, "").split(","))):
+        name, _, digest = entry.partition(":")
+        digest = digest.strip().lower()
+        if not _OPERATOR_NAME.match(name.strip()) or not _SHA256_HEX.match(digest) or name.strip() in registry:
+            raise HTTPException(403, "operator_config_invalid")
+        registry[name.strip()] = digest
+    shared = os.environ.get(OPERATOR_TOKEN_ENV, "").strip()
+    if shared:
+        registry.setdefault("shared-operator", hashlib.sha256(shared.encode("utf-8")).hexdigest())
+    return registry
 
 
 def _authorize_physical_operator(token: Optional[str]) -> str:
-    """Physical hardware requires the shared operator token. This is one shared secret, not per-person
-    authentication: the recorded operator id is a hash of that token, so it proves a token was used."""
-    expected = os.environ.get(OPERATOR_TOKEN_ENV, "").strip()
-    if not expected:
+    """Physical hardware requires an operator token. Returns the operator's configured name.
+
+    Every configured hash is compared in constant time, with no early exit, so response timing does not
+    reveal which operator entry matched. "shared-operator" means the legacy shared token was used.
+    """
+    registry = _operator_registry()
+    if not registry:
         raise HTTPException(403, "operator_token_not_configured")
-    if not token or not hmac.compare_digest(token.encode("utf-8"), expected.encode("utf-8")):
+    presented = hashlib.sha256((token or "").encode("utf-8")).hexdigest()
+    matched = None
+    for name, digest in registry.items():
+        if hmac.compare_digest(presented, digest) and token:
+            matched = name
+    if matched is None:
         raise HTTPException(403, "operator_token_rejected")
-    return "operator-" + hashlib.sha256(expected.encode("utf-8")).hexdigest()[:8]
+    return f"operator:{matched}"
 
 
 def fixtures_enabled() -> bool:
@@ -194,15 +274,21 @@ def simulate_hazard(body: Any = Body(...)) -> Dict[str, Any]:
         request = HazardScheduleRequest.model_validate(body)
     except ValidationError:
         raise invalid from None
-    context = state_manager.get_current_context()
+    context, blocked_portals, blocked_boundaries, p3_open = state_manager.hazard_inputs()
     envelopes = {}
     for alternative in (AlternativeId.KEEP_CURRENT, AlternativeId.OPEN_P3):
         try:
             envelopes[alternative] = scenario_service.evaluate_alternative(
                 context, alternative, f"hazard-baseline-{alternative.value}-{uuid4().hex}")
+        except ValueError:
+            # The context changed while evaluating; the caller must retry on the new context.
+            raise HTTPException(409, detail={"code": "stale_context"}) from None
         except Exception:
-            continue
-    ctx = ToolContext(venue=state_manager.venue_graph, base_context=context, envelopes=envelopes)
+            logger.exception("Hazard baseline evaluation failed")
+            raise HTTPException(500, detail={"code": "baseline_evaluation_failed"}) from None
+    ctx = ToolContext(venue=state_manager.venue_graph, base_context=context, envelopes=envelopes,
+                      blocked_portals=blocked_portals, blocked_boundaries=blocked_boundaries,
+                      p3_physical_open=p3_open)
     arguments = {"alternative_id": request.alternative_id.value,
                  "events": [_with_default_hazard_zones(e.model_dump(), state_manager.venue_graph)
                             for e in request.events]}
@@ -227,14 +313,16 @@ def health() -> Dict[str, Any]:
         "status": "healthy",
         "live_api_configured": grounding_adapter.is_live_configured(),
         "hardware_mode": "simulator" if hardware_bridge.is_simulator else "physical_serial",
-        "serial_port": hardware_bridge.port if not hardware_bridge.is_simulator else "MOCK_SIMULATOR",
+        # The device path is not disclosed; only whether a serial device is configured.
+        "serial_port": ("MOCK_SIMULATOR" if hardware_bridge.is_simulator
+                        else "SERIAL_CONNECTED" if hardware_bridge.transport_available()
+                        else "SERIAL_UNAVAILABLE"),
         "current_context": state_manager.get_current_context().model_dump(),
         "physical_gate_state": state_manager.physical_gate_state.value,
         "ai": {
             "direct": {"configured": grounding_adapter.is_live_configured(), "verified": False},
             "managed": {"configured": managed_agent_adapter.is_live_configured(), "verified": False},
             "fixtures_enabled": fixtures_enabled(),
-            "sdk_version": importlib.metadata.version("google-genai"),
         },
     }
 
@@ -265,10 +353,13 @@ async def handle_command(scenario_id: str, payload: CommandRequest) -> Dict[str,
         if cmd.source == "grounding_proposal" and (not cmd.proposal_id or not cmd.reviewed):
             raise HTTPException(422, "Saved proposal_id and explicit review are required")
         if cmd.proposal_id:
-            record = state_manager.store.get_grounding_result(cmd.proposal_id)
+            record = await asyncio.to_thread(state_manager.store.get_grounding_result, cmd.proposal_id)
             if record and record["result"].get("provenance") == "fixture" and not fixtures_enabled():
                 raise HTTPException(403, "Fixtures are disabled in production mode")
-        success, err, envelope = state_manager.apply_blockage(cmd)
+        try:
+            success, err, envelope = await asyncio.to_thread(state_manager.apply_blockage, cmd)
+        except ProposalAlreadyReviewed:
+            raise HTTPException(409, "Proposal is missing or already reviewed") from None
         if not success:
             raise HTTPException(status_code=400, detail=err)
         await hardware_bridge.update_display()
@@ -287,7 +378,7 @@ async def handle_command(scenario_id: str, payload: CommandRequest) -> Dict[str,
             target_id=TargetId(payload.get("target_id", "P2")),
             expected_context=RunContext.model_validate(payload["expected_context"]),
         )
-        success, err, envelope = state_manager.clear_blockage(cmd)
+        success, err, envelope = await asyncio.to_thread(state_manager.clear_blockage, cmd)
         if not success:
             raise HTTPException(status_code=400, detail=err)
         await hardware_bridge.update_display()
@@ -304,7 +395,7 @@ async def handle_command(scenario_id: str, payload: CommandRequest) -> Dict[str,
             idempotency_key=payload.get("idempotency_key", f"reset-{os.urandom(4).hex()}"),
             expected_context=RunContext.model_validate(payload["expected_context"]),
         )
-        success, err, envelope = state_manager.reset_scenario(cmd)
+        success, err, envelope = await asyncio.to_thread(state_manager.reset_scenario, cmd)
         if not success:
             raise HTTPException(status_code=400, detail=err)
         await hardware_bridge.update_display()
@@ -338,7 +429,8 @@ async def _interpret_video(payload: GroundingRequest, ctx: RunContext) -> Dict[s
             result.status = "failed"
             result.errors.append("stale_context")
     result.proposal_id = f"proposal-{uuid4().hex}"
-    state_manager.store.save_grounding_result(result.proposal_id, payload.capture_id, result.model_dump(mode="json"), state_manager._now_iso())
+    await asyncio.to_thread(state_manager.store.save_grounding_result, result.proposal_id, payload.capture_id,
+                            result.model_dump(mode="json"), state_manager._now_iso())
     return result.model_dump(mode="json")
 
 
@@ -375,7 +467,7 @@ async def interpret_grounding(scenario_id: str, payload: GroundingRequest) -> Di
         image_sha256=image_digest,
         image_base64=payload.image_base64,
     )
-    if not state_manager.store.save_capture(capture.model_dump(mode="json"), state_manager._now_iso()):
+    if not await asyncio.to_thread(state_manager.store.save_capture, capture.model_dump(mode="json"), state_manager._now_iso()):
         raise HTTPException(409, "Capture ID already exists; recapture with a fresh ID")
     result = await grounding_adapter.interpret_capture(
         capture=capture,
@@ -389,7 +481,8 @@ async def interpret_grounding(scenario_id: str, payload: GroundingRequest) -> Di
         result.status = "failed"
         result.errors.append("stale_context")
     result.proposal_id = f"proposal-{uuid4().hex}"
-    state_manager.store.save_grounding_result(result.proposal_id, capture.capture_id, result.model_dump(mode="json"), state_manager._now_iso())
+    await asyncio.to_thread(state_manager.store.save_grounding_result, result.proposal_id, capture.capture_id,
+                            result.model_dump(mode="json"), state_manager._now_iso())
     return result.model_dump(mode="json")
 
 
@@ -454,7 +547,8 @@ async def run_investigation(scenario_id: str, payload: InvestigationRequest) -> 
     # Only the durable owning run may create the approval/evidence index.
     canonical = await managed_agent_adapter.get_saved_result(result.investigation_id)
     if canonical is not None and canonical.base_context.is_current(state_manager.get_current_context()):
-        state_manager.store.save_investigation(
+        await asyncio.to_thread(
+            state_manager.store.save_investigation,
             investigation_id=canonical.investigation_id,
             status=canonical.status.value,
             result_json=canonical.model_dump_json(),
@@ -528,7 +622,7 @@ async def operator_approve_gate(payload: GateApprovalRequest,
     ctx = require_context(payload.get("expected_context"))
     if candidate != "OPEN_P3":
         raise HTTPException(422, "Only the reviewed OPEN_P3 candidate can use this approval endpoint")
-    raw = state_manager.store.get_investigation(payload.get("investigation_id", ""))
+    raw = await asyncio.to_thread(state_manager.store.get_investigation, payload.get("investigation_id", ""))
     if not raw:
         raise HTTPException(409, "A saved current completed investigation is required")
     investigation = InvestigationResult.model_validate(raw)
@@ -615,6 +709,6 @@ def get_run(run_id: str) -> Dict[str, Any]:
 
 
 # Mount built frontend if available
-frontend_dist = Path("frontend/dist")
+frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 if frontend_dist.is_dir():
     app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")

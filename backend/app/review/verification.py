@@ -54,7 +54,7 @@ class VerificationReport(BaseModel):
     base_context: RunContext
     run_id: str
     candidate_hash: str
-    verdict: Literal["verified_within_model", "not_verified"]
+    verdict: Literal["verified_within_model", "not_verified", "incomplete"]
     summary: VerificationSummary
     requirements: List[Requirement]
     scope_note: str = SCOPE_NOTE
@@ -245,6 +245,11 @@ def build_verification(basis: ReviewBasis, investigation: Optional[Investigation
     summary = VerificationSummary(passed=counts["pass"], failed=counts["fail"],
                                   checker_attested=counts["checker_attested"],
                                   cannot_measure=counts["cannot_measure"], not_run=counts["not_run"])
+    # A measured item that did not run is a gap, not a pass. The comparison is optional by design:
+    # with no investigation supplied it is reported as not_run but does not block the verdict.
+    unrun = [item for item in items if item.method == "measured" and item.status == "not_run"
+             and not (item.requirement_id == "comparison_equal_conditions" and investigation is None)]
+    verdict = "not_verified" if summary.failed else "incomplete" if unrun else "verified_within_model"
     return VerificationReport(base_context=basis.context, run_id=plan.run_id, candidate_hash=plan.candidate_hash,
-                              verdict="verified_within_model" if not summary.failed else "not_verified",
+                              verdict=verdict,
                               summary=summary, requirements=items)

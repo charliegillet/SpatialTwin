@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Activity, ArrowRight, Box, Check, CircleHelp, ClipboardCheck, Cpu, Expand, FileJson, FlaskConical, Layers2, LayoutDashboard, LoaderCircle, Radio, RotateCcw, X } from 'lucide-react';
 import type { AiCapabilities, CaptureEvidence, CaptureRequest, GroundingResult, HazardSimulateResponse, HealthStatus, InvestigationMode, InvestigationProgress, InvestigationResult, RunContext, ScenarioSnapshot } from './types';
-import { cancelInvestigation, clearBlockage, fetchHealth, fetchInvestigationProgress, fetchScenario, getCapabilities, interpretGrounding, investigateScenario, operatorApproveGate, sendCommand, simulateHazard } from './api/client';
+import { cancelInvestigation, clearBlockage, fetchHealth, fetchInvestigationProgress, fetchScenario, getCapabilities, interpretGrounding, investigateScenario, operatorApproveGate, sendCommand, simulateHazard, stopOutputs } from './api/client';
 import { ObservationPanel } from './components/ObservationPanel';
 import { SpatialViewport } from './components/SpatialViewport';
 import { InvestigationPanel } from './components/InvestigationPanel';
@@ -10,6 +10,8 @@ import { EventConsole, type WorkspaceEvent } from './components/EventConsole';
 import { canApplyGrounding, canApproveInvestigation, groundingLabel, investigationLabel, sameContext } from './ai/policy';
 import { captureEvidence } from './ai/evidence';
 import { createRequestGate } from './ai/requestGate';
+import { approvalSuccessMessage, needsOperatorToken, stopSuccessMessage, type OperatorOutcome } from './ai/operator';
+import { createWorkflowEpoch, nextNotFoundCount, shouldKeepPolling } from './ai/workflowEpoch';
 import { ScheduleExplorer } from './features/schedule/ScheduleExplorer';
 import { ScenarioLab } from './features/scenario-lab/ScenarioLab';
 import { HazardPanel } from './features/hazard-exposure/HazardPanel';
@@ -74,6 +76,9 @@ export function App() {
   const [hazardError, setHazardError] = useState<string | null>(null);
   const [events, setEvents] = useState<WorkspaceEvent[]>([]);
   const eventId = useRef(0);
+  // Bumped on every reset. A response that began in an earlier epoch is dropped before it touches state.
+  const epoch = useRef(createWorkflowEpoch());
+  const [epochKey, setEpochKey] = useState(0);
   const groundingRequest = useRef(0);
   const groundingGate = useRef(createRequestGate());
   const investigationGate = useRef(createRequestGate());
@@ -152,13 +157,15 @@ export function App() {
     if (!activeInvestigation) return;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
+    let notFound = 0;
     const poll = async () => {
       try {
         const progress = await fetchInvestigationProgress('facility-demo', activeInvestigation.id, controller.signal);
         if (controller.signal.aborted || investigationRequest.current !== activeInvestigation.id) return;
         setInvestigationProgress(progress);
         if (progress.investigation) setInvestigation(progress.investigation);
-        if (!['running', 'not_found'].includes(progress.status)) return;
+        notFound = nextNotFoundCount(progress.status, notFound);
+        if (!shouldKeepPolling(progress.status, notFound)) return;
       } catch { if (controller.signal.aborted) return; }
       timer = setTimeout(() => void poll(), 1000);
     };
@@ -198,7 +205,25 @@ export function App() {
   const targetSpec = targets.find(target => target.id === selectedTarget);
   const targetBlocked = selectedTarget ? blocked.includes(selectedTarget.split(':')[1]) : false;
   const canChange = Boolean(snapshot && connection === 'connected' && !isMutating);
+  // Anything that shows plan numbers receives displaySnapshot, which hides a plan that is not current.
+  // ScenarioLab and WorkspaceDetails check plan currency themselves, so they receive the raw snapshot.
   const displaySnapshot = snapshot && !planCurrent ? { ...snapshot, current_plan: null } : snapshot;
+  const connectedSnapshot = connection === 'connected' ? displaySnapshot : null;
+
+  /** Invalidates every outstanding request and clears workflow state. Late responses compare against the new epoch. */
+  const resetWorkflow = () => {
+    epoch.current.bump(); setEpochKey(epoch.current.current());
+    groundingRequest.current += 1;
+    groundingGate.current.invalidate();
+    investigationGate.current.invalidate();
+    investigationRequest.current = null;
+    hazardRequest.current += 1; hazardGate.current.invalidate(); hazardAbort.current?.abort();
+    setHazard(null); setHazardError(null); setIsSimulating(false);
+    setGrounding(null); setHeldCapture(null); setAppliedCaptureId(null); setInvestigation(null);
+    setGroundingError(null); setInvestigationError(null); setIsGrounding(false); setIsInvestigating(false);
+    setActiveInvestigation(null); setInvestigationProgress(null); setCancellationRequested(false); setIsCancelling(false);
+    setIsApproving(false);
+  };
 
   const mutate = async (target?: Target, reset = false, source: 'manual_override' | 'grounding_proposal' = 'manual_override') => {
     const current = snapshotRef.current;
@@ -213,17 +238,7 @@ export function App() {
       acceptSnapshot(response.snapshot);
       const sourceLabel = source === 'manual_override' ? 'Manual override' : groundingLabel(grounding, { mediaKind: heldCapture?.media_kind });
       addEvent('scenario', reset ? 'Manual reset · scenario blockages cleared. Physical gate position is unchanged.' : `${sourceLabel} · ${id} ${alreadyBlocked && source === 'manual_override' ? 'restored' : 'marked unavailable'} after operator review.`, 'success');
-      if (reset) {
-        groundingRequest.current += 1;
-        groundingGate.current.invalidate();
-        investigationGate.current.invalidate();
-        investigationRequest.current = null;
-        hazardRequest.current += 1; hazardGate.current.invalidate(); hazardAbort.current?.abort();
-        setHazard(null); setHazardError(null); setIsSimulating(false);
-        setGrounding(null); setHeldCapture(null); setAppliedCaptureId(null); setInvestigation(null);
-        setGroundingError(null); setInvestigationError(null); setIsGrounding(false); setIsInvestigating(false);
-        setActiveInvestigation(null); setInvestigationProgress(null); setCancellationRequested(false); setIsCancelling(false);
-      }
+      if (reset) resetWorkflow();
       reviewTriggerRef.current?.focus({ preventScroll: true });
       setSelectedTarget(null); setIsEditing(false);
       return true;
@@ -236,16 +251,17 @@ export function App() {
     const token = groundingGate.current.start();
     if (token === null) return;
     const request = ++groundingRequest.current;
+    const started = epoch.current.current();
     setIsGrounding(true); setGroundingError(null); setGrounding(null); setHeldCapture(captureRequest); setAppliedCaptureId(null);
     addEvent('vision', captureRequest.mode === 'fixture' ? `Reviewing ${captureRequest.fixture_target} fixture. No Gemini call requested.` : `${captureRequest.source_kind === 'annotated_plan' ? 'Synthetic demo board image' : 'Captured camera still'} sent to Gemini · ${captureRequest.thinking_level} thinking.`);
     try {
       const response = await interpretGrounding('facility-demo', captureRequest);
-      if (request !== groundingRequest.current) return;
+      if (request !== groundingRequest.current || !epoch.current.isCurrent(started)) return;
       setGrounding(response);
       if (response.status !== 'completed') setGroundingError(response.errors.join(' ') || `Gemini grounding ${response.status.replace(/_/g, ' ')}. No proposal was accepted.`);
       addEvent('vision', `${groundingLabel(response, { mediaKind: captureRequest.media_kind })} · ${response.proposal?.status ?? response.status} · ${response.proposal?.selected_entity_id ?? 'no target'}.`, response.status === 'completed' && response.proposal?.status === 'matched' ? 'success' : 'warning');
-    } catch (error) { if (request === groundingRequest.current) { setGroundingError(failureMessage(error)); addEvent('vision', failureMessage(error), 'warning'); } }
-    finally { groundingGate.current.finish(token); if (request === groundingRequest.current) setIsGrounding(false); }
+    } catch (error) { if (request === groundingRequest.current && epoch.current.isCurrent(started)) { setGroundingError(failureMessage(error)); addEvent('vision', failureMessage(error), 'warning'); } }
+    finally { groundingGate.current.finish(token); if (request === groundingRequest.current && epoch.current.isCurrent(started)) setIsGrounding(false); }
   };
   const runHazard = async () => {
     const current = snapshotRef.current;
@@ -254,6 +270,7 @@ export function App() {
     const token = hazardGate.current.start();
     if (token === null) return;
     const request = ++hazardRequest.current;
+    const started = epoch.current.current();
     const context = { ...current.context };
     const abort = new AbortController();
     hazardAbort.current = abort;
@@ -261,33 +278,40 @@ export function App() {
     try {
       const responses: HazardSimulateResponse[] = [];
       for (const alternative_id of ['KEEP_CURRENT', 'OPEN_P3'] as const) responses.push(await simulateHazard({ alternative_id, events: hazardEvents }, abort.signal));
-      if (request !== hazardRequest.current || !hazardGate.current.isCurrent(token)) return;
+      if (request !== hazardRequest.current || !epoch.current.isCurrent(started) || !hazardGate.current.isCurrent(token)) return;
       setHazard({ view: toHazardView(hazardEvents, responses), context });
       addEvent('analysis', `Hazard forecast · ${hazardEvents.length} closure ${hazardEvents.length === 1 ? 'event' : 'events'} · local solver, no Gemini call.`, responses.every(item => item.is_valid) ? 'success' : 'warning');
-    } catch (error) { if (request === hazardRequest.current) { setHazardError(failureMessage(error)); addEvent('analysis', failureMessage(error), 'warning'); } }
-    finally { hazardGate.current.finish(token); if (request === hazardRequest.current) setIsSimulating(false); }
+    } catch (error) { if (request === hazardRequest.current && epoch.current.isCurrent(started)) { setHazardError(failureMessage(error)); addEvent('analysis', failureMessage(error), 'warning'); } }
+    finally { hazardGate.current.finish(token); if (request === hazardRequest.current && epoch.current.isCurrent(started)) setIsSimulating(false); }
   };
   const selectClip = async (selection: GroundingSelection) => {
     const current = snapshotRef.current;
     if (!current || connection !== 'connected' || isGrounding) return;
+    const started = epoch.current.current();
     try {
       const base = { capture_id: crypto.randomUUID(), timestamp_iso: new Date().toISOString(), source_context: { ...current.context }, thinking_level: 'low' as const, source_kind: 'tabletop_camera' as const, mode: 'live' as const };
       const bytes = await fileBase64(selection.file);
+      if (!epoch.current.isCurrent(started)) return;
       if (selection.kind === 'video') {
         await capture(await captureEvidence({ ...base, dimensions: [1920, 1080], video_base64: bytes, media_kind: 'video', video_mode: clipMode.current, video_mime: selection.file.type, deadline_seconds: 100 }));
       } else {
         const bitmap = await createImageBitmap(selection.file);
+        if (!epoch.current.isCurrent(started)) { bitmap.close(); return; }
         const dimensions: [number, number] = [bitmap.width, bitmap.height];
         bitmap.close();
         await capture(await captureEvidence({ ...base, dimensions, image_base64: bytes, media_kind: 'image', deadline_seconds: 45 }));
       }
-    } catch (error) { setGroundingError(failureMessage(error)); }
+    } catch (error) { if (epoch.current.isCurrent(started)) setGroundingError(failureMessage(error)); }
   };
   const clearProposal = () => { groundingRequest.current++; groundingGate.current.invalidate(); setGrounding(null); setHeldCapture(null); setAppliedCaptureId(null); setGroundingError(null); setIsGrounding(false); };
   const applyProposal = async () => {
     const target = proposal && `${proposal.selected_entity_type}:${proposal.selected_entity_id}`;
     if (!proposal || !proposalCurrent || !canApplyGrounding(grounding, snapshotRef.current?.context) || !targets.some(item => item.id === target)) return;
-    if (await mutate(target as Target, false, 'grounding_proposal')) setAppliedCaptureId(proposal.capture_id);
+    const started = epoch.current.current();
+    const request = groundingRequest.current;
+    const applied = await mutate(target as Target, false, 'grounding_proposal');
+    // A reset or a cleared/replaced proposal while the command was in flight must not repopulate the workspace.
+    if (applied && epoch.current.isCurrent(started) && request === groundingRequest.current) setAppliedCaptureId(proposal.capture_id);
   };
   const investigate = async (mode: InvestigationMode) => {
     if (isInvestigating || !snapshotRef.current || connection !== 'connected') return;
@@ -295,40 +319,61 @@ export function App() {
     if (token === null) return;
     const expectedContext = { ...snapshotRef.current.context };
     const investigationId = crypto.randomUUID();
+    const started = epoch.current.current();
     investigationRequest.current = investigationId;
     setActiveInvestigation({ id: investigationId, context: expectedContext }); setInvestigationProgress(null); setCancellationRequested(false); setIsCancelling(false);
     setIsInvestigating(true); setInvestigation(null); setInvestigationError(null); addEvent('analysis', `Requested KEEP_CURRENT and OPEN_P3 comparison · ${mode === 'live' ? 'Gemini managed agent' : 'explicit local solver'}.`);
     try {
       const response = await investigateScenario('facility-demo', expectedContext, mode, investigationId);
-      if (investigationRequest.current !== investigationId) return;
+      if (investigationRequest.current !== investigationId || !epoch.current.isCurrent(started)) return;
       setInvestigation(response.investigation);
       const checkedCount = response.investigation.candidate_envelopes.filter(candidate => candidate.validator_report.is_valid).length;
       if (response.investigation.status !== 'completed') setInvestigationError(response.investigation.errors?.join(' ') || `Analysis ${response.investigation.status.replace(/_/g, ' ')}. No winning option is available.`);
       addEvent('analysis', `${investigationLabel(response.investigation, { managedModelFallback: capabilities?.managed_model_fallback })} · ${checkedCount} checked alternatives.`, response.investigation.status === 'completed' ? 'success' : 'warning');
-    } catch (error) { if (investigationRequest.current === investigationId) { setInvestigationError(failureMessage(error)); addEvent('analysis', failureMessage(error), 'warning'); } }
-    finally { investigationGate.current.finish(token); if (investigationRequest.current === investigationId) { setIsInvestigating(false); setActiveInvestigation(null); setIsCancelling(false); } }
+    } catch (error) { if (investigationRequest.current === investigationId && epoch.current.isCurrent(started)) { setInvestigationError(failureMessage(error)); addEvent('analysis', failureMessage(error), 'warning'); } }
+    finally { investigationGate.current.finish(token); if (investigationRequest.current === investigationId && epoch.current.isCurrent(started)) { setIsInvestigating(false); setActiveInvestigation(null); setIsCancelling(false); } }
   };
   const cancelAnalysis = async () => {
     if (!activeInvestigation || isCancelling || cancellationRequested) return;
     const activeId = activeInvestigation.id;
+    const started = epoch.current.current();
     setIsCancelling(true);
     try {
       const response = await cancelInvestigation('facility-demo', activeInvestigation.id, activeInvestigation.context);
-      if (investigationRequest.current !== activeId) return;
+      if (investigationRequest.current !== activeId || !epoch.current.isCurrent(started)) return;
       setCancellationRequested(response.status === 'cancellation_requested');
       if (response.investigation) setInvestigation(response.investigation);
       addEvent('analysis', response.status === 'already_finished' ? 'Analysis already finished. Recorded result retained.' : 'Cancellation requested. Waiting for the server and provider receipts.');
-    } catch (error) { if (investigationRequest.current === activeId) { setInvestigationError(failureMessage(error)); addEvent('analysis', failureMessage(error), 'warning'); } }
-    finally { if (investigationRequest.current === activeId) setIsCancelling(false); }
+    } catch (error) { if (investigationRequest.current === activeId && epoch.current.isCurrent(started)) { setInvestigationError(failureMessage(error)); addEvent('analysis', failureMessage(error), 'warning'); } }
+    finally { if (investigationRequest.current === activeId && epoch.current.isCurrent(started)) setIsCancelling(false); }
   };
-  const approve = async () => {
+  const approve = async (operatorToken?: string): Promise<OperatorOutcome> => {
     const current = snapshotRef.current;
     const candidate = investigation?.candidate_envelopes.find(item => item.alternative_id === 'OPEN_P3');
-    if (!current || !investigationCurrent || !canApproveInvestigation(investigation, current.context) || !candidate || isApproving) throw new Error('A current checked improvement recommending OPEN_P3 is required before movement.');
+    if (!current || !investigationCurrent || !canApproveInvestigation(investigation, current.context) || !candidate || isApproving) {
+      return { ok: false, message: 'A current checked improvement recommending OPEN_P3 is required before movement.' };
+    }
+    const started = epoch.current.current();
     setIsApproving(true);
-    try { await operatorApproveGate(current.context, investigation!.investigation_id, candidate.run_id); addEvent('device', 'Backend accepted the P3 opening request. Waiting for endpoint evidence.'); }
-    catch (error) { addEvent('device', failureMessage(error), 'warning'); throw error; }
-    finally { setIsApproving(false); }
+    try {
+      const response = await operatorApproveGate(current.context, investigation!.investigation_id, candidate.run_id, operatorToken);
+      const message = approvalSuccessMessage(Boolean(response.acknowledged));
+      if (epoch.current.isCurrent(started)) addEvent('device', message);
+      return { ok: true, message, acknowledged: Boolean(response.acknowledged) };
+    } catch (error) {
+      if (epoch.current.isCurrent(started)) addEvent('device', failureMessage(error), 'warning');
+      return { ok: false, message: failureMessage(error) };
+    } finally { if (epoch.current.isCurrent(started)) setIsApproving(false); }
+  };
+  const stop = async (operatorToken?: string): Promise<OperatorOutcome> => {
+    try {
+      await stopOutputs(operatorToken);
+      addEvent('device', stopSuccessMessage(), 'success');
+      return { ok: true, message: stopSuccessMessage() };
+    } catch (error) {
+      addEvent('device', failureMessage(error), 'warning');
+      return { ok: false, message: failureMessage(error) };
+    }
   };
   const selectTarget = (target: Target) => { reviewTriggerRef.current = document.activeElement as HTMLElement | null; setSelectedTarget(target); setIsEditing(true); setMutationError(null); };
   const inspectModel = () => spatialRef.current?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'center' });
@@ -352,14 +397,14 @@ export function App() {
       <a className="rail-brand" href="#workspace-main" aria-label="SpatialTwin workspace"><BrandMark small /><span>SpatialTwin<span className="wordmark-dot" /></span></a>
       <div className="rail-workspace-label">WORKSPACE</div>
       <nav>
-        <button className={!details ? 'is-active' : ''} onClick={() => { setDetails(null); window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }); }} aria-label="Overview"><LayoutDashboard size={18} strokeWidth={1.7} /><span>Overview</span></button>
-        <button onClick={inspectModel} aria-label="Spatial model"><Layers2 size={18} strokeWidth={1.7} /><span>Spatial model</span></button>
-        <button onClick={() => focusSection('scenario-lab')} aria-label="Scenarios in the scenario lab"><FlaskConical size={18} strokeWidth={1.7} /><span>Scenarios</span></button>
-        <button className={details === 'evidence' ? 'is-active' : ''} onClick={() => setDetails('evidence')} aria-label="Evidence and run details"><ClipboardCheck size={18} strokeWidth={1.7} /><span>Evidence</span></button>
-        <button className={details === 'devices' ? 'is-active' : ''} onClick={() => setDetails('devices')} aria-label="Devices and connection details"><Cpu size={18} strokeWidth={1.7} /><span>Devices</span></button>
+        <button className={!details ? 'is-active' : ''} onClick={() => { setDetails(null); window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }); }}><LayoutDashboard size={18} strokeWidth={1.7} /><span>Overview</span></button>
+        <button onClick={inspectModel}><Layers2 size={18} strokeWidth={1.7} /><span>Spatial model</span></button>
+        <button onClick={() => focusSection('scenario-lab')}><FlaskConical size={18} strokeWidth={1.7} /><span>Scenarios</span></button>
+        <button className={details === 'evidence' ? 'is-active' : ''} onClick={() => setDetails('evidence')}><ClipboardCheck size={18} strokeWidth={1.7} /><span>Evidence</span></button>
+        <button className={details === 'devices' ? 'is-active' : ''} onClick={() => setDetails('devices')}><Cpu size={18} strokeWidth={1.7} /><span>Devices</span></button>
       </nav>
       <div className="rail-scope"><span className="status-dot" /><div>Tabletop 01<small>Illustrative model</small></div></div>
-      <div className="rail-bottom"><button onClick={() => setDetails('guide')} aria-label="Workspace guide"><CircleHelp size={18} /><span>Workspace guide</span></button><div className="operator-profile"><span className="operator-avatar">OP</span><span>Local operator<small>Review before applying</small></span></div></div>
+      <div className="rail-bottom"><button onClick={() => setDetails('guide')}><CircleHelp size={18} /><span>Workspace guide</span></button><div className="operator-profile"><span className="operator-avatar">OP</span><span>Local operator<small>Review before applying</small></span></div></div>
     </aside>
     <div className="workspace-content">
       <header className="workspace-topbar">
@@ -371,9 +416,9 @@ export function App() {
       <main id="workspace-main" className="workspace-main" tabIndex={-1}>
         <div className="workspace-heading">
           <div><h1>Spatial control room<span className="title-period">.</span></h1><p className="workspace-subtitle">Observe a change. Review its impact. Confirm the result.</p></div>
-          <div className="workspace-heading-actions"><button className="button-secondary" onClick={() => void mutate(undefined, true)} disabled={!canChange} aria-label={`${isMutating ? 'Updating…' : 'Clear blockages'}. P3 position stays unchanged.`} title="Clear model blockages. P3 position stays unchanged."><RotateCcw size={14} /><span>{isMutating ? 'Updating…' : 'Clear blockages'}</span></button><button ref={presenterTriggerRef} className={`button-presenter${presenting ? ' is-active' : ''}`} onClick={() => setPresenting(!presenting)} aria-pressed={presenting}><Expand size={15} /><span>{presenting ? 'Exit presenter' : 'Present'}</span></button></div>
+          <div className="workspace-heading-actions"><button className="button-secondary" onClick={() => void mutate(undefined, true)} disabled={!canChange} aria-describedby="clear-blockages-note" title="Clear model blockages. P3 position stays unchanged."><RotateCcw size={14} /><span>{isMutating ? 'Updating…' : 'Clear blockages'}</span></button><button ref={presenterTriggerRef} className={`button-presenter${presenting ? ' is-active' : ''}`} onClick={() => setPresenting(!presenting)} aria-pressed={presenting}><Expand size={15} /><span>{presenting ? 'Exit presenter' : 'Present'}</span></button></div>
         </div>
-        <div className="workspace-scope"><span><Box size={13} />Illustrative tabletop · synthetic population</span><span>Clear blockages preserves P3’s reported position.</span></div>
+        <div className="workspace-scope"><span><Box size={13} />Illustrative tabletop · synthetic population</span><span id="clear-blockages-note">Clear blockages preserves P3’s reported position.</span></div>
         {loadError && <div className="workspace-alert" role="alert"><Radio size={17} /><span>{loadError}</span><button onClick={() => void refresh()}>Reconnect<RotateCcw size={13} /></button></div>}
         {mutationError && <div className="workspace-alert" role="alert"><span>{mutationError}</span><button onClick={() => setMutationError(null)} aria-label="Dismiss error"><X size={16} /></button></div>}
         <section className="workspace-metrics" aria-label="Current modeled result" aria-busy={Boolean(snapshot && !planCurrent)}>
@@ -390,11 +435,11 @@ export function App() {
         </nav>
         {isEditing && selectedTarget && <section ref={reviewRef} className="scenario-review" aria-label="Review scenario change"><div className="scenario-review-symbol"><Layers2 size={20} /></div><div className="scenario-review-copy"><h2>{targetSpec?.title}</h2><p>{targetSpec?.description} {targetBlocked ? 'Restore its availability in the model.' : 'Mark it unavailable in the model.'}</p><span>Manual scenario change · review before applying</span></div><div className="scenario-review-actions"><label>Target<select aria-label="Scenario target" value={selectedTarget} onChange={event => setSelectedTarget(event.target.value as Target)}>{targets.map(target => <option key={target.id} value={target.id}>{target.title}</option>)}</select></label><button className="button-primary" disabled={!canChange} onClick={() => void mutate(selectedTarget)}>{isMutating ? <LoaderCircle size={15} className="spin" /> : <Check size={15} />}{targetBlocked ? 'Restore target' : 'Apply blockage'}</button></div><button className="icon-button" aria-label="Cancel scenario change" onClick={closeEditor}><X size={18} /></button></section>}
         <div className="workspace-hero">
-          <ObservationPanel proposal={proposal} result={grounding} currentContext={snapshot?.context} liveConfigured={health?.ai?.direct.configured ?? health?.live_api_configured ?? false} fixturesEnabled={health?.ai?.fixtures_enabled ?? false} appliedCaptureId={appliedCaptureId} isLoading={isGrounding} isApplying={isMutating} isProposalCurrent={proposalCurrent} availabilityMessage={availabilityMessage} error={groundingError} onCapture={capture} onApply={applyProposal} onClearProposal={clearProposal} isAvailable={connection === 'connected' && Boolean(snapshot)} />
+          <ObservationPanel key={`observation-${epochKey}`} proposal={proposal} result={grounding} currentContext={snapshot?.context} liveConfigured={health?.ai?.direct.configured ?? health?.live_api_configured ?? false} fixturesEnabled={health?.ai?.fixtures_enabled ?? false} appliedCaptureId={appliedCaptureId} isLoading={isGrounding} isApplying={isMutating} isProposalCurrent={proposalCurrent} availabilityMessage={availabilityMessage} error={groundingError} onCapture={capture} onApply={applyProposal} onClearProposal={clearProposal} isAvailable={connection === 'connected' && Boolean(snapshot)} />
           <div ref={spatialRef} className="workspace-spatial"><SpatialViewport snapshot={displaySnapshot} selectedTarget={selectedTarget} onSelectTarget={selectTarget} onInspectPlan={() => focusSection('schedule-explorer')} forecast={hazardCurrent ? hazard?.view.events : undefined} /></div>
         </div>
         <div className="workspace-analysis">
-          <InvestigationPanel view={interventionView} onViewChange={setInterventionView} snapshot={connection === 'connected' ? displaySnapshot : null} investigation={investigation} progress={investigationProgress} isLoading={isInvestigating} error={investigationError} isCurrent={investigationCurrent} availabilityMessage={availabilityMessage} onInvestigate={investigate} onCancel={cancelAnalysis} isCancelling={isCancelling} cancellationRequested={cancellationRequested} onApprove={approve} isApproving={isApproving} hardwareMode={health?.hardware_mode === 'simulator' ? 'Simulator' : health?.hardware_mode === 'physical_serial' ? 'Serial' : ''} apiConfigured={health?.ai?.managed.configured ?? health?.live_api_configured ?? false} localEnabled={health?.ai?.fixtures_enabled ?? false} />
+          <InvestigationPanel key={`investigation-${epochKey}`} view={interventionView} onViewChange={setInterventionView} snapshot={connectedSnapshot} investigation={investigation} progress={investigationProgress} isLoading={isInvestigating} error={investigationError} isCurrent={investigationCurrent} availabilityMessage={availabilityMessage} onInvestigate={investigate} onCancel={cancelAnalysis} isCancelling={isCancelling} cancellationRequested={cancellationRequested} onApprove={approve} onStop={stop} isApproving={isApproving} physical={needsOperatorToken(health?.hardware_mode)} hardwareMode={health?.hardware_mode === 'simulator' ? 'Simulator' : health?.hardware_mode === 'physical_serial' ? 'Serial' : ''} apiConfigured={health?.ai?.managed.configured ?? health?.live_api_configured ?? false} localEnabled={health?.ai?.fixtures_enabled ?? false} />
           <EventConsole events={events} connected={connection === 'connected'} onClear={() => setEvents([])} />
         </div>
         <div className="workspace-exploration">
@@ -423,7 +468,7 @@ export function App() {
             <ClipPicker videoEnabled={Boolean(capabilities?.video_static || capabilities?.video_agentic)} onSelect={selection => void selectClip(selection)} disabled={isGrounding || connection !== 'connected' || !snapshot} />
             {capabilities?.video_static && capabilities?.video_agentic && <label className="clip-mode">Video mode<select aria-label="Video mode" defaultValue="static" onChange={event => { clipMode.current = event.target.value as 'static' | 'agentic'; }}><option value="static">Static frames</option><option value="agentic">Agentic</option></select></label>}
           </div>
-          <ReviewPanel snapshot={connection === 'connected' ? displaySnapshot : null} isCurrent={planCurrent} investigationId={investigation?.investigation_id ?? null} />
+          <ReviewPanel snapshot={connectedSnapshot} isCurrent={planCurrent} investigationId={investigation?.investigation_id ?? null} />
         </div>
         <footer className="workspace-footer"><span>Illustrative geometry. Every result has a source.</span><button onClick={() => setDetails('guide')}>Workspace guide</button><div><span>{snapshot ? `Scenario ${snapshot.context.scenario_revision} · physical ${snapshot.context.physical_revision}` : 'Awaiting context'}</span><button onClick={() => setDetails('evidence')}>Inspect evidence<ArrowRight size={13} /></button></div></footer>
       </main>

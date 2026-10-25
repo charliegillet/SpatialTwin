@@ -1,4 +1,4 @@
-import React, { useId, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { ArrowUpRight, Box, Check, Layers2, Minus, Plus, RotateCcw, Scan } from 'lucide-react';
 import { clampPan, forecastTargets, formatForecastClosure, panByKey, type ForecastClosure, type Pan } from '../features/spatial-view/spatialView';
 import type { ScenarioSnapshot } from '../types';
@@ -70,6 +70,23 @@ export const SpatialViewport: React.FC<SpatialViewportProps> = ({ snapshot, sele
   // The model is drawn wide; on phone-width screens it is unreadable at 1x, so the default view is closer.
   const defaultZoom = () => (typeof window !== 'undefined' && window.matchMedia?.('(max-width: 520px)').matches ? 1.25 : 1);
   const [zoom, setZoom] = useState(defaultZoom);
+  const zoomChosen = useRef(false);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [touchArmed, setTouchArmed] = useState(false);
+  useEffect(() => {
+    if (!touchArmed) return;
+    const release = (event: PointerEvent) => { if (!svgRef.current?.contains(event.target as Node)) setTouchArmed(false); };
+    document.addEventListener('pointerdown', release);
+    return () => document.removeEventListener('pointerdown', release);
+  }, [touchArmed]);
+  useEffect(() => {
+    // Follow rotation and resize until the viewer picks a zoom of their own.
+    const query = window.matchMedia?.('(max-width: 520px)');
+    if (!query) return;
+    const onChange = () => { if (!zoomChosen.current) setZoom(defaultZoom()); };
+    query.addEventListener('change', onChange);
+    return () => query.removeEventListener('change', onChange);
+  }, []);
   const [pan, setPan] = useState<Pan>({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const drag = useRef<{ x: number; y: number; scale: number } | null>(null);
@@ -110,11 +127,14 @@ export const SpatialViewport: React.FC<SpatialViewportProps> = ({ snapshot, sele
   const forecastByTarget = new Map(forecastTargets(forecast).map(item => [item.target, item.close_at_s]));
   const changeZoom = (delta: number) => {
     const next = Math.max(.75, Math.min(1.65, Math.round((zoom + delta) * 100) / 100));
+    zoomChosen.current = true;
     setZoom(next); setPan(current => clampPan(current, next, bounds));
   };
-  const resetView = () => { setZoom(defaultZoom()); setPan({ x: 0, y: 0 }); };
+  const resetView = () => { zoomChosen.current = false; setZoom(defaultZoom()); setPan({ x: 0, y: 0 }); };
   const onPointerDown = (event: React.PointerEvent<SVGSVGElement>) => {
-    if (event.pointerType === 'touch' || event.button !== 0) return;
+    if (event.button !== 0) return;
+    // A first touch only arms panning, so scrolling the page past the model keeps working.
+    if (event.pointerType === 'touch' && !touchArmed) { setTouchArmed(true); return; }
     const ctm = event.currentTarget.getScreenCTM();
     if (!ctm || !ctm.a) return;
     drag.current = { x: event.clientX, y: event.clientY, scale: ctm.a };
@@ -152,10 +172,10 @@ export const SpatialViewport: React.FC<SpatialViewportProps> = ({ snapshot, sele
     </header>
 
     <div className="spatial-canvas">
-      <div className="spatial-scene-caption"><div>Illustrative floor plan</div><span>4 modeled zones · synthetic population</span></div>
+      <div className="spatial-scene-caption"><div>Illustrative floor plan</div><span>4 modeled zones · synthetic population</span><span className="spatial-touch-hint">Tap the model, then drag to pan</span></div>
       <div className={`spatial-result-indicator ${checked ? 'is-checked' : ''}`}><span />{checked ? 'Checked result' : snapshot ? 'Result unverified' : 'Awaiting model'}</div>
 
-      <svg className={`spatial-model-svg ${dragging ? 'is-dragging' : ''}`} role="group" tabIndex={0} viewBox={viewBox} aria-label="Illustrative event hall with west, east and reserve corridors. Drag or use arrow keys to pan. Select P1, P2 or B2 to review a scenario change."
+      <svg ref={svgRef} className={`spatial-model-svg ${dragging ? 'is-dragging' : ''}${touchArmed ? ' is-touch-armed' : ''}`} role="group" tabIndex={0} viewBox={viewBox} aria-label="Illustrative event hall with west, east and reserve corridors. Drag or use arrow keys to pan; on a touch screen tap the model first, then drag. Select P1, P2 or B2 to review a scenario change."
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endDrag} onPointerCancel={endDrag} onKeyDown={onModelKeyDown}>
         <defs>
           <linearGradient id={`${uid}-floor`} x1="0" y1="0" x2="1" y2="1"><stop stopColor="#303e3b" /><stop offset="1" stopColor="#1c2928" /></linearGradient>
@@ -226,8 +246,8 @@ export const SpatialViewport: React.FC<SpatialViewportProps> = ({ snapshot, sele
                 <rect x="-26" y="-13" width="52" height="26" rx="5" className="spatial-target-badge" />
                 <circle cx="-13" cy="0" r="2.5" className="spatial-target-dot" />
                 <text x="5" y="4" textAnchor="middle">{target.short}</text>
-                {forecastByTarget.has(target.id) && <g className="spatial-forecast-chip" transform="translate(0 25)">
-                  <rect x="-62" y="-9" width="124" height="18" rx="4" /><text y="3.5" textAnchor="middle">{formatForecastClosure(forecastByTarget.get(target.id) ?? 0)}</text>
+                {forecastByTarget.has(target.id) && <g className="spatial-forecast-chip" transform="translate(36 6)">
+                  <rect x="0" y="-9" width="138" height="20" rx="4" /><text x="69" y="4.5" textAnchor="middle">{formatForecastClosure(forecastByTarget.get(target.id) ?? 0)}</text>
                 </g>}
                 {blocked && <g transform="translate(31 -18)"><circle r="9" className="spatial-blocked-mark" /><path d="M-3-3 3 3M3-3-3 3" className="spatial-blocked-cross" /></g>}
               </g>

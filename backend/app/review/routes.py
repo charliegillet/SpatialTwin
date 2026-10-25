@@ -40,10 +40,12 @@ def build_review_router(state_manager: Any, hardware_mode: Callable[[], str],
         investigation = None
         if payload.investigation_id:
             raw = state_manager.store.get_investigation(payload.investigation_id)
+            if not raw:
+                raise HTTPException(404, "Unknown investigation")
             try:
-                investigation = InvestigationResult.model_validate(raw) if raw else None
+                investigation = InvestigationResult.model_validate(raw)
             except ValidationError:
-                investigation = None
+                raise HTTPException(404, "Unknown investigation") from None
         try:
             watch = run_zone_watch(basis)
             verification = build_verification(basis, investigation)

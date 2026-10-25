@@ -1,3 +1,4 @@
+import asyncio
 import json
 from tools import probe_capabilities as pc
 
@@ -181,7 +182,8 @@ def _jpeg():
 def test_video_probes_pass_fail_and_receipts_enable_video(tmp_path):
     seen = []
 
-    async def fake_ground(clip, mime, context, mode, *, adapter, deadline_seconds, receipt_path):
+    async def fake_ground(clip, mime, context, mode, *, adapter, captured_at_iso, deadline_seconds, receipt_path):
+        assert captured_at_iso  # live video requires a capture timestamp
         seen.append((mode, mime, video_mod.video_enabled(mode, receipt_path)))
         return g_result()
 
@@ -267,3 +269,164 @@ def test_receipt_has_pass_key_no_secret_or_thought(tmp_path):
 def test_synthetic_clip_parses_5_seconds():
     clip = pc.make_synthetic_clip()
     assert abs(video_mod.clip_duration_seconds(clip, 'video/mp4') - 5.0) < 0.3
+
+
+# ---- real call metering, P1b gating, anchored receipts ----
+def test_receipt_dir_is_repo_anchored():
+    assert pc.RECEIPT_DIR.is_absolute() and pc.RECEIPT_DIR == pc.REPO_ROOT / 'runtime' / 'probes'
+    assert pc.RECEIPT_DIR == video_mod.VIDEO_PROBE_DIR
+
+
+class Boom(Exception):
+    code = 429
+
+
+def fake_genai(counter=None, fail_create=False):
+    """Stand-in provider client: sync interactions.create plus async aio.interactions/agents."""
+    calls = []
+
+    async def acreate(**kw):
+        calls.append('create')
+        if fail_create:
+            raise Boom()
+        return NS(id='i')
+
+    async def aget(**kw):
+        calls.append('get')
+        return NS(id='i')
+
+    async def adelete(**kw):
+        calls.append('delete')
+
+    async def acancel(**kw):
+        calls.append('cancel')
+
+    client = NS(aio=NS(interactions=NS(create=acreate, get=aget, cancel=acancel), agents=NS(delete=adelete),
+                       aclose=lambda: None),
+                interactions=NS(create=lambda **kw: calls.append('sync') or NS(id='s')))
+    return client, calls
+
+
+def test_metered_client_counts_real_calls_and_hard_stops():
+    counter = pc.CallCounter(3)
+    client, calls = fake_genai()
+    metered = pc.meter_client(client, counter)
+
+    async def go():
+        await metered.aio.interactions.create()
+        for _ in range(5):
+            try:
+                await metered.aio.interactions.get(id='x')
+            except pc.ProbeCapReached:
+                break
+        # cleanup is counted but allowed past the cap, so nothing is orphaned
+        await metered.aio.agents.delete(id='a')
+    asyncio.run(go())
+    assert calls == ['create', 'get', 'get', 'delete']
+    assert counter.used == 4 and counter.remaining == -1
+    assert metered.aio.aclose is client.aio.aclose  # non-provider calls pass through uncounted
+
+
+def test_metered_sync_call_and_error_status():
+    counter = pc.CallCounter(8)
+    client, calls = fake_genai(fail_create=True)
+    metered = pc.meter_client(client, counter)
+    metered.interactions.create(model='m')
+    assert counter.used == 1 and counter.http_status_since(0) == 200
+
+    async def go():
+        try:
+            await metered.aio.interactions.create()
+        except Boom:
+            pass
+    asyncio.run(go())
+    assert counter.used == 2 and counter.http_status_since(0) == 429 and counter.http_status_since(2) is None
+
+
+def test_run_probes_charges_real_calls_not_estimates(tmp_path):
+    class Metered(pc.ProbeClient):
+        def __init__(self):
+            self.log = []
+
+        def attach_meter(self, counter):
+            self.counter = counter
+
+        def run(self, probe_id, model):
+            self.log.append(probe_id)
+            polls = 3 if probe_id == 'P5' else 1  # investigate_scenario may poll many times
+            for _ in range(polls):
+                self.counter.begin('get')
+                self.counter.finish(len(self.counter.events) - 1, True)
+            return {'passed': True, 'calls': 1, 'http_status': 200, 'reason': 'ok'}
+
+    client = Metered()
+    summary = pc.run_probes(client, tmp_path, only={'P1', 'P5'})
+    assert summary['calls_used'] == 4  # P1 = 1, P5 = 3 real calls, not fixed estimates
+
+    class Chatty(Metered):
+        def run(self, probe_id, model):
+            self.log.append(probe_id)
+            try:
+                for _ in range(20):
+                    self.counter.begin('get')
+                    self.counter.finish(len(self.counter.events) - 1, True)
+            except pc.ProbeCapReached:
+                return {'passed': False, 'calls': 1, 'reason': 'cap'}
+            return {'passed': True, 'calls': 1}
+    chatty = Chatty()
+    capped = pc.run_probes(chatty, tmp_path / 'c')
+    assert capped['calls_used'] == 8 and capped['cap_reached'] is True
+    assert chatty.log == ['P1']  # the cap was a hard stop: no later probe made a call
+
+
+def test_receipt_records_real_status_class_not_a_constant(tmp_path):
+    class Metered(pc.ProbeClient):
+        def attach_meter(self, counter):
+            self.counter = counter
+
+        def run(self, probe_id, model):
+            index = self.counter.begin('create')
+            self.counter.finish(index, False, 429)
+            return {'passed': False, 'calls': 1, 'http_status': 200, 'reason': 'provider_error'}
+    pc.run_probes(Metered(), tmp_path, only={'P1'})
+    assert json.loads((tmp_path / 'P1.json').read_text())['http_status_class'] == '4xx'
+
+
+def test_p1b_runs_only_after_a_recorded_p1_failure(tmp_path):
+    # P1 never tested (only P1b selected): fallback must not run.
+    fake = Fake()
+    summary = pc.run_probes(fake, tmp_path / 'a', only={'P1b'})
+    assert fake.log == [] and summary['skipped']['P1b'] == 'requires_recorded_P1_failure'
+    # P1 failed in this pass: fallback runs.
+    fake = Fake({'P1': False})
+    pc.run_probes(fake, tmp_path / 'b', only={'P1', 'P1b'})
+    assert fake.log == ['P1', 'P1b']
+    # P1 failure recorded by an earlier pass: fallback runs in a later selective pass.
+    pc.run_probes(Fake({'P1': False}), tmp_path / 'c', only={'P1'})
+    later = Fake()
+    pc.run_probes(later, tmp_path / 'c', only={'P1b'})
+    assert later.log == ['P1b']
+
+
+def test_executors_route_adapter_clients_through_the_meter():
+    counter = pc.CallCounter(8)
+    client, calls = fake_genai()
+
+    class Adapter(FakeGrounding):
+        def __init__(self):
+            super().__init__(g_result())
+            self.client = client
+
+        async def interpret_capture(self, capture, context, **kw):
+            await self.client.aio.interactions.create()
+            return self.result
+    ex = execs(grounding_factory=Adapter)
+    ex.attach_meter(counter)
+    import tools.verify_argon as va
+    va_image = va.image_bytes
+    va.image_bytes = lambda path: _jpeg()
+    try:
+        assert ex.run('P2')['passed'] is True
+    finally:
+        va.image_bytes = va_image
+    assert counter.used == 1 and calls == ['create']

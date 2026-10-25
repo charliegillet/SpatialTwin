@@ -188,6 +188,16 @@ void updateGateStateMachine() {
   }
 }
 
+// Returns the command_id of a host envelope, or "" if absent. Every reply that answers a command
+// echoes this id, so the host can match it to exactly one outstanding command.
+String extractCommandId(const String& s) {
+  int idIdx = s.indexOf("\"command_id\":\"");
+  if (idIdx < 0) return "";
+  int endIdx = s.indexOf("\"", idIdx + 14);
+  if (endIdx <= idIdx) return "";
+  return s.substring(idIdx + 14, endIdx);
+}
+
 void parseCommand(char* jsonStr) {
   // Simple bounded key-value scanner to keep memory footprint minimal
   String s = String(jsonStr);
@@ -204,13 +214,13 @@ void parseCommand(char* jsonStr) {
     lastHeartbeatTime = millis();
     isArmed = true;
     digitalWrite(PIN_PCA_OE, LOW); // Enable PCA9685 driver outputs
-    emitMessage("ACK", "\"status\":\"ARMED\"");
+    emitMessage("ACK", "\"command_id\":\"" + extractCommandId(s) + "\",\"status\":\"ARMED\"");
     emitObservation();
   }
   else if (s.indexOf("\"type\":\"SET_GATE_TARGET\"") >= 0) {
     lastHeartbeatTime = millis();
     if (!isArmed) {
-      emitMessage("FAULT", "\"fault\":\"NOT_ARMED\"");
+      emitMessage("FAULT", "\"command_id\":\"" + extractCommandId(s) + "\",\"fault\":\"NOT_ARMED\"");
       return;
     }
 
@@ -251,7 +261,7 @@ void parseCommand(char* jsonStr) {
     digitalWrite(PIN_PCA_OE, HIGH);
     strip.clear();
     strip.show();
-    emitMessage("ACK", "\"status\":\"STOPPED\"");
+    emitMessage("ACK", "\"command_id\":\"" + extractCommandId(s) + "\",\"status\":\"STOPPED\"");
   }
 }
 

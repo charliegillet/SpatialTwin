@@ -4,7 +4,7 @@ from dataclasses import replace
 import pytest
 
 from backend.app.contracts import GateObservedState, InvestigationStatus
-from backend.app.review.basis import ReviewUnavailable, snapshot_basis
+from backend.app.review.basis import ReviewUnavailable, checked_frames, snapshot_basis
 from backend.app.review.verification import build_verification
 from tests.review.review_helpers import block, local_investigation
 
@@ -22,7 +22,7 @@ def assert_summary_matches(report):
         "passed": statuses.count("pass"), "failed": statuses.count("fail"),
         "checker_attested": statuses.count("checker_attested"),
         "cannot_measure": statuses.count("cannot_measure"), "not_run": statuses.count("not_run")}
-    assert report.verdict == ("not_verified" if report.summary.failed else "verified_within_model")
+    assert report.verdict == ("not_verified" if report.summary.failed else "verified_within_model")  # no investigation
 
 
 def test_p2_closure_report_carries_measured_values_checker_items_and_scope_limits(manager):
@@ -129,3 +129,41 @@ def test_report_is_unavailable_without_a_current_checked_run(manager):
         build_verification(replace(basis, plan=None))
     with pytest.raises(ReviewUnavailable, match="^stale_plan$"):
         build_verification(replace(basis, context=block(manager, "portal", "P2", "verify-stale")))
+
+
+def test_unrun_measured_item_makes_the_verdict_incomplete_not_verified(manager):
+    block(manager, "portal", "P2", "verify-incomplete")
+    basis = snapshot_basis(manager, "simulator")
+    investigation = local_investigation(manager)
+    assert build_verification(basis, investigation).verdict == "verified_within_model"
+    # A supplied but unusable comparison did not run: not a verified result.
+    incomplete = investigation.model_copy(update={"status": InvestigationStatus.INCOMPLETE})
+    report = build_verification(basis, incomplete)
+    assert by_id(report)["comparison_equal_conditions"].status == "not_run"
+    assert report.summary.failed == 0 and report.verdict == "incomplete"
+    # No investigation supplied: the optional comparison does not block the verdict.
+    assert build_verification(basis).verdict == "verified_within_model"
+    # A failure still dominates.
+    unequal = investigation.model_copy(deep=True)
+    unequal.candidate_envelopes[1].horizon_seconds = 60
+    assert build_verification(basis, unequal).verdict == "not_verified"
+
+
+@pytest.mark.parametrize("field,bad", [("step", 1.0), ("step", True), ("time_seconds", 2.0)])
+def test_timeline_indices_must_be_exact_ints(manager, field, bad):
+    basis = snapshot_basis(manager, "simulator")
+    timeline = [dict(frame) for frame in basis.plan.timeline]
+    index = 1
+    timeline[index][field] = bad if field == "step" else float(timeline[index]["time_seconds"])
+    plan = basis.plan.model_copy(update={"timeline": timeline})
+    with pytest.raises(ReviewUnavailable, match="invalid_timeline"):
+        checked_frames(replace(basis, plan=plan))
+
+
+def test_step_limit_follows_the_planner_minimum_of_one(manager):
+    from types import SimpleNamespace
+    from backend.app.review.basis import boundary_quota, boundary_step_limit
+    venue = SimpleNamespace(boundaries={"B": SimpleNamespace(service_rate_per_sec=0.4)})
+    basis = SimpleNamespace(venue=venue, plan=SimpleNamespace(time_step_seconds=2, horizon_seconds=40))
+    assert boundary_step_limit(basis, "B") == 1  # int(0.8) == 0 would wrongly fail a legal step
+    assert boundary_quota(basis, "B") == 16

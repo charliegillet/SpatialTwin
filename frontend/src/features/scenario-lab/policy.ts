@@ -1,7 +1,7 @@
-import type { EvaluationEnvelope, RunContext, ScenarioLabResult } from '../../types.ts';
+import type { EvaluationEnvelope, ReserveBasis, RunContext, ScenarioLabResult } from '../../types.ts';
 import { checkedCandidate, sameContext } from '../../ai/policy.ts';
 
-export type ReserveBasis = 'reported' | 'closed_benchmark';
+export type { ReserveBasis };
 export type LabCaseId = 'baseline' | 'p1_blocked' | 'p2_blocked' | 'b2_blocked';
 export type JudgePrediction = Exclude<LabCaseId, 'baseline'>;
 

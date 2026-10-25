@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Mapping, Tuple
+from typing import FrozenSet, Mapping, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
@@ -27,6 +27,9 @@ class ToolContext:
     envelopes: Mapping[AlternativeId, EvaluationEnvelope] = field(default_factory=dict)
     horizon_seconds: int = 0
     time_step_seconds: int = 0
+    blocked_portals: FrozenSet[str] = frozenset()
+    blocked_boundaries: FrozenSet[str] = frozenset()
+    p3_physical_open: bool = False
 
     def __post_init__(self) -> None:
         if self.horizon_seconds <= 0:
@@ -68,6 +71,8 @@ class HazardSchedule(BaseModel):
 
     def validate_against(self, ctx: ToolContext) -> None:
         dt, horizon = ctx.time_step_seconds, ctx.horizon_seconds
+        if dt <= 0 or horizon <= 0:
+            raise ValueError("invalid_time_step")
         for e in self.events:
             if e.element_id not in ctx.venue.portals and e.element_id not in ctx.venue.boundaries:
                 raise ValueError("unknown_element_id")

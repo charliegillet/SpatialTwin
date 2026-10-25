@@ -3,7 +3,7 @@ import { ArrowDownToLine, ListChecks, RotateCcw, ShieldCheck } from 'lucide-reac
 import type { RunContext, ScenarioSnapshot } from '../../types';
 import { sameContext } from '../../ai/policy';
 import { createRequestGate } from '../../ai/requestGate';
-import { buildReviewHtml, escalationLabel, fetchReview, nextStepCopy, reviewJson, reviewPayload, statusLabel } from './review';
+import { buildReviewHtml, escalationLabel, fetchReview, nextStepCopy, reviewJson, reviewPayload, statusLabel, verdictLabel } from './review';
 import type { WatchRecord } from './review';
 import './ReviewPanel.css';
 
@@ -31,7 +31,8 @@ export function ReviewPanel({ snapshot, isCurrent, investigationId = null }: Rev
   const controller = useRef<AbortController | null>(null);
   const runId = snapshot?.current_plan?.run_id ?? null;
   const latest = useRef({ context: snapshot?.context, runId, isCurrent, investigationId });
-  latest.current = { context: snapshot?.context, runId, isCurrent, investigationId };
+  // Refs are written after commit, never during render. This effect precedes the review effect below.
+  useEffect(() => { latest.current = { context: snapshot?.context, runId, isCurrent, investigationId }; });
   const reviewKey = JSON.stringify([snapshot?.context.context_hash ?? null, runId, isCurrent, investigationId]);
 
   async function runReview() {
@@ -75,6 +76,8 @@ export function ReviewPanel({ snapshot, isCurrent, investigationId = null }: Rev
   const records = new Map((ready?.watch.records ?? []).map(item => [item.record_id, item] as [string, WatchRecord]));
   const measured = ready?.verification.requirements.filter(item => item.status !== 'cannot_measure') ?? [];
   const outside = ready?.verification.requirements.filter(item => item.status === 'cannot_measure') ?? [];
+  const checkedCount = measured.filter(item => item.status !== 'not_run').length;
+  const notRunCount = measured.length - checkedCount;
   const revision = snapshot?.context.scenario_revision ?? 'unknown';
 
   return <section id="zone-watch" tabIndex={-1} className="review-panel" aria-labelledby={`${uid}-title`} aria-busy={pending}>
@@ -90,8 +93,8 @@ export function ReviewPanel({ snapshot, isCurrent, investigationId = null }: Rev
         <header><span>{watcher.label}</span><small>{watcher.severity}</small></header>
         {watcher.record_ids.map(id => <p key={id}>{records.get(id)?.summary}</p>)}
       </li>)}</ul>
-      <div className="review-verdict"><ShieldCheck size={16} aria-hidden="true" /><span>{ready.verification.verdict === 'verified_within_model' ? 'Verified within the model' : 'Not verified'}</span><small>{ready.verification.summary.passed} pass · {ready.verification.summary.failed} fail · {ready.verification.summary.checker_attested} checker · {ready.verification.summary.not_run} not run</small></div>
-      <details className="review-requirements"><summary>{measured.length} requirements checked{ready.verification.summary.failed ? ` · ${ready.verification.summary.failed} failed` : ''}</summary>
+      <div className="review-verdict"><ShieldCheck size={16} aria-hidden="true" /><span>{verdictLabel(ready.verification.verdict)}</span><small>{ready.verification.summary.passed} pass · {ready.verification.summary.failed} fail · {ready.verification.summary.checker_attested} checker · {ready.verification.summary.not_run} not run</small></div>
+      <details className="review-requirements"><summary>{checkedCount} requirements checked{notRunCount ? ` · ${notRunCount} not run` : ''}{ready.verification.summary.failed ? ` · ${ready.verification.summary.failed} failed` : ''}</summary>
         <table className="review-table"><caption>Each measured value is re-read from run {ready.run_id} and the reviewed venue spec.</caption><thead><tr><th scope="col">Requirement</th><th scope="col">Measured</th><th scope="col">Status</th></tr></thead><tbody>{measured.map(item => <tr key={item.requirement_id} className={`is-${item.status}`}><th scope="row"><span>{item.statement}</span>{item.expected && <small>Expected {item.expected}</small>}</th><td>{item.measured ?? '—'}</td><td>{statusLabel[item.status]}</td></tr>)}</tbody></table>
       </details>
       <h3 className="review-outside-title">Outside the model</h3>
@@ -99,7 +102,7 @@ export function ReviewPanel({ snapshot, isCurrent, investigationId = null }: Rev
     </>}
     <footer className="review-footer"><p>{ready?.verification.scope_note ?? 'Counts describe modeled crossings of synthetic occupants, not people.'}</p><div>
       <button type="button" className="review-secondary" onClick={() => void runReview()} disabled={!isCurrent || !runId || pending}><RotateCcw size={14} aria-hidden="true" />Review again</button>
-      <button type="button" className="review-secondary" disabled={!ready} onClick={() => ready && download(`spatialtwin-review-r${revision}.json`, 'application/json', reviewJson(ready))}><ArrowDownToLine size={14} aria-hidden="true" />JSON</button>
+      <button type="button" className="review-secondary" disabled={!ready} onClick={() => ready && download(`spatialtwin-review-r${revision}.json`, 'application/json', reviewJson(ready))}><ArrowDownToLine size={14} aria-hidden="true" />Export review JSON</button>
       <button type="button" className="review-primary" disabled={!ready} onClick={() => ready && download(`spatialtwin-verification-r${revision}.html`, 'text/html;charset=utf-8', buildReviewHtml(ready))}><ArrowDownToLine size={14} aria-hidden="true" />Printable report</button>
     </div></footer>
   </section>;

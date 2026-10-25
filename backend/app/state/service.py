@@ -196,7 +196,26 @@ class ScenarioService:
         open_env = self.evaluate_alternative(context, AlternativeId.OPEN_P3, f"{request_id}-open")
 
         net_gain = open_env.completed_crossings - keep_env.completed_crossings
-        has_benefit = net_gain > 0
+        reports_valid = keep_env.validator_report.is_valid and open_env.validator_report.is_valid
+        # A recommendation to open P3 requires two independently valid reports.
+        has_benefit = net_gain > 0 and reports_valid
+
+        with self.state_manager._state_lock:
+            blocked = sorted(self.state_manager.blocked_portals | self.state_manager.blocked_boundaries)
+        if not reports_valid:
+            explanation = "A candidate failed independent validation; no recommendation is made and KEEP_CURRENT stands."
+        elif has_benefit:
+            explanation = (
+                f"Opening P3 allows {open_env.completed_crossings} completed modeled crossings "
+                f"(gain of +{net_gain}) versus {keep_env.completed_crossings} with KEEP_CURRENT."
+            )
+        else:
+            blocked_text = f"Blocked targets: {', '.join(blocked)}." if blocked else "No targets are blocked."
+            explanation = (
+                f"Opening P3 provides no additional exit capacity (gain of {net_gain}). "
+                f"{blocked_text} Exit capacity is limited by the boundary service rates; "
+                "KEEP_CURRENT is equivalent within the model."
+            )
 
         return {
             "context": context.model_dump(),
@@ -205,11 +224,5 @@ class ScenarioService:
             "net_gain_completed": net_gain,
             "has_benefit": has_benefit,
             "recommendation": AlternativeId.OPEN_P3.value if has_benefit else AlternativeId.KEEP_CURRENT.value,
-            "explanation": (
-                f"Opening P3 allows {open_env.completed_crossings} completed modeled crossings "
-                f"(gain of +{net_gain}) versus {keep_env.completed_crossings} with KEEP_CURRENT."
-                if has_benefit
-                else f"Opening P3 provides no additional exit capacity (+0 gain). "
-                f"Downstream boundary B2 is blocked or bottlenecked; KEEP_CURRENT is mathematically equivalent."
-            ),
+            "explanation": explanation,
         }

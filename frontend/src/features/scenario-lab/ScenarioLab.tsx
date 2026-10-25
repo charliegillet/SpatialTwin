@@ -30,7 +30,8 @@ export function ScenarioLab({ snapshot, isCurrent }: ScenarioLabProps) {
   const gate = useRef(createRequestGate());
   const controller = useRef<AbortController | null>(null);
   const latest = useRef({ context: snapshot?.context, isCurrent, basis });
-  latest.current = { context: snapshot?.context, isCurrent, basis };
+  // Refs are written after commit, never during render. This effect precedes the invalidation effect below.
+  useEffect(() => { latest.current = { context: snapshot?.context, isCurrent, basis }; });
   const contextKey = JSON.stringify(snapshot?.context ?? null);
   useEffect(() => {
     gate.current.invalidate();

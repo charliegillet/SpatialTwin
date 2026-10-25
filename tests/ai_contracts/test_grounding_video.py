@@ -13,8 +13,9 @@ import pytest
 from backend.app.ai.grounding import video as video_mod
 from backend.app.ai.grounding.adapter import GroundingAdapter
 from backend.app.ai.grounding.video import (
-    IMAGE_FALLBACK_ERROR, MAX_VIDEO_BYTES, ground_video, video_enabled,
+    IMAGE_FALLBACK_ERROR, MAX_VIDEO_BYTES, video_enabled,
 )
+from backend.app.ai.grounding.video import ground_video as _ground_video
 from backend.app.contracts import GroundingStatus, RunContext
 
 VALID_OUTPUT = {
@@ -32,6 +33,18 @@ def mp4(seconds: float, pad: int = 0) -> bytes:
     moov = struct.pack(">I4s", 8 + len(mvhd), b"moov") + mvhd
     ftyp = struct.pack(">I4s", 16, b"ftyp") + b"isom\0\0\0\0"
     return ftyp + moov + b"\0" * pad
+
+
+def webm(seconds: float) -> bytes:
+    """Minimal EBML header plus TimecodeScale (1 ms) and Duration (float64, in ms)."""
+    return (b"\x1a\x45\xdf\xa3" + b"\x80" + b"\x2a\xd7\xb1\x83\x0f\x42\x40"
+            + b"\x44\x89\x88" + struct.pack(">d", seconds * 1000.0) + b"\0" * 16)
+
+
+async def ground_video(*args, **kwargs):
+    """Live calls need a capture timestamp; default to a fresh one unless the test sets it."""
+    kwargs.setdefault("captured_at_iso", datetime.now(timezone.utc).isoformat())
+    return await _ground_video(*args, **kwargs)
 
 
 @pytest.fixture(autouse=True)
@@ -120,9 +133,61 @@ async def test_rejections_make_no_call(adapter, context, mock_http, receipt):
     assert (await go(mp4(1, MAX_VIDEO_BYTES))).errors == ["video_too_large"]
     assert (await go(mp4(15.5))).errors == ["video_too_long"]
     assert (await go(mp4(5), duration_seconds=20)).errors == ["video_too_long"]
-    assert (await go(b"\0" * 64)).errors == ["video_duration_unknown"]
-    assert (await go(b"\0" * 64, "video/webm", duration_seconds=3)).status == "completed"
+    assert (await go(b"\0" * 64)).errors == ["invalid_video"]
+    assert (await go(mp4(5), "video/webm")).errors == ["invalid_video"]  # MIME must match the magic bytes
+    assert (await go(webm(5), "video/mp4")).errors == ["invalid_video"]
+    assert (await go(webm(5), "video/webm")).status == "completed"
     assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_caller_duration_never_substitutes_for_unknown_container_duration(adapter, context, mock_http, receipt):
+    _, calls = mock_http
+    async def go(clip, mime="video/mp4", **kw):
+        return await ground_video(clip, mime, context, "agentic", adapter=adapter, receipt_path=receipt, **kw)
+    header_only = b"\x1a\x45\xdf\xa3" + b"\0" * 60
+    assert (await go(header_only, "video/webm", duration_seconds=3)).errors == ["video_duration_unknown"]
+    assert (await go(mp4(0), duration_seconds=3)).errors == ["video_duration_unknown"]  # fragmented mvhd 0
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_missing_timestamp_is_not_fresh(adapter, context, mock_http, receipt):
+    _, calls = mock_http
+    res = await _ground_video(mp4(5), "video/mp4", context, "agentic", adapter=adapter, receipt_path=receipt)
+    assert res.errors == ["capture_timestamp_required"] and calls == []
+
+
+@pytest.mark.asyncio
+async def test_cancellation_is_not_converted_to_a_result(adapter, context, monkeypatch, receipt):
+    import asyncio
+    started = asyncio.Event()
+
+    async def hang(*a, **k):
+        started.set()
+        await asyncio.sleep(30)
+    monkeypatch.setattr(adapter.client.aio.interactions, "create", hang)
+    task = asyncio.create_task(ground_video(mp4(5), "video/mp4", context, "agentic", adapter=adapter,
+                                            receipt_path=receipt))
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+@pytest.mark.asyncio
+async def test_local_fault_has_distinct_code(adapter, context, monkeypatch, receipt):
+    async def local_bug(*a, **k):
+        raise RuntimeError("local bug")
+    monkeypatch.setattr(adapter.client.aio.interactions, "create", local_bug)
+    res = await ground_video(mp4(5), "video/mp4", context, "agentic", adapter=adapter, receipt_path=receipt)
+    assert res.errors == ["local_processing_failure"]
+
+
+def test_probe_receipt_dir_is_repo_anchored():
+    from pathlib import Path
+    assert video_mod.VIDEO_PROBE_DIR.is_absolute()
+    assert (video_mod.VIDEO_PROBE_DIR.parents[1] / "backend").is_dir()
 
 
 @pytest.mark.asyncio

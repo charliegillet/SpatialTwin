@@ -105,3 +105,6 @@
 .observation-advanced summary { min-height: 36px; padding-block: 6px; }
 .observation-heading h2 { text-wrap: balance; }
 @media (pointer: coarse) { .observation-panel summary { min-height: 44px; } }
+
+.observation-source-switch button, .observation-connect-button { min-height: 36px; }
+@media (pointer: coarse) { .observation-source-switch button, .observation-connect-button, .observation-camera-controls button, .observation-capture-button, .observation-apply-button, .observation-advanced summary { min-height: 44px !important; } }

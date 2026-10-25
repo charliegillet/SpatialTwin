@@ -73,7 +73,7 @@ export function ClipPicker({ videoEnabled, onSelect, disabled = false }: ClipPic
           onClick={() => chooseKind('video')}><Film size={15} aria-hidden="true" />Video</button>
       </div>
       {!videoEnabled && (
-        <p id={noteId} className="clip-picker-note">Video is unavailable: the video path is not yet verified by a live probe. Still images only.</p>
+        <p id={noteId} className="clip-picker-note">Video unavailable. Still images only.</p>
       )}
       {videoEnabled && effectiveKind === 'video' && (
         <p className="clip-picker-note">MP4 or WebM, up to 8 MB and 15 seconds.</p>

@@ -36,7 +36,7 @@ def validate_schedule(venue, timeline, population, completed, residual, breakdow
         for boundary, key in (("B1", "b1_cumulative"), ("B2", "b2_cumulative")):
             value = frame[key]
             spec = venue.boundaries.get(boundary)
-            limit = int(spec.service_rate_per_sec * dt) if spec else 0
+            limit = max(1, int(spec.service_rate_per_sec * dt)) if spec else 0
             if value < previous[boundary] or value - previous[boundary] > limit:
                 reasons.append(f"Timeline frame {t} violates {boundary} service rate")
             if boundary in blocked_boundaries and value:

@@ -17,7 +17,7 @@ import asyncio
 import logging
 import os
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Coroutine, Dict, Optional, Set, Tuple
 import serial
 
 from backend.app.contracts import (
@@ -33,6 +33,7 @@ from backend.app.hardware.protocol import (
     make_heartbeat_command,
     make_hello_command,
     make_stop_command,
+    MAX_LINE_BYTES,
     parse_device_line,
 )
 from backend.app.hardware.simulator import HardwareSimulator
@@ -41,8 +42,8 @@ from backend.app.state.manager import StateManager
 logger = logging.getLogger("spatialtwin.hardware")
 
 ACK_TIMEOUT_S = 3.0
-# Firmware ARM acknowledgements carry no command_id; this names that reply for matching.
-ARM_CORRELATION = "arm"
+# "device_not_armed" is the host's own reason; the firmware reports NOT_ARMED.
+NOT_ARMED_FAULTS = frozenset({"device_not_armed", "not_armed"})
 
 
 class HardwareUnavailable(RuntimeError):
@@ -75,6 +76,14 @@ class HardwareBridge:
         self._pending: Dict[str, asyncio.Future] = {}
         self._heartbeat_task: Optional[asyncio.Task] = None
         self._reader_task: Optional[asyncio.Task] = None
+        # The event loop holds only weak references to tasks, so fire-and-forget work is kept here.
+        self._background: Set[asyncio.Task] = set()
+
+    def _spawn(self, coro: Coroutine[Any, Any, Any]) -> asyncio.Task:
+        task = asyncio.create_task(coro)
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
+        return task
 
     def _next_cmd_id(self) -> str:
         self.cmd_counter += 1
@@ -138,16 +147,10 @@ class HardwareBridge:
             raise HardwareUnavailable("serial_write_failed") from error
 
     async def _send_and_await_ack(self, line: str, command_id: str,
-                                  timeout: float = ACK_TIMEOUT_S,
-                                  correlation: Optional[str] = None) -> Tuple[bool, str]:
-        """Sends one command and waits for the ACK or FAULT that answers it.
-
-        A reply is matched by its command_id. `correlation` names a reply that cannot carry a
-        command_id (the firmware's ARMED acknowledgement), and is used only while that command is in flight.
-        """
-        key = correlation or command_id
+                                  timeout: float = ACK_TIMEOUT_S) -> Tuple[bool, str]:
+        """Sends one command and waits for the ACK or FAULT that echoes its command_id."""
         future = asyncio.get_running_loop().create_future()
-        self._pending[key] = future
+        self._pending[command_id] = future
         try:
             self._send_raw(line)
             return await asyncio.wait_for(future, timeout)
@@ -156,7 +159,7 @@ class HardwareBridge:
         except asyncio.TimeoutError:
             return False, "ack_timeout"
         finally:
-            self._pending.pop(key, None)
+            self._pending.pop(command_id, None)
 
     async def send_hello(self) -> None:
         cmd_id = self._next_cmd_id()
@@ -171,7 +174,7 @@ class HardwareBridge:
             return False
         cmd_id = self._next_cmd_id()
         line = make_arm_command(self.session_id, cmd_id, self.boot_id)
-        ok, reason = await self._send_and_await_ack(line, cmd_id, correlation=ARM_CORRELATION)
+        ok, reason = await self._send_and_await_ack(line, cmd_id)
         self.armed = ok
         if not ok:
             logger.warning(f"ARM not acknowledged: {reason}")
@@ -198,7 +201,7 @@ class HardwareBridge:
         )
         ok, reason = await self._send_and_await_ack(line, cmd_id)
         if not ok:
-            if reason == "device_not_armed":
+            if reason.lower() in NOT_ARMED_FAULTS:
                 self.armed = False
             return False, reason
         return True, cmd_id
@@ -225,19 +228,23 @@ class HardwareBridge:
             # The LED display is informational; a missing transport must not fail a route.
             logger.warning(f"Display not updated: {error}")
 
-    def _resolve_pending(self, msg_type: str, data: Dict[str, Any]) -> None:
+    def _resolve_pending(self, msg_type: str, data: Dict[str, Any]) -> bool:
+        """A reply resolves only the outstanding command whose command_id it echoes.
+
+        Returns True when a pending command was resolved, False when the reply matched nothing.
+        """
         command_id = data.get("command_id")
-        keys = [command_id] if isinstance(command_id, str) else []
-        if msg_type == SerialResponseType.ACK.value and data.get("status") == "ARMED":
-            keys.append(ARM_CORRELATION)
-        future = next((self._pending[key] for key in keys
-                       if key in self._pending and not self._pending[key].done()), None)
-        if future is None:
-            return
+        future = self._pending.get(command_id) if isinstance(command_id, str) else None
+        if future is None or future.done():
+            return False
         if msg_type == SerialResponseType.ACK.value:
             future.set_result((True, str(data.get("status", "ACK"))))
         elif msg_type == SerialResponseType.FAULT.value:
-            future.set_result((False, str(data.get("fault", "FAULT"))))
+            fault = str(data.get("fault", "FAULT"))
+            if fault.lower() in NOT_ARMED_FAULTS:
+                self.armed = False
+            future.set_result((False, fault))
+        return True
 
     def _handle_incoming_line(self, line: str) -> None:
         data = parse_device_line(line)
@@ -246,12 +253,16 @@ class HardwareBridge:
 
         msg_type = data.get("type")
         if msg_type in (SerialResponseType.ACK.value, SerialResponseType.FAULT.value):
-            self._resolve_pending(msg_type, data)
+            if not self._resolve_pending(msg_type, data) and msg_type == SerialResponseType.FAULT.value:
+                # A FAULT that answers no outstanding command (for example DEVICE_NOT_ARMED after a
+                # device reset) means the host's armed view is wrong. Never keep acting on it.
+                logger.warning(f"Unsolicited device FAULT: {str(data.get('fault', 'FAULT'))[:64]}; disarming host view")
+                self.armed = False
 
         elif msg_type == SerialResponseType.HELLO_ACK.value:
             self.boot_id = data.get("boot_id")
             logger.info(f"Received HELLO_ACK from boot_id: {self.boot_id}")
-            asyncio.create_task(self.send_arm())
+            self._spawn(self.send_arm())
 
         elif msg_type == SerialResponseType.OBSERVATION.value:
             boot_id = data.get("boot_id", "")
@@ -275,13 +286,13 @@ class HardwareBridge:
                 gate_epoch=epoch,
             )
             # When state changes, refresh display
-            asyncio.create_task(self.update_display())
+            self._spawn(self.update_display())
 
     async def _physical_reader_loop(self) -> None:
         loop = asyncio.get_running_loop()
         while self.is_running and self.serial_conn and self.serial_conn.is_open:
             try:
-                line_bytes = await loop.run_in_executor(None, self.serial_conn.readline)
+                line_bytes = await loop.run_in_executor(None, self.serial_conn.readline, MAX_LINE_BYTES)
                 line = line_bytes.decode("utf-8", errors="replace")
                 if line:
                     self._handle_incoming_line(line)

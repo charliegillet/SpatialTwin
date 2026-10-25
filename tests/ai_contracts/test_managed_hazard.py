@@ -279,13 +279,21 @@ def test_build_environment_shape():
 
 
 @pytest.mark.asyncio
-async def test_network_deny_rejection_falls_back_to_remote(service):
+async def test_network_deny_rejection_fails_without_downgrading_to_remote(service):
     env = agent_registry.build_environment(True)
     provider = Provider([Rejected(), response("completed", [])])
     result = await adapter_for(service, provider, environment=env).investigate_scenario(service.state_manager.context)
-    assert provider.create_calls[0]["environment"] == env
-    assert provider.create_calls[1]["environment"] == "remote"
-    assert any(e["phase"] == "environment_fallback" and e["used"] == "remote" for e in result.provider_progress)
+    assert len(provider.create_calls) == 1 and provider.create_calls[0]["environment"] == env
+    assert result.status == InvestigationStatus.FAILED
+    assert result.errors == ["network_deny_rejected"]
+    assert not any(e["phase"] == "environment_fallback" for e in result.provider_progress)
+
+
+@pytest.mark.asyncio
+async def test_plain_remote_rejection_keeps_generic_code(service):
+    provider = Provider([Rejected()])
+    result = await adapter_for(service, provider).investigate_scenario(service.state_manager.context)
+    assert result.errors == ["provider_request_rejected"]
 
 
 @pytest.mark.asyncio
@@ -313,3 +321,160 @@ def test_resolution_reads_the_key_the_live_probe_writes(tmp_path):
     cache.write_text('{"managed_available": true, "resolved_managed_model": "gemini-4-argon"}')
     resolution = model_probe.resolve_model(cache_path=str(cache))
     assert resolution is not None and resolution.model == "gemini-4-argon" and not resolution.is_fallback
+
+
+# ---- review-finding regressions -------------------------------------------------------------
+
+
+def test_hazard_context_carries_live_state_and_baseline_reason(service, monkeypatch):
+    from backend.app.ai.managed import adapter as adapter_mod
+    seen = {}
+
+    def spy(name, arguments, ctx):
+        seen["ctx"] = ctx
+        return {"tool": name}
+    monkeypatch.setattr(adapter_mod, "execute_hazard_tool", spy)
+    manager = service.state_manager
+    manager.blocked_portals.add("P2")
+    manager.blocked_boundaries.add("B1")
+    adapter = adapter_for(service, Provider([]))
+    result = adapter._hazard_result("inv-live", "score_exposure", hazard_args(service), manager.context)
+    assert seen["ctx"].blocked_portals == frozenset({"P2"})
+    assert seen["ctx"].blocked_boundaries == frozenset({"B1"})
+    assert seen["ctx"].p3_physical_open is False
+    assert "baseline_unavailable_reason" not in result
+
+    def broken(_investigation_id):
+        raise RuntimeError("db down")
+    monkeypatch.setattr(adapter.ledger, "calls", broken)
+    result = adapter._hazard_result("inv-live", "score_exposure", hazard_args(service), manager.context)
+    assert result["baseline_unavailable_reason"] == "baseline_load_failed"
+
+
+def test_tool_payload_missing_context_is_explicit(service):
+    from backend.app.ai.managed.adapter import InvestigationError
+    from backend.app.contracts import ToolCallLedgerEntry
+    entry = ToolCallLedgerEntry(call_id="c", function_name="get_checked_comparison", arguments={},
+                                status="executed", result={"keep_current": {}, "open_p3": {}},
+                                execution_time_ms=0.0)
+    with pytest.raises(InvestigationError, match="invalid_comparison_result"):
+        ManagedAgentAdapter._tool_payload(entry)
+
+
+def test_finish_call_failure_becomes_terminal_call_error(service, monkeypatch):
+    adapter = adapter_for(service, Provider([]))
+    ctx = service.state_manager.context
+    adapter.ledger.claim("inv-fc", "c1", "get_reviewed_scenario", {}, 4)
+    real = adapter.ledger.finish_call
+    calls = []
+
+    def flaky(*a):
+        calls.append(a)
+        if len(calls) == 1:
+            raise RuntimeError("disk")
+        return real(*a)
+    monkeypatch.setattr(adapter.ledger, "finish_call", flaky)
+    entry = adapter._worker("inv-fc", "c1", "get_reviewed_scenario", {}, ctx)
+    assert entry.status == "failed" and entry.error == "call_finalization_failed"
+    assert adapter.ledger.calls("inv-fc")[0]["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_result_construction_failure_still_finalizes_owner_row(service, monkeypatch):
+    from backend.app.ai.managed import adapter as adapter_mod
+    real = adapter_mod.InvestigationResult
+
+    class Flaky(real):
+        def __init__(self, **kwargs):
+            if "candidate_envelopes" in kwargs:
+                raise ValueError("boom")
+            super().__init__(**kwargs)
+    monkeypatch.setattr(adapter_mod, "InvestigationResult", Flaky)
+    adapter = adapter_for(service, Provider([]))
+    result = await adapter.investigate_scenario(service.state_manager.context, "inv-rc", mode="local")
+    assert result.status == InvestigationStatus.FAILED and "result_construction_failed" in result.errors
+    with adapter.ledger._lock:
+        state = adapter.ledger._connection.execute(
+            "SELECT state FROM managed_runs_v1 WHERE investigation_id='inv-rc'").fetchone()[0]
+    assert state == "finished"
+
+
+@pytest.mark.asyncio
+async def test_unpublishable_owner_row_is_aborted_not_running(service, monkeypatch):
+    adapter = adapter_for(service, Provider([]))
+
+    def explode(*a, **k):
+        raise RuntimeError("publish bug")
+    monkeypatch.setattr(adapter, "_publish_result", explode)
+    with pytest.raises(RuntimeError):
+        await adapter.investigate_scenario(service.state_manager.context, "inv-ab", mode="local")
+    with adapter.ledger._lock:
+        state = adapter.ledger._connection.execute(
+            "SELECT state FROM managed_runs_v1 WHERE investigation_id='inv-ab'").fetchone()[0]
+    assert state == "aborted"
+
+
+def test_ledger_maps_sqlite_errors_to_fixed_codes(service, monkeypatch):
+    import sqlite3
+    from backend.app.ai.managed import ledger as ledger_mod
+    adapter = adapter_for(service, Provider([]))
+    path = service.state_manager.store.db_path
+    other = sqlite3.connect(path, isolation_level=None)
+    other.execute("BEGIN IMMEDIATE")
+    try:
+        with pytest.raises(LedgerConflict) as claim_error:
+            adapter.ledger.claim("inv-l", "c", "get_reviewed_scenario", {}, 4)
+        assert str(claim_error.value) == "tool_storage_busy"
+        monkeypatch.setattr(ledger_mod, "PUBLISH_BUSY_TIMEOUT_MS", 50)
+        adapter.ledger._connection.rollback()
+        with pytest.raises(LedgerConflict) as publish_error:
+            adapter.ledger.publish("inv-l", "{}")
+        assert str(publish_error.value) == "result_persistence_busy"
+    finally:
+        other.execute("ROLLBACK")
+        other.close()
+    assert ledger_mod.PUBLISH_BUSY_TIMEOUT_MS != 0
+    assert ledger_mod._storage_code(sqlite3.OperationalError("x"), "busy", "failed") == "failed"
+
+
+@pytest.mark.asyncio
+async def test_agent_created_is_returned_even_if_cache_write_fails(tmp_path):
+    provider = Provider([])
+    blocker = tmp_path / "file"
+    blocker.write_text("x")
+    ref = await agent_registry.ensure_agent(provider, enabled=True, cache_path=str(blocker / "sub" / "a.json"))
+    assert ref is not None and ref.created is True and len(provider.agent_calls) == 1
+
+
+def test_default_caches_are_anchored_to_repo_root():
+    from pathlib import Path
+    from backend.app.ai.managed import model_probe
+    root = Path(agent_registry.__file__).resolve().parents[4]
+    assert (root / "backend").is_dir()
+    for default in (agent_registry.DEFAULT_CACHE, model_probe.DEFAULT_CACHE):
+        assert Path(default).is_absolute() and Path(default).is_relative_to(root)
+
+
+def test_model_probe_does_not_cache_fallback_on_transient_error(tmp_path):
+    cache = tmp_path / "m.json"
+
+    async def transient(model):
+        raise TimeoutError()
+    assert asyncio.run(resolve_model_live(transient, cache_path=str(cache))) is None
+    assert not cache.exists()
+
+    async def rejected_then_ok(model):
+        if model == MODEL:
+            raise Rejected()
+        return True
+    resolution = asyncio.run(resolve_model_live(rejected_then_ok, cache_path=str(cache)))
+    assert resolution.model == FALLBACK and resolution.is_fallback
+    assert resolve_model(cache_path=str(cache)) == resolution
+
+
+def test_resolve_model_reads_legacy_model_key(tmp_path):
+    cache = tmp_path / "m.json"
+    cache.write_text('{"model": "gemini-3.8-flash"}')
+    assert resolve_model(cache_path=str(cache)).model == FALLBACK
+    cache.write_text('{"resolved_managed_model": "gemini-4-argon", "model": "gemini-3.8-flash"}')
+    assert resolve_model(cache_path=str(cache)).model == MODEL

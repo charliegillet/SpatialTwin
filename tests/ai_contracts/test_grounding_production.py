@@ -327,17 +327,15 @@ async def test_shutdown_closes_sdk_transports_and_disables_live_config(adapter, 
 
 
 @pytest.mark.asyncio
-async def test_caller_and_provider_cancellation_return_no_proposal(adapter, capture, context, mock_http):
+async def test_caller_cancellation_propagates_and_provider_cancellation_returns_no_proposal(adapter, capture, context, mock_http):
     state, calls = mock_http
     state["delay"] = 10
     task = asyncio.create_task(adapter.interpret_capture(capture, context))
     while not calls:
         await asyncio.sleep(.001)
     task.cancel()
-    cancelled = await task
-    assert cancelled.status == "cancelled"
-    assert cancelled.proposal is None
-    assert cancelled.errors == ["provider_cancelled"]
+    with pytest.raises(asyncio.CancelledError):  # caller cancellation propagates, never becomes a result
+        await task
     state["delay"] = 0
     state["response"]["status"] = "cancelled"
     provider = await adapter.interpret_capture(capture, context)
@@ -422,3 +420,12 @@ async def test_force_target_cannot_relabel_real_camera_as_fixture(adapter, captu
     assert result.errors == ["fixture_source_required"]
     assert result.proposal is None
     assert not calls
+
+
+@pytest.mark.asyncio
+async def test_local_fault_is_not_reported_as_provider_failure(adapter, capture, context, monkeypatch):
+    def local_bug(*a, **k):
+        raise RuntimeError("local bug")
+    monkeypatch.setattr(GroundingAdapter, "_validate_image", staticmethod(local_bug))
+    result = await adapter.interpret_capture(capture, context)
+    assert result.status == "failed" and result.errors == ["local_processing_failure"]

@@ -112,7 +112,8 @@ def checked_frames(basis: ReviewBasis) -> Tuple[Frame, ...]:
     population = plan.initial_population
     frames = []
     for index, raw in enumerate(plan.timeline):
-        if (not isinstance(raw, dict) or raw.get("step") != index or raw.get("time_seconds") != index * step
+        if (not isinstance(raw, dict) or type(raw.get("step")) is not int or raw["step"] != index
+                or type(raw.get("time_seconds")) is not int or raw["time_seconds"] != index * step
                 or not all(_count(raw.get(key)) for key in COUNT_FIELDS)):
             raise ReviewUnavailable("invalid_timeline")
         holding = sum(raw[key] for key in ZONE_FIELDS.values())
@@ -149,8 +150,10 @@ def reachable_zones(basis: ReviewBasis) -> frozenset:
 
 
 def boundary_quota(basis: ReviewBasis, boundary_id: str) -> int:
+    # Same rule as the planner and checker: int(rate * horizon).
     return int(basis.venue.boundaries[boundary_id].service_rate_per_sec * basis.plan.horizon_seconds)
 
 
 def boundary_step_limit(basis: ReviewBasis, boundary_id: str) -> int:
-    return int(basis.venue.boundaries[boundary_id].service_rate_per_sec * basis.plan.time_step_seconds)
+    # Same rule as the solver and schedule checker: a boundary always services at least one per step.
+    return max(1, int(basis.venue.boundaries[boundary_id].service_rate_per_sec * basis.plan.time_step_seconds))

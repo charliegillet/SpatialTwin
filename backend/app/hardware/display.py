@@ -33,6 +33,12 @@ class DisplayProjector:
         COLOR_RED = self.rgb_to_int(180, 0, 0)
         COLOR_AMBER = self.rgb_to_int(180, 80, 0)
         COLOR_DIM_BLUE = self.rgb_to_int(0, 0, 40)
+        COLOR_UNKNOWN = self.rgb_to_int(90, 0, 90)
+
+        # Route LEDs show a plan only when its independent validator accepted it.
+        plan_ok = bool(current_plan and current_plan.validator_report.is_valid)
+        if not plan_ok:
+            current_plan = None
 
         # 1. Portal P1 (indices 0..7)
         if "P1" in blocked_portals:
@@ -59,9 +65,11 @@ class DisplayProjector:
             p3_color = COLOR_AMBER
         elif gate_state == GateObservedState.FAULT:
             p3_color = COLOR_RED
-        else:
-            # Closed / Standby
+        elif gate_state == GateObservedState.CLOSED:
             p3_color = COLOR_DIM_BLUE
+        else:
+            # UNKNOWN (no confirmed endpoint): distinct from CLOSED so it is never read as "safely shut".
+            p3_color = COLOR_UNKNOWN
         for i in range(16, 24):
             pixels[i] = p3_color
 

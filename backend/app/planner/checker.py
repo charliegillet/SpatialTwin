@@ -71,9 +71,21 @@ class PlanChecker:
 
         # 4. P3 State and Flow Consistency
         checks_run.append("p3_gate_admissibility")
-        if not p3_is_open and "P3" in blocked_portals:
-            # P3 is closed
-            pass
+        p3_closed = (not p3_is_open) or "P3" in blocked_portals
+        if p3_closed:
+            # RESERVE is reachable only through P3, so a closed P3 means no EVENT->RESERVE flow
+            # in the witness and no reserve occupancy in any timeline frame.
+            p3_flow = sum(
+                amount
+                for source, destinations in (flow_witness or {}).items()
+                if isinstance(source, tuple) and source[0] == "EVENT"
+                for destination, amount in destinations.items()
+                if isinstance(destination, tuple) and destination[0] == "RESERVE" and amount
+            )
+            if p3_flow:
+                reasons.append(f"P3 is closed but {p3_flow} occupants were routed through it; must be 0")
+            if any(isinstance(f, dict) and f.get("reserve_occupancy") for f in (timeline or [])):
+                reasons.append("P3 is closed but the timeline shows reserve occupancy; must be 0")
 
         # 5. Boundary Capacity / Rate Quota Check
         checks_run.append("boundary_quota_limits")
@@ -109,7 +121,10 @@ class PlanChecker:
 
         # 8. Status Consistency Check
         checks_run.append("computation_status_consistency")
-        if completed_crossings == initial_population and status != ComputationStatus.COMPLETE_WITHIN_MODEL:
+        if status in (ComputationStatus.SOLVER_INFEASIBLE, ComputationStatus.INVALID_INPUT,
+                      ComputationStatus.SOLVER_TIMEOUT, ComputationStatus.STALE):
+            reasons.append(f"Solver did not produce a feasible plan (status {status.value})")
+        elif completed_crossings == initial_population and status != ComputationStatus.COMPLETE_WITHIN_MODEL:
             reasons.append(f"All occupants completed but status is {status}; expected COMPLETE_WITHIN_MODEL")
         elif 0 < completed_crossings < initial_population and status != ComputationStatus.PARTIAL_WITHIN_HORIZON:
             reasons.append(f"Partial completion ({completed_crossings}/{initial_population}) but status is {status}")

@@ -7,7 +7,7 @@
 .spatial-panel-heading h2 { margin:0; font-size:.9375rem; font-weight:500; color:var(--spatial-text); }
 .spatial-panel-slash,.spatial-panel-heading > span { display:none; }
 .spatial-view-switch { display:inline-flex; gap:3px; border:1px solid #3a4441; padding:3px; border-radius:6px; }
-.spatial-view-switch button { display:flex; align-items:center; justify-content:center; gap:6px; min-height:32px; padding:5px 9px; border:0; border-radius:4px; background:transparent; color:#abb9ae; font-size:.75rem; }
+.spatial-view-switch button { display:flex; align-items:center; justify-content:center; gap:6px; min-height:36px; padding:5px 9px; border:0; border-radius:4px; background:transparent; color:#abb9ae; font-size:.75rem; }
 .spatial-view-switch button:hover { color:var(--spatial-text); background:#252f29; }
 .spatial-view-switch button.is-active { background:#303c30; color:#e1ecd7; }
 .spatial-canvas { position:relative; flex:1; min-height:420px; overflow:hidden; background:#111718; }
@@ -87,7 +87,7 @@
 .spatial-room-label .spatial-room-subtitle {
   fill: #b0c3a7;
   font-family: 'IBM Plex Mono', monospace;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 400;
   letter-spacing: 1px;
 }
@@ -200,7 +200,7 @@
 
 .spatial-gate-label text {
   font-family: 'IBM Plex Mono', monospace;
-  font-size: 10px;
+  font-size: 11px;
   fill: #9ba99b;
   letter-spacing: .35px;
 }
@@ -215,20 +215,20 @@
 
 .spatial-boundary-label text {
   font-family: 'IBM Plex Mono', monospace;
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: .8px;
   fill: #778a7e;
 }
 
 
 .spatial-zoom-controls { position:absolute; z-index:2; top:65px; right:16px; display:flex; flex-direction:column; align-items:center; padding:4px; border:1px solid #3c4b40; border-radius:6px; background:#1a241c; }
-.spatial-zoom-controls button { display:grid; place-items:center; width:34px; min-height:34px; padding:4px; border:0; border-radius:4px; color:#c7d5bd; background:transparent; }
+.spatial-zoom-controls button { display:grid; place-items:center; width:36px; min-height:36px; padding:4px; border:0; border-radius:4px; color:#c7d5bd; background:transparent; }
 .spatial-zoom-controls button:hover { background:#34432e; }
 .spatial-zoom-controls button:disabled { opacity:.4; cursor:default; }
-.spatial-zoom-controls > span { font:.625rem var(--mono); color:#b3c4a8; padding:3px 0; font-variant-numeric:tabular-nums; }
+.spatial-zoom-controls > span { font:.6875rem var(--mono); color:#b3c4a8; padding:3px 0; font-variant-numeric:tabular-nums; }
 .spatial-zoom-controls > i { width:20px; height:1px; background:#45543c; margin:3px 0; }
 .spatial-view-legend { position:absolute; bottom:18px; left:20px; display:flex; gap:12px; flex-wrap:wrap; max-width:calc(100% - 100px); pointer-events:none; }
-.spatial-view-legend > span { display:flex; align-items:center; gap:6px; font-size:.625rem; color:#a8bba5; }
+.spatial-view-legend > span { display:flex; align-items:center; gap:6px; font-size:.6875rem; color:#a8bba5; }
 .spatial-view-legend i { width:12px; height:2px; background:var(--spatial-accent); }
 .spatial-view-legend .spatial-legend-wall { width:6px; height:6px; background:#e5eade; border-radius:1px; }
 .spatial-view-legend .spatial-legend-blocked { width:6px; height:6px; background:#efa28c; border-radius:50%; }
@@ -250,8 +250,8 @@
 .spatial-target-buttons button.is-selected > span:first-child { color:var(--spatial-accent); }
 .spatial-target-buttons button.is-blocked { border-color:#80614e; background:#31261e; }
 .spatial-target-buttons button.is-blocked > span:first-child { color:#f5bea2; }
-.spatial-panel-footer { display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px 18px; padding:13px 20px; font-size:.625rem; color:#a5b79b; border-top:1px solid #303c31; }
-.spatial-panel-footer button { border:0; background:transparent; color:#cee0bc; display:flex; align-items:center; gap:6px; }
+.spatial-panel-footer { display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px 18px; padding:13px 20px; font-size:.6875rem; color:#a5b79b; border-top:1px solid #303c31; }
+.spatial-panel-footer button { min-height:36px; border:0; background:transparent; color:#cee0bc; display:flex; align-items:center; gap:6px; }
 @media(max-width:1080px) { .spatial-panel-header { flex-wrap:wrap; gap:12px; } .spatial-scene-caption { top:17px; left:16px; } .spatial-result-indicator { top:68px; left:16px; right:auto; } .spatial-target-buttons button > span:nth-child(2) { display:none; } .spatial-selection-bar { padding:16px; } .spatial-target-buttons button { justify-content:center; } .spatial-target-buttons button > svg { margin-left:0; } }
 @media(max-width:860px) { .spatial-panel { min-height:560px; } .spatial-panel-header { flex-wrap:nowrap; } .spatial-canvas { min-height:390px; } .spatial-result-indicator { top:21px; right:20px; left:auto; } .spatial-target-buttons button > span:nth-child(2) { display:block; } }
 @media(max-width:600px) { .spatial-panel-header { padding:14px 16px; gap:10px; flex-wrap:wrap; } .spatial-panel-heading h2 { font-size:.875rem; } .spatial-panel { min-height:570px; } .spatial-view-switch button { min-height:36px; padding:5px 8px; } .spatial-canvas { min-height:360px; } .spatial-result-indicator { top:65px; left:16px; right:auto; } .spatial-zoom-controls button { width:36px; min-height:36px; } .spatial-view-legend { gap:8px; left:16px; bottom:14px; max-width:calc(100% - 70px); } .spatial-target-buttons button { min-height:44px; } .spatial-target-buttons button > span:nth-child(2) { display:none; } .spatial-panel-footer { padding:12px 16px; } .spatial-selection-hint > span { gap:4px 10px; } }
@@ -264,5 +264,14 @@
 .spatial-forecast-outline { fill:none; stroke:#d3ed9c; stroke-width:1.4; stroke-dasharray:5 4; pointer-events:none; }
 .spatial-forecast-chip { pointer-events:none; }
 .spatial-forecast-chip rect { fill:#151a1b; stroke:#d3ed9c; stroke-width:.8; stroke-dasharray:3 2; }
-.spatial-forecast-chip text { fill:#d3ed9c; font:600 10px var(--mono); }
+.spatial-forecast-chip text { fill:#d3ed9c; font:600 11px var(--mono); }
 .spatial-view-legend .spatial-legend-forecast { width:10px; height:6px; background:transparent; border:1px dashed #d3ed9c; border-radius:1px; }
+
+/* One-finger pan only after the model has been tapped, so the page still scrolls past it. */
+.spatial-model-svg.is-touch-armed { touch-action:none; }
+.spatial-scene-caption > .spatial-touch-hint { display:none; }
+@media (pointer:coarse) {
+  .spatial-scene-caption > .spatial-touch-hint { display:block; }
+  .spatial-view-switch button, .spatial-zoom-controls button, .spatial-panel-footer button, .spatial-target-buttons button { min-height:44px; }
+  .spatial-zoom-controls button { width:44px; }
+}

@@ -22,7 +22,7 @@ from typing import Annotated, Any, Literal, Optional
 import httpx
 from google import genai
 from google.genai import errors as genai_errors
-from google.genai._gaos.lib.compat_errors import APIStatusError, APITimeoutError
+from google.genai._gaos.lib.compat_errors import APIStatusError, APITimeoutError, GeminiNextGenAPIClientError
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationError, model_validator
 
@@ -298,7 +298,7 @@ class GroundingAdapter:
         except (asyncio.TimeoutError, TimeoutError, httpx.TimeoutException, APITimeoutError):
             return result("timed_out", "provider_timeout")
         except asyncio.CancelledError:
-            return result("cancelled", "provider_cancelled")
+            raise  # caller cancellation is never converted into a result
         except _CaptureRejected as error:
             return result("failed", str(error))
         except (APIStatusError, genai_errors.APIError) as error:
@@ -315,8 +315,11 @@ class GroundingAdapter:
                 if code in (400, 404, 409, 422):
                     return result("failed", "provider_request_rejected")
             return result("failed", "provider_failure")
-        except Exception:
+        except (httpx.HTTPError, genai_errors.APIError, GeminiNextGenAPIClientError):
             return result("failed", "provider_failure")
+        except Exception:
+            # Not a provider or transport error: a local fault must stay distinguishable.
+            return result("failed", "local_processing_failure")
 
     @staticmethod
     def _validate_context(capture: Capture, context: RunContext, live: bool) -> None:

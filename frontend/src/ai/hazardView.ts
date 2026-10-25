@@ -3,7 +3,6 @@ import type { HazardResultView } from '../features/hazard-exposure/hazard.ts';
 
 export const hazardElements = ['portal:P1', 'portal:P2', 'boundary:B2'] as const;
 
-/** Drop incomplete rows, keep the first row per element, and cap at the 6 events the server accepts. */
 /** Simulation horizon of the default venue graph (backend/app/planner/model.py default_horizon_seconds). */
 export const HAZARD_HORIZON_SECONDS = 40;
 
@@ -12,6 +11,7 @@ export function venueElementId(targetId: string): string {
   return targetId.replace(/^(portal|boundary):/, '');
 }
 
+/** Drop incomplete rows, keep the first row per element, and cap at the 6 events the server accepts. */
 export function cleanHazardEvents(rows: readonly { element_id: string; close_at_s: string }[]): HazardClosureEvent[] {
   const seen = new Set<string>();
   const events: HazardClosureEvent[] = [];

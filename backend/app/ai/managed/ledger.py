@@ -10,6 +10,18 @@ class LedgerConflict(Exception):
     """Carries only an application-defined diagnostic code."""
 
 
+# The database is shared with the state store's writers, so publication waits a bounded time.
+PUBLISH_BUSY_TIMEOUT_MS = 5000
+DEFAULT_BUSY_TIMEOUT_MS = 100
+_BUSY_CODES = frozenset({5, 6})  # SQLITE_BUSY, SQLITE_LOCKED
+
+
+def _storage_code(error: sqlite3.Error, busy: str, failed: str) -> str:
+    """Map a SQLite error to a fixed code from its numeric result code; never its text."""
+    primary = (getattr(error, "sqlite_errorcode", None) or 0) & 0xFF
+    return busy if primary in _BUSY_CODES else failed
+
+
 class ManagedLedger:
     def __init__(self, path: str):
         self._lock = threading.RLock()
@@ -74,6 +86,9 @@ class ManagedLedger:
                 with self._connection:
                     self._connection.execute("BEGIN IMMEDIATE")
                     return self._begin_row(investigation_id, self.encode(context), mode)
+            except sqlite3.Error as error:
+                raise LedgerConflict(_storage_code(error, "investigation_storage_busy",
+                                                   "investigation_storage_failed")) from None
             finally:
                 self._connection.execute("PRAGMA busy_timeout=100")
         finally:
@@ -110,9 +125,9 @@ class ManagedLedger:
         if not self._lock.acquire(blocking=False):
             raise LedgerConflict("result_persistence_busy")
         try:
-            # Unlike background ledger work, this small publication transaction
-            # runs at the caller's cancellation boundary. Never wait for SQLite.
-            self._connection.execute("PRAGMA busy_timeout=0")
+            # This small publication transaction runs at the caller's cancellation boundary,
+            # so SQLite waits are bounded (PUBLISH_BUSY_TIMEOUT_MS), never unbounded.
+            self._connection.execute(f"PRAGMA busy_timeout={PUBLISH_BUSY_TIMEOUT_MS}")
             try:
                 with self._connection:
                     self._connection.execute("BEGIN IMMEDIATE")
@@ -134,8 +149,11 @@ class ManagedLedger:
                     if updated != 1:
                         raise LedgerConflict("result_persistence_conflict")
                 return result_json
+            except sqlite3.Error as error:
+                raise LedgerConflict(_storage_code(error, "result_persistence_busy",
+                                                   "result_persistence_failed")) from None
             finally:
-                self._connection.execute("PRAGMA busy_timeout=100")
+                self._connection.execute(f"PRAGMA busy_timeout={DEFAULT_BUSY_TIMEOUT_MS}")
         finally:
             self._lock.release()
 
@@ -152,6 +170,13 @@ class ManagedLedger:
               arguments: dict, max_calls: int) -> dict | None:
         """Claim a new call or replay a finished one; ``max_calls`` caps each tool name."""
         encoded = self.encode(arguments)
+        try:
+            return self._claim(investigation_id, call_id, function_name, encoded, max_calls)
+        except sqlite3.Error as error:
+            raise LedgerConflict(_storage_code(error, "tool_storage_busy", "tool_storage_failed")) from None
+
+    def _claim(self, investigation_id: str, call_id: str, function_name: str,
+               encoded: str, max_calls: int) -> dict | None:
         with self._lock, self._connection:
             self._connection.execute("BEGIN IMMEDIATE")
             row = self._connection.execute(
@@ -181,6 +206,14 @@ class ManagedLedger:
             self._connection.execute(
                 "UPDATE managed_calls_v1 SET state='finished', entry_json=? WHERE investigation_id=? AND call_id=?",
                 (self.encode(entry), investigation_id, call_id),
+            )
+
+    def abort(self, investigation_id: str) -> None:
+        """Move an owner row that could not publish out of 'running' (it is never replayable)."""
+        with self._lock, self._connection:
+            self._connection.execute(
+                "UPDATE managed_runs_v1 SET state='aborted' WHERE investigation_id=? AND state IN ('running', 'finalizing')",
+                (investigation_id,),
             )
 
     def calls(self, investigation_id: str) -> list[dict]:

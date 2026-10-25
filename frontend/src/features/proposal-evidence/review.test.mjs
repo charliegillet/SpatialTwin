@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildReviewHtml, nextStepCopy, reviewJson, reviewPayload } from './review.ts';
+import { buildReviewHtml, nextStepCopy, reviewJson, reviewPayload, verdictLabel, verdictNotice } from './review.ts';
 
 const context = {
   state_epoch: 'epoch-1', geometry_revision: 'geom-1', scenario_revision: 2, physical_revision: 2,
@@ -161,4 +161,16 @@ test('the printable report escapes content, carries scope limits and loads nothi
   const json = JSON.parse(reviewJson(data, '2026-10-24T11:00:00Z'));
   assert.equal(json.exported_at, '2026-10-24T11:00:00Z');
   assert.equal(json.review.run_id, 'run-1');
+});
+
+test('an incomplete verdict is accepted only without failures and is labelled honestly', () => {
+  const incomplete = payload(); incomplete.verification.verdict = 'incomplete';
+  assert.equal(reviewPayload(incomplete, snapshot(), true).available, true);
+  assert.equal(verdictLabel('incomplete'), 'Incomplete');
+  assert.match(verdictNotice('incomplete'), /did not run/);
+  assert.doesNotMatch(verdictNotice('incomplete'), /^Verified/);
+  const contradicted = payload(); contradicted.verification.verdict = 'incomplete';
+  contradicted.verification.requirements[0].status = 'fail';
+  contradicted.verification.summary.passed = 1; contradicted.verification.summary.failed = 1;
+  rejected(contradicted);
 });

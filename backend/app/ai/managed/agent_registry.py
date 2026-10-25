@@ -2,16 +2,21 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+logger = logging.getLogger(__name__)
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
+
 AGENT_ID = "spatialtwin-evac-v1"
 BASE_AGENT = "antigravity-preview-09-2026"
 ENABLE_ENV = "SPATIALTWIN_CREATE_AGENT"
 NETWORK_DENY_ENV = "SPATIALTWIN_NETWORK_DENY"
-DEFAULT_CACHE = "runtime/managed/agent_ref.json"
+DEFAULT_CACHE = str(REPO_ROOT / "runtime" / "managed" / "agent_ref.json")
 POLICY_FILE = Path(__file__).parent / "policy_files" / "AGENTS.md"
 
 # SDK 2.33 EnvironmentParam: {"type": "remote", "network": "disabled" | {"allowlist": ...}}.
@@ -33,8 +38,8 @@ def _read_cache(path: Path) -> AgentRef | None:
         data = json.loads(path.read_text())
         if isinstance(data, dict) and data.get("agent_id") == AGENT_ID:
             return AgentRef(AGENT_ID)
-    except Exception:
-        pass
+    except (OSError, ValueError):
+        pass  # missing or unreadable cache: treated as not cached
     return None
 
 
@@ -55,10 +60,14 @@ async def ensure_agent(client: Any = None, *, enabled: bool | None = None,
         await client.aio.agents.create(
             id=AGENT_ID, base_agent=BASE_AGENT, description="SpatialTwin evacuation twin",
             system_instruction=POLICY_FILE.read_text(), timeout=30)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"agent_id": AGENT_ID, "base_agent": BASE_AGENT}))
     except Exception:
         return None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"agent_id": AGENT_ID, "base_agent": BASE_AGENT}))
+    except OSError:
+        # The remote agent exists; losing the cache must not orphan it.
+        logger.warning("managed agent created but cache write failed (agent_ref_cache_unwritable)")
     return AgentRef(AGENT_ID, created=True)
 
 

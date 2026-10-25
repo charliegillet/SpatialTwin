@@ -1,5 +1,6 @@
 import type {
   CaptureRequest,
+  CommandResponse,
   GroundingResult,
   HealthStatus,
   InvestigationResult,
@@ -7,64 +8,83 @@ import type {
   RunContext,
   InvestigationMode,
   InvestigationProgress,
+  OperatorApproveResponse,
   ReserveBasis,
   ScenarioLabResult,
   AiCapabilities,
   HazardSimulateRequest,
   HazardSimulateResponse,
+  StopResponse,
 } from '../types.ts';
+import { investigationErrorMessage, operatorErrorMessage, type OperatorAction } from '../ai/operator.ts';
 
 const API_BASE = '';
 
-export async function fetchScenarioLab(context: RunContext, reserveBasis: ReserveBasis, signal?: AbortSignal): Promise<ScenarioLabResult> {
-  const response = await fetch(`${API_BASE}/api/scenarios/facility-demo/lab`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ expected_context: context, reserve_basis: reserveBasis }),
-    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
-  });
-  return readJson(response, 'Scenario lab could not finish');
-}
-
-async function readJson(res: Response, fallback: string) {
-  if (res.ok) return res.json();
-  let detail = '';
-  if (res.headers.get('content-type')?.includes('application/json')) {
-    try { const body = await res.json(); detail = typeof body.detail === 'string' ? body.detail : ''; }
-    catch { /* The status below still explains an unreadable error response. */ }
+/** A failed backend call. `detail` is the backend's string detail, `code` its structured detail code if any. */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly detail: string;
+  constructor(message: string, status: number, detail = '') {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.detail = detail;
   }
-  throw new Error(detail || `${fallback} (${res.status}). Please try again.`);
 }
 
-export async function fetchHealth(): Promise<HealthStatus> {
-  const res = await fetch(`${API_BASE}/health`);
-  if (!res.ok) throw new Error('Health check failed');
-  return res.json();
+interface RequestOptions {
+  method?: 'GET' | 'POST';
+  body?: unknown;
+  headers?: Record<string, string>;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  fallback: string;
+  /** Maps a failed response to a user message; an empty string falls back to server detail then the generic text. */
+  describe?: (status: number, detail: string, code: string) => string;
 }
 
-export async function fetchScenario(scenarioId = 'facility-demo'): Promise<ScenarioSnapshot> {
-  const res = await fetch(`${API_BASE}/api/scenarios/${scenarioId}`);
-  if (!res.ok) throw new Error('Failed to fetch scenario snapshot');
-  return res.json();
+/** `text` is a string detail; `code` is the code of a structured {detail: {code}} body. */
+async function errorDetail(res: Response): Promise<{ text: string; code: string }> {
+  if (!res.headers.get('content-type')?.includes('application/json')) return { text: '', code: '' };
+  try {
+    const detail = (await res.json())?.detail;
+    return { text: typeof detail === 'string' ? detail : '', code: typeof detail?.code === 'string' ? detail.code : '' };
+  } catch { return { text: '', code: '' }; /* The status still explains an unreadable error response. */ }
 }
 
-export async function sendCommand(
-  scenarioId: string,
-  payload: Record<string, any>
-): Promise<any> {
-  const res = await fetch(`${API_BASE}/api/scenarios/${scenarioId}/commands`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+/** The one place that sets the timeout, serialises the body and turns failures into ApiError. */
+export async function requestJson<T>(path: string, { method = 'GET', body, headers, signal, timeoutMs, fallback, describe }: RequestOptions): Promise<T> {
+  const signals = [signal, timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined].filter((item): item is AbortSignal => Boolean(item));
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers: body === undefined ? headers : { 'Content-Type': 'application/json', ...headers },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal: signals.length > 1 ? AbortSignal.any(signals) : signals[0],
   });
-  return readJson(res, 'The scenario change could not be applied');
+  if (res.ok) return res.json() as Promise<T>;
+  const { text, code } = await errorDetail(res);
+  throw new ApiError(describe?.(res.status, text, code) || text || `${fallback} (${res.status}). Please try again.`, res.status, text || code);
 }
 
-export async function clearBlockage(
+export const fetchScenarioLab = (context: RunContext, reserveBasis: ReserveBasis, signal?: AbortSignal) =>
+  requestJson<ScenarioLabResult>('/api/scenarios/facility-demo/lab', { method: 'POST', body: { expected_context: context, reserve_basis: reserveBasis }, signal, timeoutMs: 30_000, fallback: 'Scenario lab could not finish' });
+
+export const fetchHealth = () => requestJson<HealthStatus>('/health', { fallback: 'Health check failed' });
+
+export const fetchScenario = (scenarioId = 'facility-demo') =>
+  requestJson<ScenarioSnapshot>(`/api/scenarios/${scenarioId}`, { fallback: 'Failed to fetch scenario snapshot' });
+
+export type CommandPayload = Record<string, unknown>;
+
+export const sendCommand = (scenarioId: string, payload: CommandPayload) =>
+  requestJson<CommandResponse>(`/api/scenarios/${scenarioId}/commands`, { method: 'POST', body: payload, fallback: 'The scenario change could not be applied' });
+
+export function clearBlockage(
   scenarioId: string,
   expectedContext: RunContext,
   targetType: 'portal' | 'boundary',
-  targetId: 'P1' | 'P2' | 'B2'
-): Promise<any> {
+  targetId: 'P1' | 'P2' | 'B2',
+): Promise<CommandResponse> {
   return sendCommand(scenarioId, {
     type: 'CLEAR_BLOCKAGE',
     expected_scenario_revision: expectedContext.scenario_revision,
@@ -76,92 +96,58 @@ export async function clearBlockage(
   });
 }
 
-export async function interpretGrounding(
-  scenarioId: string,
-  capture: CaptureRequest,
-): Promise<GroundingResult> {
-  const res = await fetch(`${API_BASE}/api/scenarios/${scenarioId}/grounding`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(capture),
-    signal: AbortSignal.timeout(65_000),
-  });
-  return readJson(res, 'The captured still could not be interpreted');
-}
+export const interpretGrounding = (scenarioId: string, capture: CaptureRequest) =>
+  requestJson<GroundingResult>(`/api/scenarios/${scenarioId}/grounding`, { method: 'POST', body: capture, timeoutMs: 65_000, fallback: 'The captured still could not be interpreted' });
 
-export async function fetchScenarioMatrix(scenarioId = 'facility-demo'): Promise<any> {
-  const res = await fetch(`${API_BASE}/api/scenarios/${scenarioId}/matrix`);
-  if (!res.ok) throw new Error('Failed to fetch scenario matrix');
-  return res.json();
-}
-
-export async function investigateScenario(
-  scenarioId: string,
-  expectedContext: RunContext,
-  mode: InvestigationMode,
-  investigationId: string,
-): Promise<{ investigation: InvestigationResult; is_live_configured: boolean }> {
-  const res = await fetch(`${API_BASE}/api/scenarios/${scenarioId}/investigate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mode, expected_context: expectedContext, deadline_seconds: 60, investigation_id: investigationId }),
-    signal: AbortSignal.timeout(65_000),
+export const investigateScenario = (scenarioId: string, expectedContext: RunContext, mode: InvestigationMode, investigationId: string) =>
+  requestJson<{ investigation: InvestigationResult; is_live_configured: boolean }>(`/api/scenarios/${scenarioId}/investigate`, {
+    method: 'POST', body: { mode, expected_context: expectedContext, deadline_seconds: 60, investigation_id: investigationId },
+    timeoutMs: 65_000, fallback: 'The comparison could not be completed', describe: investigationErrorMessage,
   });
-  return readJson(res, 'The comparison could not be completed');
-}
 
 export async function fetchInvestigationProgress(scenarioId: string, investigationId: string, signal?: AbortSignal): Promise<InvestigationProgress> {
-  const res = await fetch(`${API_BASE}/api/scenarios/${scenarioId}/investigations/${encodeURIComponent(investigationId)}/progress`, { signal });
-  if (res.status === 404) return { investigation_id: investigationId, status: 'not_found', provider_progress: [] };
-  return readJson(res, 'Analysis progress could not be loaded');
+  try {
+    return await requestJson<InvestigationProgress>(`/api/scenarios/${scenarioId}/investigations/${encodeURIComponent(investigationId)}/progress`, { signal, fallback: 'Analysis progress could not be loaded' });
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return { investigation_id: investigationId, status: 'not_found', provider_progress: [] };
+    throw error;
+  }
 }
 
-export async function cancelInvestigation(scenarioId: string, investigationId: string, expectedContext: RunContext): Promise<{ status: 'cancellation_requested' | 'already_finished'; investigation?: InvestigationResult }> {
-  const res = await fetch(`${API_BASE}/api/scenarios/${scenarioId}/investigations/${encodeURIComponent(investigationId)}/cancel`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ expected_context: expectedContext }), signal: AbortSignal.timeout(10_000),
+export const cancelInvestigation = (scenarioId: string, investigationId: string, expectedContext: RunContext) =>
+  requestJson<{ status: 'cancellation_requested' | 'already_finished'; investigation?: InvestigationResult }>(`/api/scenarios/${scenarioId}/investigations/${encodeURIComponent(investigationId)}/cancel`, {
+    method: 'POST', body: { expected_context: expectedContext }, timeoutMs: 10_000, fallback: 'The cancellation request could not be confirmed',
   });
-  return readJson(res, 'The cancellation request could not be confirmed');
-}
 
-export async function operatorApproveGate(
-  expectedContext: RunContext,
-  investigationId: string,
-  candidateRunId: string,
-): Promise<any> {
-  const res = await fetch(`${API_BASE}/api/hardware/operator-approve`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+const operatorHeaders = (token?: string): Record<string, string> | undefined => token ? { 'X-Operator-Token': token } : undefined;
+const describeOperator = (action: OperatorAction) => (status: number, detail: string) => operatorErrorMessage(action, status, detail);
+
+export const operatorApproveGate = (expectedContext: RunContext, investigationId: string, candidateRunId: string, operatorToken?: string) =>
+  requestJson<OperatorApproveResponse>('/api/hardware/operator-approve', {
+    method: 'POST', headers: operatorHeaders(operatorToken),
+    body: {
       candidate_alternative: 'OPEN_P3',
       expected_scenario_revision: expectedContext.scenario_revision,
       expected_context: expectedContext,
       investigation_id: investigationId,
       candidate_run_id: candidateRunId,
       idempotency_key: crypto.randomUUID(),
-    }),
+    },
+    fallback: 'The movement request was not accepted', describe: describeOperator('approve'),
   });
-  return readJson(res, 'The movement request was not accepted');
-}
 
-export async function getCapabilities(signal?: AbortSignal): Promise<AiCapabilities> {
-  const res = await fetch(`${API_BASE}/api/ai/capabilities`, {
-    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000),
+export const stopOutputs = (operatorToken?: string) =>
+  requestJson<StopResponse>('/api/hardware/stop', {
+    method: 'POST', headers: operatorHeaders(operatorToken), body: {}, timeoutMs: 15_000,
+    fallback: 'The stop command was not confirmed', describe: describeOperator('stop'),
   });
-  return readJson(res, 'AI capabilities could not be read');
-}
+
+export const getCapabilities = (signal?: AbortSignal) =>
+  requestJson<AiCapabilities>('/api/ai/capabilities', { signal, timeoutMs: 10_000, fallback: 'AI capabilities could not be read' });
 
 /** 422 bodies carry {detail: {code}}; the code is surfaced, never free text from the server. */
-export async function simulateHazard(body: HazardSimulateRequest, signal?: AbortSignal): Promise<HazardSimulateResponse> {
-  const res = await fetch(`${API_BASE}/api/hazard/simulate`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
+export const simulateHazard = (body: HazardSimulateRequest, signal?: AbortSignal) =>
+  requestJson<HazardSimulateResponse>('/api/hazard/simulate', {
+    method: 'POST', body, signal, timeoutMs: 30_000, fallback: 'The hazard simulation could not finish',
+    describe: (status, _text, code) => status === 422 ? `The hazard schedule was rejected (${(code || 'invalid_request').replace(/_/g, ' ')}).` : '',
   });
-  if (res.status === 422) {
-    let code = 'invalid_request';
-    try { const detail = (await res.json())?.detail; if (typeof detail?.code === 'string') code = detail.code; } catch { /* keep the generic code */ }
-    throw new Error(`The hazard schedule was rejected (${code.replace(/_/g, ' ')}).`);
-  }
-  return readJson(res, 'The hazard simulation could not finish');
-}

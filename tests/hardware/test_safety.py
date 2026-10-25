@@ -1,4 +1,5 @@
 """Hardware safety: a movement is acknowledged only by a matching device ACK; failures never look like success."""
+import asyncio
 import json
 
 import pytest
@@ -118,19 +119,57 @@ async def test_display_refresh_without_transport_does_not_raise(state):
 
 
 @pytest.mark.asyncio
-async def test_firmware_arm_ack_without_command_id_arms_the_bridge(state):
-    # The firmware's ARMED acknowledgement has no command_id; it answers the one ARM in flight.
+async def test_arm_is_acknowledged_only_by_its_own_command_id(state):
     bridge = await started_simulator(state)
     bridge.armed = False
-    armed_ack = json.dumps({"v": 1, "type": "ACK", "status": "ARMED"})
-    bridge._send_raw = lambda line: bridge._handle_incoming_line(armed_ack)
-    assert await bridge.send_arm() is True and bridge.armed is True
+    async def run(reply_builder):
+        bridge._send_raw = lambda line: bridge._handle_incoming_line(reply_builder(line))
+        return await bridge.send_arm()
+    import json as _json
+    # An ARMED reply without a command_id (older firmware) must not arm the host.
+    assert await run(lambda line: json.dumps({"v": 1, "type": "ACK", "status": "ARMED"})) is False
+    assert bridge.armed is False
+    # A reply echoing the ARM's own command_id does.
+    def echo(line):
+        command_id = _json.loads(line)["command_id"]
+        return json.dumps({"v": 1, "type": "ACK", "command_id": command_id, "status": "ARMED"})
+    assert await run(echo) is True and bridge.armed is True
 
 
 @pytest.mark.asyncio
-async def test_unmatched_ack_without_command_id_does_not_arm(state):
+async def test_unsolicited_fault_disarms_and_background_tasks_are_retained(state):
     bridge = await started_simulator(state)
-    bridge.armed = False
-    stray = json.dumps({"v": 1, "type": "ACK", "status": "ACCEPTED"})
-    bridge._send_raw = lambda line: bridge._handle_incoming_line(stray)
-    assert await bridge.send_arm() is False and bridge.armed is False
+    bridge.armed = True
+    bridge._handle_incoming_line(json.dumps({"v": 1, "type": "FAULT", "fault": "NOT_ARMED"}))
+    assert bridge.armed is False
+    bridge.armed = True
+    bridge._handle_incoming_line(json.dumps({"v": 1, "type": "FAULT", "command_id": "cmd-late", "fault": "HEARTBEAT_TIMEOUT_DISARMED"}))
+    assert bridge.armed is False
+
+    async def pending():
+        await asyncio.sleep(0)
+
+    task = bridge._spawn(pending())
+    assert task in bridge._background
+    await task
+    await asyncio.sleep(0)
+    assert task not in bridge._background
+
+
+@pytest.mark.asyncio
+async def test_pending_not_armed_fault_resets_host_armed_view(state):
+    bridge = await started_simulator(state)
+    fault = json.dumps({"v": 1, "type": "FAULT", "command_id": "cmd-x", "fault": "NOT_ARMED"})
+    bridge.armed = True
+    bridge._send_raw = lambda line: bridge._handle_incoming_line(fault)
+    ok, reason = await bridge._send_and_await_ack("{}", "cmd-x")
+    assert (ok, reason) == (False, "NOT_ARMED") and bridge.armed is False
+
+
+def test_health_reports_unavailable_serial_honestly(monkeypatch):
+    from fastapi.testclient import TestClient
+    from backend.app import main
+    monkeypatch.setattr(main.hardware_bridge, "is_simulator", False)
+    monkeypatch.setattr(main.hardware_bridge, "serial_conn", None)
+    body = TestClient(main.app).get("/health").json()
+    assert body["hardware_mode"] == "physical_serial" and body["serial_port"] == "SERIAL_UNAVAILABLE"

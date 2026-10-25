@@ -156,3 +156,62 @@ def test_bad_args_rejected(ctx, bad):
     with pytest.raises(HazardToolError) as e:
         execute_hazard_tool("score_exposure", bad, ctx)
     assert str(e.value) == "invalid_arguments"
+
+
+def test_schedule_uses_live_state_from_context(ctx, monkeypatch):
+    from backend.app.hazard import schedule as sched
+    seen = {}
+    real = sched.FlowPlanner.solve
+
+    def spy(self, base_context, alt, bp, bb, **kw):
+        seen.update(bp=set(bp), bb=set(bb), kw=kw)
+        return real(self, base_context, alt, bp, bb, **kw)
+
+    monkeypatch.setattr(sched.FlowPlanner, "solve", spy)
+    live = ToolContext(venue=ctx.venue, base_context=ctx.base_context, blocked_portals=frozenset({"P2"}),
+                       blocked_boundaries=frozenset({"B1"}), p3_physical_open=True)
+    sched.solve_schedule(validate([ev("P1", 10)], live), live, AlternativeId.KEEP_CURRENT)
+    assert seen["bp"] == {"P2"} and seen["bb"] == {"B1"} and seen["kw"]["p3_physical_open"] is True
+    assert ToolContext(venue=ctx.venue, base_context=ctx.base_context).blocked_portals == frozenset()
+
+
+def test_live_blockage_changes_result(ctx):
+    live = ToolContext(venue=ctx.venue, base_context=ctx.base_context, blocked_portals=frozenset({"P1", "P2"}))
+    a = args([ev("B2", 30)], "KEEP_CURRENT")
+    open_r = execute_hazard_tool("simulate_hazard_schedule", a, ctx)
+    blocked_r = execute_hazard_tool("simulate_hazard_schedule", a, live)
+    assert blocked_r["completed_crossings"] < open_r["completed_crossings"]
+
+
+def test_exposure_without_zones_is_none_not_zero(ctx):
+    from backend.app.hazard.exposure import NO_ZONES_LABEL
+    frame = {"event_occupancy": 5, "west_occupancy": 0, "east_occupancy": 0, "reserve_occupancy": 0,
+             "in_transit_occupancy": 0, "total_completed": 0}
+    assert modeled_exposure_people_seconds([frame], [], 2, 5) == (None, NO_ZONES_LABEL)
+    r = execute_hazard_tool("score_exposure", args([ev("P1", 10, ())]), ctx)
+    assert r["modeled_exposure_people_seconds"] is None and r["exposure_label"] == NO_ZONES_LABEL
+    assert "modeled" not in r["exposure_label"].replace("not modeled", "")
+
+
+def test_zero_time_step_is_rejected_not_crash(ctx):
+    bad = ToolContext(venue=ctx.venue, base_context=ctx.base_context)
+    object.__setattr__(bad, "time_step_seconds", 0)
+    with pytest.raises(ValueError, match="invalid_time_step"):
+        validate([ev("P1", 10)], bad)
+    with pytest.raises(HazardToolError) as e:
+        execute_hazard_tool("score_exposure", args([ev("P1", 10)]), bad)
+    assert str(e.value) == "invalid_arguments"
+
+
+def test_programming_errors_are_not_masked(ctx, monkeypatch):
+    from backend.app.hazard import tools
+
+    def boom(*a, **k):
+        raise RuntimeError("bug")
+    monkeypatch.setattr(tools, "solve_schedule", boom)
+    with pytest.raises(RuntimeError):
+        execute_hazard_tool("score_exposure", args([ev()]), ctx)
+    monkeypatch.setattr(tools, "solve_schedule", lambda *a, **k: (_ for _ in ()).throw(ValueError("x")))
+    with pytest.raises(HazardToolError) as e:
+        execute_hazard_tool("score_exposure", args([ev()]), ctx)
+    assert str(e.value) == "evaluation_failed"

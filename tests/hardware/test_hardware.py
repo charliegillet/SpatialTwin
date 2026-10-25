@@ -12,12 +12,14 @@ from backend.app.hardware.simulator import HardwareSimulator
 
 
 def test_protocol_serialization_and_parsing():
-    raw = make_hello_command("sess-1", "cmd-1")
-    parsed = parse_device_line(raw)
+    parsed = parse_device_line('{"v":1,"type":"HELLO_ACK","boot_id":"b1"}\n')
     assert parsed is not None
     assert parsed["v"] == 1
-    assert parsed["type"] == "HELLO"
-    assert parsed["session_id"] == "sess-1"
+    assert parsed["type"] == "HELLO_ACK"
+    # Host-to-device command types are not valid device responses.
+    assert parse_device_line(make_hello_command("sess-1", "cmd-1")) is None
+    assert parse_device_line('{"v":1,"type":"EXPLODE"}') is None
+    assert parse_device_line('{"v":1,"type":"ACK","pad":"' + "x" * 3000 + '"}') is None
 
 
 @pytest.mark.asyncio

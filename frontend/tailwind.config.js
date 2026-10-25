@@ -1,4 +1,6 @@
 /** @type {import('tailwindcss').Config} */
+// Utility classes are not used in the markup; styling comes from the tokens in src/index.css.
+// The theme mirrors those tokens so any future utility stays on the DESIGN.md palette.
 export default {
   content: [
     "./index.html",
@@ -7,29 +9,19 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
-        display: ['"Rajdhani"', 'sans-serif'],
-        mono: ['"JetBrains Mono"', 'monospace'],
+        sans: ['"IBM Plex Sans"', 'sans-serif'],
+        mono: ['"IBM Plex Mono"', 'monospace'],
       },
       colors: {
-        twin: {
-          bg: "#050811",
-          surface: "#0a0f1d",
-          card: "#0e1526",
-          border: "#1b253b",
-          cyan: "#00f5ff",
-          emerald: "#10b981",
-          amber: "#f59e0b",
-          rose: "#f43f5e",
-        }
+        canvas: "#0c0f10",
+        surface: "#151a1b",
+        raised: "#1c2223",
+        line: "#30383a",
+        ink: "#f1f3ef",
+        muted: "#a1ada7",
+        accent: "#d3ed9c",
+        warning: "#efa28c",
       },
-      boxShadow: {
-        'neon-cyan': '0 0 25px -4px rgba(0, 245, 255, 0.4)',
-        'neon-emerald': '0 0 25px -4px rgba(16, 185, 129, 0.4)',
-        'neon-rose': '0 0 25px -4px rgba(244, 63, 94, 0.4)',
-        'neon-amber': '0 0 25px -4px rgba(245, 158, 11, 0.4)',
-        'cockpit': '0 10px 40px -10px rgba(0, 0, 0, 0.7)',
-      }
     },
   },
   plugins: [],

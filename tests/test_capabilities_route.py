@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from backend.app import main
 from backend.app.ai.grounding import video as video_mod
+from backend.app.ai.managed import model_probe
 
 
 @pytest.fixture
@@ -13,6 +14,7 @@ def api(tmp_path, monkeypatch):
     probes = tmp_path / "runtime" / "probes"
     probes.mkdir(parents=True)
     monkeypatch.setattr(video_mod, "VIDEO_PROBE_DIR", probes)
+    monkeypatch.setattr(model_probe, "DEFAULT_CACHE", str(probes / "model_resolution.json"))
     monkeypatch.chdir(tmp_path)
 
     async def forbidden(*args, **kwargs):

@@ -76,7 +76,9 @@ def execute_hazard_tool(name: str, args: Any, ctx: ToolContext) -> Dict[str, Any
             exposure, label = None, EXPOSURE_LABEL
     except HazardToolError:
         raise
-    except Exception:
+    except ValueError:
+        # Expected checker/model rejections (invalid schedule, conservation, missing frame
+        # fields). Anything else is a programming error and must surface.
         raise HazardToolError("evaluation_failed") from None
     baseline = ctx.envelopes.get(alt)
     return {

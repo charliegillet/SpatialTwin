@@ -39,14 +39,17 @@ def test_empty_or_none_closures_match_baseline(planner, context, alt, bp, bb):
     assert "schedule_timed_closures" not in base.validator_report.checks_run
 
 
-def test_closure_at_horizon_never_exceeds_no_closure_flow(planner, context):
+def test_closure_at_or_after_horizon_is_rejected(planner, context):
     base = planner.solve(context, AlternativeId.OPEN_P3, {"P2"}, set())
     H = base.horizon_seconds
+    for kwargs in ({"portal_close_at": {"P1": H}}, {"boundary_close_at": {"B1": H}},
+                   {"boundary_close_at": {"B1": H + base.time_step_seconds}}):
+        with pytest.raises(ValueError):
+            planner.solve(context, AlternativeId.OPEN_P3, {"P2"}, set(), **kwargs)
+    last = H - base.time_step_seconds
     late = planner.solve(context, AlternativeId.OPEN_P3, {"P2"}, set(),
-                         portal_close_at={"P1": H}, boundary_close_at={"B1": H + 0})
-    # close_step == T drops the final-step edges (t < close_step), so never more than baseline
+                         portal_close_at={"P1": last}, boundary_close_at={"B1": last})
     assert late.completed_crossings <= base.completed_crossings
-    assert late.candidate_hash != base.candidate_hash
     assert late.validator_report.is_valid
 
 
@@ -64,7 +67,7 @@ def test_monotonic_and_conserving(planner, context, alt):
         ids = ("P1", "P2", "P3") if kind == "portal_close_at" else ("B1", "B2")
         for eid in ids:
             previous = None
-            for when in range(0, H + 1, dt * 3):
+            for when in range(0, H, dt * 3):
                 env = planner.solve(context, alt, set(), set(), **{kind: {eid: when}})
                 assert env.initial_population == env.completed_crossings + env.remaining_population
                 assert env.validator_report.is_valid, env.validator_report.reasons

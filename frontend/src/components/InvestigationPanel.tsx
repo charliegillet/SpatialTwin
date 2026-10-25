@@ -1,8 +1,8 @@
 import React, { useId, useState } from 'react';
-import { ArrowDown, ArrowRight, Check, CheckCheck, Circle, Cpu, GitBranch, LoaderCircle, Play, Radio, RotateCcw, ShieldCheck, Unplug } from 'lucide-react';
+import { ArrowDown, ArrowRight, Check, CheckCheck, Circle, Cpu, GitBranch, LoaderCircle, OctagonX, Play, Radio, RotateCcw, ShieldCheck, Unplug } from 'lucide-react';
 import type { EvaluationEnvelope, InvestigationMode, InvestigationProgress, InvestigationResult, ScenarioSnapshot } from '../types';
 import { canApproveInvestigation, canCompareInvestigation, investigationLabel, sameContext } from '../ai/policy';
-import { ExecutionReceipt } from './ExecutionReceipt';
+import type { OperatorOutcome } from '../ai/operator';
 import { InvestigationEvidence, ProviderProgressList } from './InvestigationEvidence';
 import './InvestigationPanel.css';
 
@@ -18,9 +18,12 @@ export interface InvestigationPanelProps {
   onCancel: () => Promise<void>;
   isCancelling: boolean;
   cancellationRequested: boolean;
-  onApprove: () => Promise<void>;
+  onApprove: (operatorToken?: string) => Promise<OperatorOutcome>;
+  onStop: (operatorToken?: string) => Promise<OperatorOutcome>;
   isApproving: boolean;
   hardwareMode: string;
+  /** Physical serial hardware: commands need an operator token. */
+  physical: boolean;
   apiConfigured: boolean;
   localEnabled: boolean;
   view?: 'analysis' | 'device';
@@ -67,7 +70,7 @@ function ComparisonRow({ candidate, alternative }: { candidate: EvaluationEnvelo
   );
 }
 
-export function InvestigationPanel({ snapshot, investigation, progress, isLoading, error, isCurrent, availabilityMessage, onInvestigate, onCancel, isCancelling, cancellationRequested, onApprove, isApproving, hardwareMode, apiConfigured, localEnabled, view, onViewChange }: InvestigationPanelProps) {
+export function InvestigationPanel({ snapshot, investigation, progress, isLoading, error, isCurrent, availabilityMessage, onInvestigate, onCancel, isCancelling, cancellationRequested, onApprove, onStop, isApproving, hardwareMode, physical, apiConfigured, localEnabled, view, onViewChange }: InvestigationPanelProps) {
   const id = useId();
   const [localTab, setLocalTab] = useState<'analysis' | 'device'>('analysis');
   const tab = view ?? localTab;
@@ -75,8 +78,12 @@ export function InvestigationPanel({ snapshot, investigation, progress, isLoadin
   const [selectedMode, setMode] = useState<InvestigationMode | null>(null);
   const mode = selectedMode ?? (apiConfigured ? 'live' : 'local');
   const [localError, setLocalError] = useState<string | null>(null);
-  const [requestedContext, setRequestedContext] = useState<string | null>(null);
+  const [approval, setApproval] = useState<{ context: string; acknowledged: boolean } | null>(null);
   const [requestInFlight, setRequestInFlight] = useState(false);
+  // The token lives only in this component's state: no storage, cleared when the workflow resets (the parent re-keys this panel).
+  const [operatorToken, setOperatorToken] = useState('');
+  const [stopping, setStopping] = useState(false);
+  const [stopOutcome, setStopOutcome] = useState<OperatorOutcome | null>(null);
   const currentContext = snapshot?.context;
   const investigationCurrent = Boolean(isCurrent && currentContext && investigation && sameContext(investigation.base_context, currentContext));
   const baseline = investigation?.candidate_envelopes.find(candidate => candidate.alternative_id === 'KEEP_CURRENT');
@@ -84,14 +91,17 @@ export function InvestigationPanel({ snapshot, investigation, progress, isLoadin
   const comparisonReady = investigationCurrent && canCompareInvestigation(investigation, currentContext);
   const gain = comparisonReady && baseline && reserve ? reserve.completed_crossings - baseline.completed_crossings : null;
   const contextKey = currentContext ? `${currentContext.context_hash ?? currentContext.geometry_revision}:${currentContext.scenario_revision}:${currentContext.physical_revision}:${currentContext.parameters_revision}:${currentContext.solver_version}` : null;
-  const requestSubmitted = Boolean(contextKey && requestedContext === contextKey);
-  const requestRecorded = requestedContext !== null;
+  const requestSubmitted = Boolean(contextKey && approval?.context === contextKey);
+  const tokenReady = !physical || operatorToken.trim().length > 0;
   const gateState = snapshot?.physical_gate_state ?? 'UNKNOWN';
   const endpointReported = Boolean(snapshot?.last_hardware_boot_id);
   const observedOpen = endpointReported && gateState === 'OPEN';
+  // Gating stays keyed to the current context. For display, an acknowledged request whose movement was
+  // then observed still counts: opening the gate is what changed the context.
+  const requestRecorded = requestSubmitted || Boolean(approval?.acknowledged && observedOpen);
   const busy = isApproving || requestInFlight;
   const improvementApproved = investigationCurrent && canApproveInvestigation(investigation, currentContext);
-  const canApprove = Boolean(improvementApproved && snapshot && !isLoading && !busy && gateState === 'CLOSED' && !requestSubmitted);
+  const canApprove = Boolean(improvementApproved && snapshot && !isLoading && !busy && gateState === 'CLOSED' && !requestSubmitted && tokenReady);
   const executedCalls = investigation?.tool_ledger.filter(entry => entry.status === 'executed').length ?? 0;
   const visibleError = error || localError;
   const modeAvailable = mode === 'live' ? apiConfigured : localEnabled;
@@ -118,11 +128,21 @@ export function InvestigationPanel({ snapshot, investigation, progress, isLoadin
     setLocalError(null);
     setRequestInFlight(true);
     try {
-      await onApprove();
-      setRequestedContext(contextKey);
+      const outcome = await onApprove(physical ? operatorToken.trim() : undefined);
+      if (outcome.ok && contextKey) setApproval({ context: contextKey, acknowledged: Boolean(outcome.acknowledged) });
+      else if (!outcome.ok) setLocalError(outcome.message);
     } catch (failure) {
       setLocalError(failure instanceof Error ? failure.message : 'The opening request was not accepted.');
     } finally { setRequestInFlight(false); }
+  };
+
+  const stop = async () => {
+    if (stopping) return;
+    if (physical && !operatorToken.trim()) { setStopOutcome({ ok: false, message: 'Enter the operator token to send a stop command.' }); return; }
+    setStopping(true); setStopOutcome(null);
+    try { setStopOutcome(await onStop(physical ? operatorToken.trim() : undefined)); }
+    catch (failure) { setStopOutcome({ ok: false, message: failure instanceof Error ? failure.message : 'The stop command was not confirmed.' }); }
+    finally { setStopping(false); }
   };
 
   return (
@@ -135,6 +155,12 @@ export function InvestigationPanel({ snapshot, investigation, progress, isLoadin
         <button type="button" role="tab" id={`${id}-analysis-tab`} aria-selected={tab === 'analysis'} aria-controls={`${id}-analysis`} tabIndex={tab === 'analysis' ? 0 : -1} onClick={() => setTab('analysis')} onKeyDown={changeTabWithKey}><GitBranch size={15}  aria-hidden="true" />Analysis</button>
         <button type="button" role="tab" id={`${id}-device-tab`} aria-selected={tab === 'device'} aria-controls={`${id}-device`} tabIndex={tab === 'device' ? 0 : -1} onClick={() => setTab('device')} onKeyDown={changeTabWithKey}><Cpu size={15}  aria-hidden="true" />{simulator ? 'Simulator' : 'Device'}<span className={`investigation-tab-dot${endpointReported ? ' investigation-tab-dot-connected' : ''}`} /></button>
         <span className="investigation-context-label">{currentContext ? `SCN ${String(currentContext.scenario_revision).padStart(2, '0')}` : 'NO CONTEXT'}</span>
+      </div>
+      <div className="operator-strip" role="group" aria-label="Operator controls">
+        {physical && <label className="operator-token"><span>Operator token</span><input type="password" autoComplete="off" spellCheck={false} value={operatorToken} onChange={event => setOperatorToken(event.target.value)} placeholder="Required for physical hardware" /></label>}
+        <button type="button" className="operator-stop" onClick={() => { void stop(); }} disabled={stopping}>{stopping ? <LoaderCircle size={14} className="investigation-spin" aria-hidden="true" /> : <OctagonX size={14} aria-hidden="true" />}<span>{stopping ? 'Sending stop…' : 'Stop outputs'}</span></button>
+        <p className="operator-note">{physical ? 'Sends a stop command to the board. A device acknowledgement is not proof the gate stopped; check the reported position.' : 'Simulator mode: no token needed. Stops simulated outputs only.'}</p>
+        {stopOutcome && <p className={`operator-result${stopOutcome.ok ? '' : ' is-error'}`} role={stopOutcome.ok ? 'status' : 'alert'}>{stopOutcome.message}</p>}
       </div>
 
         <div id={`${id}-analysis`} role="tabpanel" aria-labelledby={`${id}-analysis-tab`} className="investigation-body" hidden={tab !== 'analysis'}>
@@ -162,17 +188,16 @@ export function InvestigationPanel({ snapshot, investigation, progress, isLoadin
           </div>
           <div className="investigation-source-note"><span className="investigation-source-dot" />{mode === 'local' ? localEnabled ? 'Explicit local numerical computation · no Gemini call' : 'Local demo mode disabled by the server' : apiConfigured ? 'Gemini configured · up to 60s · completed response required' : 'Gemini unavailable · server credentials are not configured'}</div>
           <InvestigationEvidence investigation={investigation} />
-          <ExecutionReceipt result={investigation} label={investigationLabel(investigation)} />
         </div>
         <div id={`${id}-device`} role="tabpanel" aria-labelledby={`${id}-device-tab`} className="investigation-body investigation-device-body" hidden={tab !== 'device'}>
           <div className="investigation-device-summary"><div className="investigation-device-icon"><Cpu size={24} strokeWidth={1.5}  aria-hidden="true" /></div><div><h3>{endpointReported ? `P3 reported ${gateState.toLowerCase()}` : 'Awaiting P3 endpoint evidence'}</h3><span className="investigation-device-mode">{hardwareMode ? `${hardwareMode} mode` : 'Connection mode unavailable'}</span></div></div>
           <ol className="investigation-device-ledger">
-            <li><span className={`investigation-step-icon${requestRecorded ? ' investigation-step-icon-done' : ''}`}>{requestRecorded ? <Check size={12}  aria-hidden="true" /> : <Circle size={8}  aria-hidden="true" />}</span><div><strong>Operator request</strong><span>{busy ? 'Submitting opening request…' : requestRecorded ? 'Backend request accepted for its reviewed context' : observedOpen ? 'No request recorded in this browser session' : 'Opening requires your approval'}</span></div></li>
-            <li><span className="investigation-step-icon"><Radio size={12}  aria-hidden="true" /></span><div><strong>Device acknowledgement</strong><span>No device ACK receipt is exposed here</span></div></li>
+            <li><span className={`investigation-step-icon${requestRecorded ? ' investigation-step-icon-done' : ''}`}>{requestRecorded ? <Check size={12}  aria-hidden="true" /> : <Circle size={8}  aria-hidden="true" />}</span><div><strong>Operator request</strong><span>{busy ? 'Submitting opening request…' : requestRecorded ? approval?.acknowledged ? 'Backend recorded the request for its reviewed context' : 'Backend accepted the request for its reviewed context' : observedOpen ? 'No request recorded in this browser session' : 'Opening requires your approval'}</span></div></li>
+            <li><span className="investigation-step-icon"><Radio size={12}  aria-hidden="true" /></span><div><strong>Device acknowledgement</strong><span>{requestRecorded ? approval?.acknowledged ? 'Device acknowledged the command. An acknowledgement is not arrival.' : 'No device acknowledgement was reported' : 'No acknowledgement yet'}</span></div></li>
             <li><span className={`investigation-step-icon${observedOpen ? ' investigation-step-icon-done' : ''}`}>{endpointReported ? <Check size={12}  aria-hidden="true" /> : <Unplug size={12}  aria-hidden="true" />}</span><div><strong>Endpoint observation</strong><span>{endpointReported ? `Snapshot reports ${gateState.toLowerCase()} · epoch ${snapshot?.last_gate_epoch ?? 'unknown'}` : 'No endpoint receipt in the current snapshot'}</span></div></li>
           </ol>
           <button type="button" className="investigation-primary investigation-approval" disabled={!canApprove} onClick={() => { void approve(); }}>{busy ? <LoaderCircle size={14} className="investigation-spin"  aria-hidden="true" /> : <ArrowDown size={14}  aria-hidden="true" />}<span>{busy ? 'Submitting request' : observedOpen ? 'Open endpoint reported' : requestSubmitted ? 'Request sent · awaiting observation' : 'Approve opening P3'}</span>{!busy && !observedOpen && !requestSubmitted && <ArrowRight size={15}  aria-hidden="true" />}</button>
-          <p className="investigation-device-note">{observedOpen ? `${simulator ? 'Simulated' : 'Reported'} open endpoint received. The workspace result uses the new physical revision; the earlier comparison remains historical evidence.` : !comparisonReady ? availabilityMessage ?? 'Complete a current, checked comparison before approval.' : !improvementApproved ? 'No checked improvement recommends opening P3. Keep the current layout.' : simulator ? 'This requests a simulated movement. No physical hardware is connected.' : 'Approval requests movement. Only endpoint evidence can establish the resulting position.'}</p>
+          <p className="investigation-device-note">{observedOpen ? `${simulator ? 'Simulated' : 'Reported'} open endpoint received. The workspace result uses the new physical revision; the earlier comparison remains historical evidence.` : !comparisonReady ? availabilityMessage ?? 'Complete a current, checked comparison before approval.' : !improvementApproved ? 'No checked improvement recommends opening P3. Keep the current layout.' : !tokenReady ? 'Enter the operator token to approve movement of physical hardware.' : simulator ? 'This requests a simulated movement. No physical hardware is connected.' : 'Approval requests movement. Only endpoint evidence can establish the resulting position.'}</p>
         </div>
       {isLoading && <div className="investigation-live-progress"><ProviderProgressList events={progress?.provider_progress ?? []} pending pendingMessage={mode === 'local' ? 'Local solver running. Waiting for checked results.' : 'Request submitted. Waiting for a Gemini receipt.'} /><button type="button" className="investigation-cancel" onClick={() => void onCancel()} disabled={isCancelling || cancellationRequested}>{isCancelling ? 'Requesting cancellation…' : cancellationRequested ? 'Cancellation requested · awaiting receipt' : 'Cancel analysis'}</button></div>}
       {visibleError && <div className="investigation-error" role="alert">{visibleError}</div>}

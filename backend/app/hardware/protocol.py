@@ -79,16 +79,24 @@ def make_display_command(session_id: str, command_id: str, pixels: List[int]) ->
     return cmd.model_dump_json() + "\n"
 
 
+# A device envelope is a few hundred bytes; anything near this size is noise or an attack.
+MAX_LINE_BYTES = 2048
+ALLOWED_RESPONSE_TYPES = frozenset(item.value for item in SerialResponseType)
+
+
 def parse_device_line(line: str) -> Optional[Dict[str, Any]]:
+    """Parses one device line. Oversized lines and unknown response types are dropped."""
+    if len(line) > MAX_LINE_BYTES:
+        return None
     line = line.strip()
     if not line:
         return None
     try:
         data = json.loads(line)
-        if isinstance(data, dict) and data.get("v") == 1:
-            return data
-    except json.JSONDecodeError:
-        pass
+    except (json.JSONDecodeError, RecursionError):
+        return None
+    if isinstance(data, dict) and data.get("v") == 1 and data.get("type") in ALLOWED_RESPONSE_TYPES:
+        return data
     return None
 
 

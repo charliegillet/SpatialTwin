@@ -38,6 +38,9 @@ def synchronized(method):
     return locked
 
 
+# Bounded per-client buffer for the live event stream.
+SUBSCRIBER_QUEUE_LIMIT = 256
+
 class StateManager:
     def __init__(self, store: Optional[SQLiteStore] = None):
         self._state_lock = threading.RLock()
@@ -59,7 +62,9 @@ class StateManager:
         self.blocked_portals: Set[str] = set()
         self.blocked_boundaries: Set[str] = set()
 
-        # Physical gate state (confirmed by independent endpoint switches)
+        # Physical gate state, as last reported by a device observation. The bridge only forwards an
+        # observation whose boot_id matches the handshaken device; the device derives the state from
+        # its endpoint switches. This manager does not re-check the switches itself.
         self.physical_gate_state = GateObservedState.UNKNOWN
         self.last_hardware_boot_id: Optional[str] = None
         self.last_gate_epoch: int = 0
@@ -69,7 +74,9 @@ class StateManager:
         self.current_plan: Optional[EvaluationEnvelope] = None
 
         # SSE listeners
-        self._subscribers: List[asyncio.Queue] = []
+        # Each subscriber keeps the event loop that owns its queue, so broadcasts from worker threads
+        # are handed to that loop instead of touching the queue directly.
+        self._subscribers: List[Tuple[asyncio.Queue, asyncio.AbstractEventLoop]] = []
 
         # Run initial solve
         self._solve_and_publish_current()
@@ -77,30 +84,78 @@ class StateManager:
     def _now_iso(self) -> str:
         return datetime.now(timezone.utc).isoformat()
 
-    def _solve_and_publish_current(self) -> EvaluationEnvelope:
-        is_p3_open = (self.physical_gate_state == GateObservedState.OPEN)
-        envelope = self.planner.solve(
-            base_context=self.context,
+    def _solve_for(self, context: RunContext, portals: Set[str], boundaries: Set[str],
+                   gate_state: GateObservedState) -> EvaluationEnvelope:
+        """Pure: solves a candidate state without touching live state or the database."""
+        return self.planner.solve(
+            base_context=context,
             alternative_id=AlternativeId.KEEP_CURRENT,
-            blocked_portals=self.blocked_portals,
-            blocked_boundaries=self.blocked_boundaries,
-            p3_physical_open=is_p3_open,
+            blocked_portals=set(portals),
+            blocked_boundaries=set(boundaries),
+            p3_physical_open=(gate_state == GateObservedState.OPEN),
         )
-        self.current_plan = envelope
 
-        # Persist run
+    def _persist_run(self, envelope: EvaluationEnvelope, context: RunContext) -> None:
         self.store.save_run(
             run_id=envelope.run_id,
             candidate_hash=envelope.candidate_hash,
-            scenario_revision=self.context.scenario_revision,
-            physical_revision=self.context.physical_revision,
+            scenario_revision=context.scenario_revision,
+            physical_revision=context.physical_revision,
             alternative_id=envelope.alternative_id.value,
             status=envelope.status.value,
             envelope_json=envelope.model_dump_json(),
             created_at_iso=self._now_iso(),
         )
 
+    def _solve_and_publish_current(self) -> EvaluationEnvelope:
+        envelope = self._solve_for(self.context, self.blocked_portals, self.blocked_boundaries,
+                                   self.physical_gate_state)
+        self._persist_run(envelope, self.context)
+        self.current_plan = envelope
         return envelope
+
+    def _next_scenario_context(self) -> RunContext:
+        return RunContext(
+            geometry_revision=self.context.geometry_revision,
+            scenario_revision=self.context.scenario_revision + 1,
+            physical_revision=self.context.physical_revision,
+            parameters_revision=self.context.parameters_revision,
+            solver_version=self.context.solver_version,
+            state_epoch=self.context.state_epoch,
+        )
+
+    def _commit_scenario_change(self, cmd, event_type: str, portals: Set[str], boundaries: Set[str]
+                                ) -> Tuple[bool, Optional[str], Optional[EvaluationEnvelope]]:
+        """Solve the candidate state first, then record the event, then mutate memory.
+
+        A failure in the solve or in either write leaves memory untouched and the idempotency key
+        unburned (the event insert is the last fallible step and rolls back on error).
+        """
+        new_context = self._next_scenario_context()
+        envelope = self._solve_for(new_context, portals, boundaries, self.physical_gate_state)
+        self._persist_run(envelope, new_context)
+        saved = self.store.save_event(
+            scenario_id=cmd.scenario_id,
+            scenario_revision=self.context.scenario_revision,
+            event_type=event_type,
+            payload=cmd.model_dump(),
+            idempotency_key=cmd.idempotency_key,
+            created_at_iso=self._now_iso(),
+        )
+        if not saved:
+            return False, f"Duplicate idempotency key rejected: {cmd.idempotency_key}", None
+        self.blocked_portals = set(portals)
+        self.blocked_boundaries = set(boundaries)
+        self.context = new_context
+        self.current_plan = envelope
+        self.broadcast_event("scenario_updated", self.get_current_snapshot())
+        return True, None, envelope
+
+    @synchronized
+    def hazard_inputs(self) -> Tuple[RunContext, frozenset, frozenset, bool]:
+        """Consistent (context, blocked portals, blocked boundaries, P3 physically open) under one lock."""
+        return (self.context, frozenset(self.blocked_portals), frozenset(self.blocked_boundaries),
+                self.physical_gate_state == GateObservedState.OPEN)
 
     @synchronized
     def get_current_context(self) -> RunContext:
@@ -120,8 +175,9 @@ class StateManager:
         }
 
     async def subscribe(self) -> AsyncGenerator[str, None]:
-        queue: asyncio.Queue = asyncio.Queue()
-        self._subscribers.append(queue)
+        queue: asyncio.Queue = asyncio.Queue(maxsize=SUBSCRIBER_QUEUE_LIMIT)
+        entry = (queue, asyncio.get_running_loop())
+        self._subscribers.append(entry)
         try:
             # Send initial snapshot immediately on connection
             initial_event = {
@@ -134,16 +190,30 @@ class StateManager:
                 msg = await queue.get()
                 yield msg
         finally:
-            if queue in self._subscribers:
-                self._subscribers.remove(queue)
+            if entry in self._subscribers:
+                self._subscribers.remove(entry)
+
+    @staticmethod
+    def _deliver(queue: asyncio.Queue, payload: str) -> None:
+        """Runs on the queue's own loop. A slow client loses its oldest message, never the newest state."""
+        if queue.full():
+            try:
+                queue.get_nowait()
+            except asyncio.QueueEmpty:
+                pass
+        queue.put_nowait(payload)
 
     def broadcast_event(self, event_name: str, data: Dict[str, Any]) -> None:
         payload = f"event: {event_name}\ndata: {json.dumps(data)}\n\n"
-        for queue in self._subscribers:
-            try:
-                queue.put_nowait(payload)
-            except asyncio.QueueFull:
-                pass
+        try:
+            current = asyncio.get_running_loop()
+        except RuntimeError:
+            current = None
+        for queue, loop in list(self._subscribers):
+            if loop is current:
+                self._deliver(queue, payload)
+            elif not loop.is_closed():
+                loop.call_soon_threadsafe(self._deliver, queue, payload)
 
     @synchronized
     def apply_blockage(self, cmd: ApplyBlockageCommand) -> Tuple[bool, Optional[str], Optional[EvaluationEnvelope]]:
@@ -183,41 +253,13 @@ class StateManager:
         if pair not in SUPPORTED_TARGET_PAIRS:
             return False, f"Target {pair} is not in allowlisted stage targets {SUPPORTED_TARGET_PAIRS}", None
 
-        # 3. Idempotency persistence
-        saved = self.store.save_event(
-            scenario_id=cmd.scenario_id,
-            scenario_revision=self.context.scenario_revision,
-            event_type="APPLY_BLOCKAGE",
-            payload=cmd.model_dump(),
-            idempotency_key=cmd.idempotency_key,
-            created_at_iso=self._now_iso(),
-        )
-        if not saved:
-            return False, f"Duplicate idempotency key rejected: {cmd.idempotency_key}", None
+        spec = (self.venue_graph.portals if cmd.target_type == EntityType.PORTAL else self.venue_graph.boundaries).get(cmd.target_id.value)
+        if spec is None or not spec.can_be_blocked:
+            return False, f"Target {pair} cannot be blocked in the venue model", None
 
-        # 4. Apply mutation
-        if cmd.target_type == EntityType.PORTAL:
-            self.blocked_portals.add(cmd.target_id.value)
-        else:
-            self.blocked_boundaries.add(cmd.target_id.value)
-
-        # 5. Advance scenario revision
-        self.context = RunContext(
-            geometry_revision=self.context.geometry_revision,
-            scenario_revision=self.context.scenario_revision + 1,
-            physical_revision=self.context.physical_revision,
-            parameters_revision=self.context.parameters_revision,
-            solver_version=self.context.solver_version,
-            state_epoch=self.context.state_epoch,
-        )
-
-        # 6. Solve and publish
-        envelope = self._solve_and_publish_current()
-
-        # 7. Broadcast update
-        self.broadcast_event("scenario_updated", self.get_current_snapshot())
-
-        return True, None, envelope
+        portals, boundaries = set(self.blocked_portals), set(self.blocked_boundaries)
+        (portals if cmd.target_type == EntityType.PORTAL else boundaries).add(cmd.target_id.value)
+        return self._commit_scenario_change(cmd, "APPLY_BLOCKAGE", portals, boundaries)
 
     @synchronized
     def clear_blockage(self, cmd: ClearBlockageCommand) -> Tuple[bool, Optional[str], Optional[EvaluationEnvelope]]:
@@ -234,35 +276,9 @@ class StateManager:
         if pair not in SUPPORTED_TARGET_PAIRS:
             return False, f"Target {pair} is not in allowlisted stage targets {SUPPORTED_TARGET_PAIRS}", None
 
-        saved = self.store.save_event(
-            scenario_id=cmd.scenario_id,
-            scenario_revision=self.context.scenario_revision,
-            event_type="CLEAR_BLOCKAGE",
-            payload=cmd.model_dump(),
-            idempotency_key=cmd.idempotency_key,
-            created_at_iso=self._now_iso(),
-        )
-        if not saved:
-            return False, f"Duplicate idempotency key rejected: {cmd.idempotency_key}", None
-
-        if cmd.target_type == EntityType.PORTAL:
-            self.blocked_portals.discard(cmd.target_id.value)
-        else:
-            self.blocked_boundaries.discard(cmd.target_id.value)
-
-        self.context = RunContext(
-            geometry_revision=self.context.geometry_revision,
-            scenario_revision=self.context.scenario_revision + 1,
-            physical_revision=self.context.physical_revision,
-            parameters_revision=self.context.parameters_revision,
-            solver_version=self.context.solver_version,
-            state_epoch=self.context.state_epoch,
-        )
-
-        envelope = self._solve_and_publish_current()
-        self.broadcast_event("scenario_updated", self.get_current_snapshot())
-
-        return True, None, envelope
+        portals, boundaries = set(self.blocked_portals), set(self.blocked_boundaries)
+        (portals if cmd.target_type == EntityType.PORTAL else boundaries).discard(cmd.target_id.value)
+        return self._commit_scenario_change(cmd, "CLEAR_BLOCKAGE", portals, boundaries)
 
     @synchronized
     def reset_scenario(self, cmd: ResetScenarioCommand) -> Tuple[bool, Optional[str], Optional[EvaluationEnvelope]]:
@@ -275,33 +291,7 @@ class StateManager:
                 None,
             )
 
-        saved = self.store.save_event(
-            scenario_id=cmd.scenario_id,
-            scenario_revision=self.context.scenario_revision,
-            event_type="RESET_SCENARIO",
-            payload=cmd.model_dump(),
-            idempotency_key=cmd.idempotency_key,
-            created_at_iso=self._now_iso(),
-        )
-        if not saved:
-            return False, f"Duplicate idempotency key rejected: {cmd.idempotency_key}", None
-
-        self.blocked_portals.clear()
-        self.blocked_boundaries.clear()
-
-        self.context = RunContext(
-            geometry_revision=self.context.geometry_revision,
-            scenario_revision=self.context.scenario_revision + 1,
-            physical_revision=self.context.physical_revision,
-            parameters_revision=self.context.parameters_revision,
-            solver_version=self.context.solver_version,
-            state_epoch=self.context.state_epoch,
-        )
-
-        envelope = self._solve_and_publish_current()
-        self.broadcast_event("scenario_updated", self.get_current_snapshot())
-
-        return True, None, envelope
+        return self._commit_scenario_change(cmd, "RESET_SCENARIO", set(), set())
 
     @synchronized
     def update_physical_observation(
@@ -315,16 +305,11 @@ class StateManager:
         Invoked ONLY when fresh debounced endpoint telemetry arrives from the hardware bridge.
         """
         old_state = self.physical_gate_state
-        self.physical_gate_state = new_state
-        self.last_hardware_boot_id = boot_id
-        self.last_hardware_seq = seq
-        self.last_gate_epoch = gate_epoch
-
-        # Availability changes immediately in transit/unknown/fault as well.
-        # Any change invalidates investigations based on the previous physical revision.
         if old_state != new_state:
-            # Advance physical revision
-            self.context = RunContext(
+            # Availability changes immediately in transit/unknown/fault as well.
+            # Any change invalidates investigations based on the previous physical revision.
+            # Solve first so a failure leaves the previous state and plan intact.
+            new_context = RunContext(
                 geometry_revision=self.context.geometry_revision,
                 scenario_revision=self.context.scenario_revision,
                 physical_revision=self.context.physical_revision + 1,
@@ -332,11 +317,20 @@ class StateManager:
                 solver_version=self.context.solver_version,
                 state_epoch=self.context.state_epoch,
             )
-
-            envelope = self._solve_and_publish_current()
+            envelope = self._solve_for(new_context, self.blocked_portals, self.blocked_boundaries, new_state)
+            self._persist_run(envelope, new_context)
+            self.physical_gate_state = new_state
+            self.context = new_context
+            self.current_plan = envelope
+            self.last_hardware_boot_id = boot_id
+            self.last_hardware_seq = seq
+            self.last_gate_epoch = gate_epoch
             self.broadcast_event("physical_state_confirmed", self.get_current_snapshot())
             return True, envelope
 
+        self.last_hardware_boot_id = boot_id
+        self.last_hardware_seq = seq
+        self.last_gate_epoch = gate_epoch
         self.broadcast_event("hardware_telemetry", {
             "physical_gate_state": self.physical_gate_state.value,
             "boot_id": boot_id,

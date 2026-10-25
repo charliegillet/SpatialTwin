@@ -12,13 +12,12 @@ import hashlib
 import json
 import struct
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, Optional
 
 import httpx
 from google.genai import errors as genai_errors
-from google.genai._gaos.lib.compat_errors import APIStatusError, APITimeoutError
+from google.genai._gaos.lib.compat_errors import APIStatusError, APITimeoutError, GeminiNextGenAPIClientError
 from pydantic import ValidationError
 
 from backend.app.ai.grounding.adapter import (
@@ -144,6 +143,15 @@ def _strip_one_code_fence(text: str) -> str:
     return text
 
 
+def _sniff_container(clip: bytes) -> Optional[str]:
+    """MIME implied by magic bytes: mp4 'ftyp' box at offset 4, webm EBML header 1A 45 DF A3."""
+    if clip[4:8] == b"ftyp":
+        return "video/mp4"
+    if clip[:4] == b"\x1a\x45\xdf\xa3":
+        return "video/webm"
+    return None
+
+
 def clip_duration_seconds(clip: bytes, mime: str) -> Optional[float]:
     return _mp4_duration(clip) if mime == "video/mp4" else _webm_duration(clip)
 
@@ -179,8 +187,8 @@ async def ground_video(
     deadline_seconds: float = 30.0,
     receipt_path: Optional[Path] = None,
 ) -> GroundingResult:
-    """Duration: the larger of the caller-supplied value and the container header
-    (mp4 mvhd / webm Duration). Unknown duration is rejected."""
+    """Duration: the container header (mp4 mvhd / webm Duration) must be positive; the larger of it and
+    the caller-supplied value must not exceed the limit. Live calls require ``captured_at_iso``."""
     started = time.monotonic()
     attempted_live = False
     receipt: dict[str, Any] = {}
@@ -205,18 +213,26 @@ async def ground_video(
     if type(deadline_seconds) not in (int, float) or not 0 < deadline_seconds <= MAX_DEADLINE_SECONDS:
         return result("failed", "invalid_deadline")
     clip = bytes(clip_bytes)
+    if _sniff_container(clip) != mime:
+        return result("failed", "invalid_video")
     parsed = clip_duration_seconds(clip, mime)
-    candidates = [d for d in (parsed, duration_seconds) if isinstance(d, (int, float)) and d >= 0]
-    if not candidates:
+    # The container header must state a positive duration (a fragmented mp4 can carry mvhd 0). The
+    # caller's value is only an additional upper bound, never a substitute for an unknown duration.
+    if parsed is None or not parsed > 0 or parsed == float("inf"):
         return result("failed", "video_duration_unknown")
-    if max(candidates) > MAX_VIDEO_SECONDS:
+    bounds = [parsed]
+    if type(duration_seconds) in (int, float) and duration_seconds >= 0:
+        bounds.append(float(duration_seconds))
+    if max(bounds) > MAX_VIDEO_SECONDS:
         return result("failed", "video_too_long")
     sha = hashlib.sha256(clip).hexdigest()
     clip_id = f"video-{sha[:16]}"
 
-    # Reuse the still-image freshness (120 s) and context re-check.
+    # Reuse the still-image freshness (120 s) and context re-check. A missing timestamp is not fresh.
+    if not isinstance(captured_at_iso, str) or not captured_at_iso.strip():
+        return result("failed", "capture_timestamp_required")
     capture = Capture(
-        capture_id=clip_id, timestamp_iso=captured_at_iso or datetime.now(timezone.utc).isoformat(),
+        capture_id=clip_id, timestamp_iso=captured_at_iso,
         source_kind="tabletop_camera", source_context=source_context or context,
         source_geometry_revision=(source_context or context).geometry_revision,
         expected_scenario_revision=(source_context or context).scenario_revision,
@@ -310,7 +326,7 @@ async def ground_video(
     except (asyncio.TimeoutError, TimeoutError, httpx.TimeoutException, APITimeoutError):
         return result("timed_out", "provider_timeout")
     except asyncio.CancelledError:
-        return result("cancelled", "provider_cancelled")
+        raise  # caller cancellation is never converted into a result
     except _CaptureRejected as error:
         return result("failed", str(error))
     except (APIStatusError, genai_errors.APIError) as error:
@@ -327,5 +343,8 @@ async def ground_video(
             if code in (400, 404, 409, 422):
                 return result("failed", "provider_request_rejected")
         return result("failed", "provider_failure")
-    except Exception:
+    except (httpx.HTTPError, genai_errors.APIError, GeminiNextGenAPIClientError):
         return result("failed", "provider_failure")
+    except Exception:
+        # Not a provider or transport error: a local fault must stay distinguishable.
+        return result("failed", "local_processing_failure")

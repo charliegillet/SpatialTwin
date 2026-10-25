@@ -1,4 +1,5 @@
 import type { EvaluationEnvelope, GroundingResult, InvestigationResult, RunContext } from '../types.ts';
+import { EXPOSURE_CAVEAT } from '../features/hazard-exposure/hazard.ts';
 
 const targets = new Set(['portal:P1', 'portal:P2', 'boundary:B2']);
 const planStatuses = new Set(['COMPLETE_WITHIN_MODEL', 'PARTIAL_WITHIN_HORIZON', 'NO_FEASIBLE_EXIT']);
@@ -12,7 +13,7 @@ export function sameContext(a: RunContext | null | undefined, b: RunContext | nu
     && a.solver_version === b.solver_version);
 }
 
-export const EXPOSURE_LABEL = 'modeled people-seconds in hazard; not a casualty or survival prediction';
+export const EXPOSURE_LABEL = EXPOSURE_CAVEAT;
 
 /** Static label for a modeled-exposure figure. The server text is not trusted to carry the caveat. */
 export function exposureLabel(): string {

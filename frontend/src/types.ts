@@ -233,3 +233,14 @@ export interface HazardSimulateResponse {
   modeled_exposure_people_seconds: number;
   exposure_label: string;
 }
+
+export interface CommandResponse { snapshot: ScenarioSnapshot; [key: string]: unknown; }
+export interface OperatorApproveResponse {
+  status: 'APPROVED_AND_COMMANDED';
+  acknowledged: boolean;
+  command_id: string;
+  target: string;
+  operator?: string;
+  notice?: string;
+}
+export interface StopResponse { status: 'STOP_ACKNOWLEDGED'; command_id: string; }

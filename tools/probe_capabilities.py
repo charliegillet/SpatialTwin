@@ -6,6 +6,7 @@ GEMINI_API_KEY is read from the environment and never printed or written.
 """
 import argparse
 import hashlib
+import inspect
 import json
 import os
 import sys
@@ -21,7 +22,7 @@ if str(REPO_ROOT) not in sys.path:
 CALL_CAP = 8
 PRIMARY_MODEL = 'gemini-4-argon'
 FALLBACK_MODEL = 'gemini-3.8-flash'
-RECEIPT_DIR = Path('runtime/probes')
+RECEIPT_DIR = REPO_ROOT / 'runtime' / 'probes'  # anchored to the repo, like video.py's receipt dir
 RECEIPT_FIELDS = ('probe_id', 'timestamp_utc', 'sdk_version', 'requested_model', 'echoed_model', 'http_status_class',
                   'error_code', 'token_usage', 'interaction_id_hash', 'passed', 'reason')
 OPTIONAL_FIELDS = ('mode', 'deletion_result', 'fallback_note')
@@ -50,12 +51,39 @@ PLAN = (
 SPECS = {spec.probe_id: spec for spec in PLAN}
 
 
+class ProbeCapReached(Exception):
+    """Raised before a provider call that would exceed the hard cap."""
+
+
 class CallCounter:
-    """Pure hard cap on provider calls."""
+    """Hard cap on provider calls. Metered clients charge it once per real call attempt."""
+
+    COUNTED = frozenset({'create', 'get', 'cancel', 'delete'})
+    CLEANUP = frozenset({'cancel', 'delete'})  # allowed (and counted) past the cap so nothing is orphaned
 
     def __init__(self, cap=CALL_CAP):
         self.cap = cap
         self.used = 0
+        self.events = []  # one dict per real call: method, ok, status (int or None)
+
+    def begin(self, method):
+        if self.used >= self.cap and method not in self.CLEANUP:
+            raise ProbeCapReached(method)
+        self.charge(1)
+        self.events.append({'method': method, 'ok': None, 'status': None})
+        return len(self.events) - 1
+
+    def finish(self, index, ok, status=None):
+        self.events[index].update(ok=ok, status=status if isinstance(status, int) else None)
+
+    def http_status_since(self, mark):
+        """Real status observed on metered calls since `mark`: the last error status, else 200 when a call
+        returned without raising (the SDK raises on non-2xx), else None."""
+        window = self.events[mark:]
+        errors = [e['status'] for e in window if e['ok'] is False and e['status'] is not None]
+        if errors:
+            return errors[-1]
+        return 200 if any(e['ok'] for e in window) else None
 
     @property
     def remaining(self):
@@ -66,6 +94,59 @@ class CallCounter:
 
     def charge(self, calls):
         self.used += max(0, calls)
+
+
+def _error_status(exc):
+    for value in (getattr(exc, 'code', None), getattr(exc, 'status_code', None),
+                  getattr(getattr(exc, 'response', None), 'status_code', None)):
+        if type(value) is int:
+            return value
+    return None
+
+
+class MeteredClient:
+    """Transparent proxy over a genai client: counts every interactions/agents create/get/cancel/delete."""
+
+    _SCOPES = frozenset({'aio', 'interactions', 'agents'})
+
+    def __init__(self, target, counter, scope='root'):
+        self._target, self._counter, self._scope = target, counter, scope
+
+    def __getattr__(self, name):
+        value = getattr(self._target, name)
+        if name in self._SCOPES:
+            return MeteredClient(value, self._counter, name)
+        if self._scope in ('interactions', 'agents') and name in CallCounter.COUNTED and callable(value):
+            return self._wrap(name, value)
+        return value
+
+    def _wrap(self, name, function):
+        counter = self._counter
+        if inspect.iscoroutinefunction(function):
+            async def call(*args, **kwargs):
+                index = counter.begin(name)
+                try:
+                    result = await function(*args, **kwargs)
+                except Exception as exc:
+                    counter.finish(index, False, _error_status(exc))
+                    raise
+                counter.finish(index, True)
+                return result
+        else:
+            def call(*args, **kwargs):
+                index = counter.begin(name)
+                try:
+                    result = function(*args, **kwargs)
+                except Exception as exc:
+                    counter.finish(index, False, _error_status(exc))
+                    raise
+                counter.finish(index, True)
+                return result
+        return call
+
+
+def meter_client(client, counter):
+    return client if client is None or counter is None else MeteredClient(client, counter)
 
 
 def status_class(status):
@@ -198,6 +279,16 @@ class LiveExecutors:
         self.ensure_agent_fn = ensure_agent_fn
         self.clip_fn = clip_fn
         self.image_fn = image_fn
+        self.meter = None
+
+    def attach_meter(self, counter):
+        self.meter = counter
+
+    def _metered(self, adapter):
+        """Route the adapter's provider client through the call counter (no-op when unmetered)."""
+        if self.meter is not None and getattr(adapter, 'client', None) is not None:
+            adapter.client = meter_client(adapter.client, self.meter)
+        return adapter
 
     def _grounding(self):
         from backend.app.ai.grounding.adapter import GroundingAdapter
@@ -234,7 +325,7 @@ class LiveExecutors:
                           expected_scenario_revision=manager.context.scenario_revision,
                           expected_physical_revision=manager.context.physical_revision, source_context=manager.context,
                           image_base64=base64.b64encode(data).decode(), image_sha256=hashlib.sha256(data).hexdigest())
-        adapter = self.grounding_factory()
+        adapter = self._metered(self.grounding_factory())
         try:
             result = await adapter.interpret_capture(capture, manager.context, deadline_seconds=30)
         finally:
@@ -251,9 +342,10 @@ class LiveExecutors:
         gate = tmp / 'gate'
         gate.mkdir()
         (gate / VIDEO_PROBE_FILES[mode]).write_text(json.dumps({'pass': True}))
-        adapter = self.grounding_factory()
+        adapter = self._metered(self.grounding_factory())
         try:
             result = await ground_video(self.clip_fn(), 'video/mp4', manager.context, mode, adapter=adapter,
+                                        captured_at_iso=datetime.now(timezone.utc).isoformat(),
                                         deadline_seconds=45, receipt_path=gate)
         finally:
             await adapter.aclose()
@@ -271,7 +363,8 @@ class LiveExecutors:
     def _managed_raw(result, calls, **extra):
         completed = str(getattr(result.status, 'value', result.status)).lower() == 'completed'
         live = result.provenance == 'live' and bool(result.provider_interaction_id)
-        fell_back = 'environment_fallback' in json.dumps(result.provider_progress, default=str)
+        fell_back = 'environment_fallback' in json.dumps(result.provider_progress, default=str) or any(
+            error == 'network_deny_rejected' for error in (result.errors or []))
         return {'http_status': 200 if live else None, 'model': result.provider_model, 'usage': _usage_ints(result.token_usage),
                 'interaction_id': result.provider_interaction_id, 'calls': calls,
                 'error_code': result.errors[0] if result.errors else None,
@@ -280,7 +373,7 @@ class LiveExecutors:
     async def _p5(self, manager, tmp):
         from backend.app.ai.managed import agent_registry
         ensure = self.ensure_agent_fn or agent_registry.ensure_agent
-        adapter = self.managed_factory(manager_service(manager))
+        adapter = self._metered(self.managed_factory(manager_service(manager)))
         calls, result, ref, deletion = 0, None, None, 'not_attempted'
         try:
             calls += 1
@@ -310,7 +403,7 @@ class LiveExecutors:
 
     async def _p6(self, manager, tmp):
         from backend.app.ai.managed.agent_registry import build_environment
-        adapter = self.managed_factory(manager_service(manager), environment=build_environment(True))
+        adapter = self._metered(self.managed_factory(manager_service(manager), environment=build_environment(True)))
         try:
             result = await adapter.investigate_scenario(manager.context, deadline_seconds=240, mode='live')
         finally:
@@ -319,7 +412,7 @@ class LiveExecutors:
         ok = raw['completed'] and not raw['fell_back']
         raw.update(passed=ok, reason='ok' if ok else 'network_deny_rejected_or_incomplete')
         if raw['fell_back']:
-            raw['fallback_note'] = 'provider rejected network-deny environment; adapter fell back to remote'
+            raw['fallback_note'] = 'provider rejected the network-deny environment; the run failed (no downgrade)'
         return raw
 
 
@@ -336,13 +429,19 @@ class GenaiProbeClient(ProbeClient):
         self.client = genai.Client(api_key=api_key)
         self.executors = executors or LiveExecutors(api_key)
 
+    def attach_meter(self, counter):
+        """Count real provider calls on every client this probe run uses."""
+        self.client = meter_client(self.client, counter)
+        if hasattr(self.executors, 'attach_meter'):
+            self.executors.attach_meter(counter)
+
     def run(self, probe_id, model):
         if probe_id not in ('P1', 'P1b'):
             return self.executors.run(probe_id)
         try:
             interaction = self.client.interactions.create(model=model, input='Reply with the single word: ok', store=False)
         except Exception as exc:
-            status = getattr(exc, 'code', None) or getattr(exc, 'status_code', None)
+            status = _error_status(exc)
             return {'http_status': status, 'error_code': type(exc).__name__, 'calls': 1, 'passed': False,
                     'reason': 'provider_error'}
         usage = getattr(interaction, 'usage', None)
@@ -389,7 +488,12 @@ def run_probes(client, directory=RECEIPT_DIR, secrets=(), overwrite_failures=Fal
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     counter = CallCounter(cap)
+    metered = hasattr(client, 'attach_meter')
+    if metered:
+        client.attach_meter(counter)
     outcomes = {pid: True for pid in ('P1', 'P1b') if _existing_pass(directory, pid)}
+    if _existing_failure(directory, 'P1'):
+        outcomes['P1'] = False
     summary = {'results': {}, 'skipped': {}, 'calls_used': 0, 'cap_reached': False}
     version = version or sdk_version()
     for spec in PLAN:
@@ -397,8 +501,9 @@ def run_probes(client, directory=RECEIPT_DIR, secrets=(), overwrite_failures=Fal
         if only is not None and pid not in only:
             summary['skipped'][pid] = 'not_selected'
             continue
-        if pid == 'P1b' and outcomes.get('P1'):
-            summary['skipped'][pid] = 'P1_passed'
+        if pid == 'P1b' and outcomes.get('P1') is not False:
+            # The fallback model is tried only after a recorded P1 failure, never when P1 was not tested.
+            summary['skipped'][pid] = 'P1_passed' if outcomes.get('P1') else 'requires_recorded_P1_failure'
             continue
         if pid in EXCLUDED_PROBES:
             summary['skipped'][pid] = EXCLUDED_PROBES[pid]
@@ -409,10 +514,11 @@ def run_probes(client, directory=RECEIPT_DIR, secrets=(), overwrite_failures=Fal
         if _existing_failure(directory, pid) and not overwrite_failures:
             summary['skipped'][pid] = 'existing_failure_receipt_kept'
             continue
-        if not counter.can_afford(spec.max_calls):
+        if not (counter.remaining >= 1 if metered else counter.can_afford(spec.max_calls)):
             summary['skipped'][pid] = 'call_cap_reached'
             summary['cap_reached'] = True
             continue
+        mark, used_before = len(counter.events), counter.used
         try:
             raw = client.run(pid, spec.model)
         except ProbeNotWired:
@@ -420,7 +526,13 @@ def run_probes(client, directory=RECEIPT_DIR, secrets=(), overwrite_failures=Fal
             continue
         except Exception as exc:
             raw = {'error_code': type(exc).__name__, 'passed': False, 'reason': 'client_exception', 'calls': 1}
-        counter.charge(int(raw.get('calls', 1)))
+        if metered:
+            # Real calls were charged by the metered client; the executor's own estimate is ignored.
+            observed = counter.http_status_since(mark)
+            if counter.used > used_before:
+                raw = {**raw, 'http_status': observed}
+        else:
+            counter.charge(int(raw.get('calls', 1)))
         stamp = (now or datetime.now(timezone.utc)).isoformat()
         receipt = sanitize_receipt({
             'probe_id': pid, 'timestamp_utc': stamp, 'sdk_version': version, 'requested_model': spec.model,

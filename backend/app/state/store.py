@@ -11,10 +11,18 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
+# Anchored to the repository so the database does not depend on the process's working directory.
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+class ProposalAlreadyReviewed(ValueError):
+    """The grounding proposal is missing or was already used by another command."""
+
+
 class SQLiteStore:
     def __init__(self, db_path: Optional[str] = None):
         if db_path is None:
-            runtime_dir = Path("runtime")
+            runtime_dir = REPO_ROOT / "runtime"
             runtime_dir.mkdir(parents=True, exist_ok=True)
             db_path = str(runtime_dir / "spatialtwin.sqlite3")
         self.db_path = db_path
@@ -23,10 +31,11 @@ class SQLiteStore:
     @contextmanager
     def _get_connection(self):
         conn = sqlite3.connect(self.db_path, timeout=10.0)
-        conn.execute("PRAGMA journal_mode = WAL;")
-        conn.execute("PRAGMA synchronous = NORMAL;")
-        conn.row_factory = sqlite3.Row
         try:
+            conn.execute("PRAGMA journal_mode = WAL;")
+            # FULL: approval and idempotency records must survive power loss, not just a process crash.
+            conn.execute("PRAGMA synchronous = FULL;")
+            conn.row_factory = sqlite3.Row
             with conn:
                 yield conn
         finally:
@@ -140,7 +149,7 @@ class SQLiteStore:
                         (idempotency_key, payload["proposal_id"]),
                     )
                     if cursor.rowcount != 1:
-                        raise ValueError("Proposal is missing or already reviewed")
+                        raise ProposalAlreadyReviewed("Proposal is missing or already reviewed")
                 return True
             except sqlite3.IntegrityError:
                 # Duplicate idempotency key

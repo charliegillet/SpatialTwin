@@ -5,7 +5,6 @@ import { canApplyGrounding, groundingLabel } from '../ai/policy';
 import { captureEvidence } from '../ai/evidence';
 import { createRequestGate } from '../ai/requestGate';
 import { DEMO_BOARD_SIZE, demoBoardCapture, demoBoardSvg } from '../ai/demoBoard';
-import { ExecutionReceipt } from './ExecutionReceipt';
 import './ObservationPanel.css';
 
 export interface ObservationPanelProps {
@@ -261,7 +260,6 @@ export function ObservationPanel({ proposal, result, currentContext, liveConfigu
         <div className="observation-review-content"><div className="observation-review-title">{reviewTitle}{result && <span className="observation-provenance">{provenanceLabel}</span>}</div><p>{proposal ? proposal.evidence : result && result.status !== 'completed' ? 'Capture a fresh image to retry. You can also choose an explicit fixture.' : 'The model proposes a target. Only your approval changes the scenario.'}</p>{proposal?.status === 'ambiguous' && <p>Select a target in the spatial model for a manual override, or recapture.</p>}</div>
         {proposal && <button className="observation-apply-button" type="button" onClick={async () => { setActionError(null); try { await onApply(); } catch (cause) { setActionError(cause instanceof Error ? cause.message : 'The proposal could not be applied.'); } }} disabled={!canApply}>{isApplying ? <LoaderCircle size={15} className="observation-spin"  aria-hidden="true" /> : <Check size={15}  aria-hidden="true" />}{isApplied ? 'Applied' : isApplying ? 'Applying…' : 'Apply closure'}</button>}
       </div>
-      <ExecutionReceipt result={result} label={provenanceLabel} />
     </section>
   );
 }

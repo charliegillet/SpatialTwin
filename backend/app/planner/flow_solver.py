@@ -34,9 +34,11 @@ class FlowPlanner:
         for element_id, when in close_at.items():
             if element_id not in elements:
                 raise ValueError(f"Unknown {kind} id in closure schedule: {element_id!r}")
-            if type(when) is not int or when < 0 or when % dt or when > H:
+            # A closure at the horizon has no effect on departures but would drop the final-step
+            # boundary edges, so it is rejected (consistent with hazard.model.HazardSchedule).
+            if type(when) is not int or when < 0 or when % dt or when >= H:
                 raise ValueError(
-                    f"Closure time for {kind} {element_id} must be a non-negative multiple of {dt}s within {H}s"
+                    f"Closure time for {kind} {element_id} must be a non-negative multiple of {dt}s before the {H}s horizon"
                 )
             out[element_id] = when
         return out
@@ -158,11 +160,14 @@ class FlowPlanner:
         G.nodes[SOURCE]["demand"] = -N
         G.nodes[SINK]["demand"] = N
 
+        phase1_infeasible = False
         try:
             flow_dict = nx.min_cost_flow(G)
             completed_crossings = flow_dict[EXIT_COLLECTOR][SINK]
         except nx.NetworkXUnfeasible:
-            # If completely unfeasible (e.g. storage overflow)
+            # Not "zero crossings": the model could not place every occupant at all. The result is
+            # reported as SOLVER_INFEASIBLE and is rejected by the checker and by is_publishable.
+            phase1_infeasible = True
             completed_crossings = 0
 
         # Remove temporary SINK for Phase 2
@@ -177,11 +182,14 @@ class FlowPlanner:
         G.nodes[EXIT_COLLECTOR]["demand"] = completed_crossings
         G.nodes[UNASSIGNED_COLLECTOR]["demand"] = remaining_population
 
-        try:
-            flow_dict = nx.min_cost_flow(G)
-        except nx.NetworkXUnfeasible:
-            # Fallback
+        if phase1_infeasible:
             flow_dict = {}
+        else:
+            try:
+                flow_dict = nx.min_cost_flow(G)
+            except nx.NetworkXUnfeasible:
+                # Fallback: an empty witness fails the independent checker, so this is never published.
+                flow_dict = {}
 
         # -------------------------------------------------------------
         # Accounting & Breakdown
@@ -261,7 +269,9 @@ class FlowPlanner:
                 bottlenecks.append(f"Portal {p_id} BLOCKED")
 
         # Status determination
-        if completed_crossings == N:
+        if phase1_infeasible:
+            status = ComputationStatus.SOLVER_INFEASIBLE
+        elif completed_crossings == N:
             status = ComputationStatus.COMPLETE_WITHIN_MODEL
         elif completed_crossings > 0:
             status = ComputationStatus.PARTIAL_WITHIN_HORIZON
