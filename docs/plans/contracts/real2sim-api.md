@@ -251,7 +251,21 @@ malformed output are typed failures (`provider_model_mismatch`, `provider_receip
 `provider_failure`; local faults are `local_processing_failure`.
 
 **Verified offline** against google-genai 2.33.0 with mocked HTTP (request field names, SSE parsing of
-`thought_summary`/`text` deltas, unknown events skipped). **Needs a live probe:** that `gemini-4-argon` streams
-thought summaries for this request, accepts `provider_response_schema()` with `stream=True`, honours image
-`resolution: "high"` and PDF document parts, chains `previous_interaction_id` with a new image, and the real
-latency at `medium` (target ≤ 35 s).
+`thought_summary`/`text` deltas, unknown events skipped).
+
+**Verified live (26 Oct 2026, through the running server, receipts in `runtime/live/*-live-view.json`):**
+
+- The first schema (with every bound and array limit) was refused: HTTP 400 "the specified schema produces a
+  constraint that has too many states for serving". `provider_response_schema()` is now structural only; every bound
+  is enforced by `salvage_draft`. With it, `stream=True`, `store=True`, `thinking_summaries: "auto"` and image
+  `resolution: "high"` are all accepted.
+- `sketch-home` (sketch, medium): ready in 20.1 s wall, first output 6.5 s, 4,993 tokens; 6/6 rooms, 6/6 doors, 3/3
+  exits, scale from the "12 m" dimension label; 0 graph-check issues. No thought tokens: Argon did not think.
+- `evac-office` (photo, medium): ready in 36.2 s, first thought 10.9 s, 6,641 tokens; 9/9 rooms, 10/10 doors, 4/4
+  exits, scale from the 10 m scale bar; 0 issues; 2 thought summaries.
+- `evac-office` (photo, high): ready in 50.2 s, first thought 7.9 s, 8,445 tokens; the same perfect reading; 7 thought
+  summaries.
+- Thought summaries stream only when the model thinks; at `medium` a simple sketch may show none.
+
+**Still needs a live probe:** PDF document parts, and a critique round chained on `previous_interaction_id` with a new
+image (both readings above passed the checks, so no critique round ran).

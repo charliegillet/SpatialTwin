@@ -138,12 +138,19 @@ class VenueDraftV1(_Strict):
         return self
 
 
-def provider_response_schema() -> dict:
-    """VenueDraftV1 as the response_format schema, using only keywords the live-proven card and grounding schemas use.
+# Structural keywords only. Live, gemini-4-argon refused the full schema (26 Oct 2026, HTTP 400: "the specified schema
+# produces a constraint that has too many states for serving"): nested array limits and 0–1000 integer bounds on every
+# coordinate multiply the decoder's states. Every bound, length and limit is enforced by salvage_draft instead.
+_PROVIDER_DROPPED_KEYWORDS = frozenset({
+    "pattern", "default", "title", "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum",
+    "minItems", "maxItems", "minLength", "maxLength"})
 
-    ``pattern``, ``default`` and ``exclusiveMinimum`` have not been accepted live by the provider here, and constrained
-    decoding cannot enforce cross-references, box ordering or the scale rule anyway; ``salvage_draft`` enforces all of
-    those per element after decoding.
+
+def provider_response_schema() -> dict:
+    """VenueDraftV1 as the response_format schema: types, enums, required fields and nesting only.
+
+    Constrained decoding cannot enforce cross-references, box ordering or the scale rule anyway, and the bounds made
+    the schema too large to serve; ``salvage_draft`` enforces all of them per element after decoding.
     """
     def clean(node: Any) -> Any:
         if isinstance(node, list):
@@ -152,14 +159,10 @@ def provider_response_schema() -> dict:
             return node
         out: Dict[str, Any] = {}
         for key, value in node.items():
-            if key in ("pattern", "default", "title"):
+            if key in _PROVIDER_DROPPED_KEYWORDS:
                 continue
             if key == "const":
                 out["enum"] = [value]
-            elif key == "exclusiveMinimum":
-                out["minimum"] = value
-            elif key == "exclusiveMaximum":
-                out["maximum"] = value
             else:
                 out[key] = clean(value)
         return out

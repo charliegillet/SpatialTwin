@@ -67,8 +67,10 @@ def test_only_a_reading_without_rooms_fails_whole():
     assert salvage_draft({**base(), "rooms": [{"key": "X"}]}).error == "no_room_survived"
 
 
-def test_provider_schema_avoids_unproven_keywords():
+def test_provider_schema_is_structural_only():
+    """Live, gemini-4-argon refused the bounded schema as having "too many states for serving" (26 Oct 2026)."""
     text = json.dumps(provider_response_schema())
-    for keyword in ('"pattern"', '"const"', '"exclusiveMinimum"', '"default"'):
+    for keyword in ('"pattern"', '"const"', '"exclusiveMinimum"', '"default"', '"minimum"', '"maximum"',
+                    '"minItems"', '"maxItems"', '"minLength"', '"maxLength"'):
         assert keyword not in text
-    assert '"enum": ["draft-1"]' in text
+    assert '"enum": ["draft-1"]' in text and '"required"' in text
