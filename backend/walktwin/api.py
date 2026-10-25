@@ -66,10 +66,6 @@ class ApiError(Exception):
         self.status, self.error, self.extra = status, error, extra
 
 
-class ReportUnavailable(Exception):
-    """walktwin.report (Task 15) is not importable yet."""
-
-
 def _stale(expected: str | None, current: str | None, what: str = "graph") -> None:
     if expected != current:
         raise ApiError(409, "stale", what=what, expected=expected, current=current)
@@ -79,10 +75,7 @@ def _stale(expected: str | None, current: str | None, what: str = "graph") -> No
 
 
 def _report_module():
-    try:
-        from . import report
-    except ImportError as e:
-        raise ReportUnavailable(str(e)) from e
+    from . import report
     return report
 
 
@@ -746,15 +739,12 @@ async def approve(sid: str, body: ApproveBody, services: Services = Svc) -> dict
                         graph_revision=graph.revision, scenario_hash=scenario.hash,
                         run_id=run.run_id, note_path=str(note_path),
                         approved_at=_iso_now())
-    # Draft from the post-approval state without committing it yet: if the report
-    # module is unavailable, nothing changes.
+    # Draft from the post-approval state without committing it yet: if drafting
+    # raises, nothing changes.
     preview = s.model_copy(update={"scenario": scenario, "current_run": run,
                                    "current_check": check,
                                    "approvals": [*s.approvals, approval]})
-    try:
-        note = services.draft_note(preview, approval)
-    except ReportUnavailable:
-        raise ApiError(503, "report_unavailable") from None
+    note = services.draft_note(preview, approval)
     if not note.startswith(DRAFT_HEADER):
         note = f"{DRAFT_HEADER}\n\n{note}"
     notes_dir.mkdir(parents=True, exist_ok=True)
@@ -770,10 +760,7 @@ async def approve(sid: str, body: ApproveBody, services: Services = Svc) -> dict
 @router.get("/sessions/{sid}/report")
 async def get_report(sid: str, services: Services = Svc) -> dict:
     s = _session(services, sid)
-    try:
-        report = to_jsonable(services.build_report(s))
-    except ReportUnavailable:
-        raise ApiError(503, "report_unavailable") from None
+    report = to_jsonable(services.build_report(s))
     if isinstance(report, dict):
         latest = _note_text(s.approvals[-1]) if s.approvals else None
         report["security_note"] = latest or ""
@@ -783,10 +770,7 @@ async def get_report(sid: str, services: Services = Svc) -> dict:
 @router.get("/sessions/{sid}/report.html")
 async def get_report_html(sid: str, services: Services = Svc) -> HTMLResponse:
     s = _session(services, sid)
-    try:
-        return HTMLResponse(services.render_html(services.build_report(s)))
-    except ReportUnavailable:
-        raise ApiError(503, "report_unavailable") from None
+    return HTMLResponse(services.render_html(services.build_report(s)))
 
 
 def _note_text(approval: Approval) -> str | None:

@@ -499,15 +499,30 @@ def test_job_exception_is_captured(client, services):
     assert client.get(f"/api/sessions/{sid}").status_code == 200  # server still fine
 
 
-def test_report_unavailable_503(client, services, monkeypatch):
-    import sys
-    services.build_report = api.default_services(services.runtime_root).build_report
-    services.render_html = api.default_services(services.runtime_root).render_html
-    monkeypatch.setitem(sys.modules, "walktwin.report", None)  # import raises ImportError
+def test_default_report_module_serves_report_and_note(client, services):
+    defaults = api.default_services(services.runtime_root)
+    services.build_report, services.render_html = defaults.build_report, defaults.render_html
+    services.draft_note = defaults.draft_note
     sid = upload(client)
-    for path in ("report", "report.html"):
-        r = client.get(f"/api/sessions/{sid}/{path}")
-        assert r.status_code == 503 and r.json()["error"] == "report_unavailable"
+    r = client.get(f"/api/sessions/{sid}/report")
+    assert r.status_code == 200 and r.json()["verdict"] == "incomplete"
+    sid, snap = accepted(client)
+    rep = client.get(f"/api/sessions/{sid}/report").json()
+    assert rep["verdict"] in ("verified_within_model", "failed")
+    assert rep["run_id"] == snap["current_run"]["run_id"] and rep["security_note"] == ""
+    page = client.get(f"/api/sessions/{sid}/report.html")
+    assert page.status_code == 200 and "<script" not in page.text
+    assert "Content-Security-Policy" in page.text
+    set_fire(client, sid, snap, "D2")
+    snap = client.get(f"/api/sessions/{sid}").json()
+    r = client.post(f"/api/sessions/{sid}/approve", json={
+        "expected_revision": snap["accepted_revision"],
+        "expected_scenario": snap["scenario_hash"],
+        "investigation_id": snap["ready_investigation_id"], "intervention_id": "OPEN:D5"})
+    assert r.status_code == 200, r.text
+    note = r.json()["note"]
+    assert note.splitlines()[0] == "# DRAFT — not sent" and "D5 must stay unlocked" in note
+    assert client.get(f"/api/sessions/{sid}/report").json()["security_note"] == note
 
 
 def test_session_persisted_and_reloaded(client, services):
