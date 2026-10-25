@@ -46,9 +46,6 @@ EYE_HEIGHT_DECLARED = "1.5±0.1"
 GEOMETRY_DOOR_TOLERANCE_M = 0.5
 GEOMETRY_WALL_BAND_M = 0.15
 GEOMETRY_EDGE_PX = 5
-# Same tolerances as walktwin.geometry_score.is_regression.
-WALL_SUPPORT_MAX_DROP = 0.02
-EDGE_WITHIN_MAX_DROP = 0.05
 
 Method = Literal["measured", "checker", "model_reported", "outside_model"]
 ReqStatus = Literal["pass", "fail", "cannot_measure", "not_run"]
@@ -89,7 +86,7 @@ class Report(BaseModel):
     session_id: str
     graph_revision: str  # "" without an accepted graph (the UI parser expects a string)
     scenario_hash: str
-    run_id: str  # "" without a run
+    run_id: str  # the accepted, checked run's id; "" without one
     verdict: Verdict
     requirements: list[Requirement]
     rules: list[RuleResult]
@@ -217,9 +214,6 @@ def _checker_row(run, check) -> Requirement:
     stmt = "Independent checker verifies the solver run (capacity, closures, conservation)"
     if run is None or check is None:
         return _req("checker", stmt, "checker", "not_run", None, "no checked run")
-    if check.run_id != run.run_id:
-        return _req("checker", stmt, "checker", "fail", None,
-                    f"check belongs to run {check.run_id}, not {run.run_id}")
     if check.ok:
         return _req("checker", stmt, "checker", "pass", f"checker verified {run.run_id}",
                     "check_run recomputed capacity, travel and conservation without the solver")
@@ -260,21 +254,74 @@ def _exit_row(graph: VenueGraph | None) -> Requirement:
                 f"{len(exits)} exits, each with a video time range")
 
 
-def _geometry_rows(session: Session) -> list[Requirement]:
-    s_cross = "Final illegal crossings of the walker's SfM path through modeled walls"
-    s_wall = "Final wall support of SfM points (no measured regression)"
-    s_edge = "Final held-out edge alignment of the twin to video frames (no measured regression)"
-    scored = [it for it in session.iterations if isinstance(_g(it, "geometry"), dict)]
-    if not scored:
-        why = "no SfM geometry score (the loop ran without SfM, or did not run)"
-        return [_req("geometry_illegal_crossings", s_cross, "measured", "not_run", None, why),
-                _req("geometry_wall_support", s_wall, "measured", "not_run", None, why),
-                _req("geometry_edge_alignment", s_edge, "measured", "not_run", None, why)]
-    first_it, final_it = scored[0], scored[-1]
-    first, final = _g(first_it, "geometry"), _g(final_it, "geometry")
-    where = (f"loop round {_g(final_it, 'index', len(scored) - 1)}, graph "
-             f"{_g(final_it, 'graph_revision', '?')}, alignment {final.get('alignment_hash', '?')}")
-    same_alignment = first.get("alignment_hash") == final.get("alignment_hash")
+def _geometry_unavailable(session: Session) -> tuple[str, str] | None:
+    """(reason, system to-do) when measured geometry is unavailable (R30/R31), else None.
+
+    A "disagrees" scale badge or ``geometry_unavailable_reason`` on the session makes
+    the scale and geometry rows ``cannot_measure``; it never fails the verdict.
+    """
+    al = _alignment(session.alignment)
+    graph = session.accepted_graph
+    anchor = graph.anchor if graph is not None and graph.anchor is not None else session.anchor
+    if al is not None:
+        from .sfm import scale_badge
+        if scale_badge(al) == "disagrees":
+            door = f" {anchor.door_id}" if anchor is not None else ""
+            reason = (f"scale badge disagrees (residual {al.residual_m:.2f} m, "
+                      f"eye height {al.eye_height_m:.2f} m)")
+            return reason, (f"Re-tape the anchor door{door} and re-capture the venue "
+                            f"walkthrough; {reason}")
+    # Field added by the session API fix (R30); read defensively until it is merged.
+    raw = getattr(session, "geometry_unavailable_reason", None)
+    if raw:
+        reason = _one_line(raw, 300)
+        if reason.startswith("sfm failed"):
+            return reason, f"Re-run SfM on a new capture of the venue walkthrough; {reason}"
+        return reason, (f"Re-run SfM and the alignment fit, then refine the venue twin "
+                        f"again; {reason}")
+    return None
+
+
+def _geometry_rows(session: Session, unavailable: tuple[str, str] | None,
+                   todos: dict[str, str]) -> list[Requirement]:
+    stmts = {
+        "geometry_illegal_crossings":
+            "Final illegal crossings of the walker's SfM path through modeled walls",
+        "geometry_wall_support": "Final wall support of SfM points (no measured regression)",
+        "geometry_edge_alignment":
+            "Final held-out edge alignment of the twin to video frames (no measured regression)",
+    }
+
+    def same(status: ReqStatus, why: str, todo: str | None = None) -> list[Requirement]:
+        if todo:
+            todos.update(dict.fromkeys(stmts, todo))
+        return [_req(rid, s, "measured", status, None, why) for rid, s in stmts.items()]
+
+    graph = session.accepted_graph
+    if graph is None:
+        return same("not_run", "no accepted graph")
+    if unavailable is not None:
+        return same("cannot_measure", f"geometry unavailable: {unavailable[0]}", unavailable[1])
+    its = list(session.iterations)
+    scored = [i for i, it in enumerate(its) if isinstance(_g(it, "geometry"), dict)]
+    final_i = next((i for i in reversed(scored)
+                    if _g(its[i], "graph_revision") == graph.revision), None)
+    if final_i is None:
+        return same("not_run", "no geometry score for the accepted graph")
+    final = _g(its[final_i], "geometry")
+    ahash = final.get("alignment_hash")
+    al = _alignment(session.alignment)
+    if al is not None and ahash != al.hash:
+        return same("not_run", f"geometry was scored under alignment {ahash}; "
+                               f"the current alignment is {al.hash}")
+    # Baseline: the first round scored under the same alignment (possibly the final one).
+    base_i = next(i for i in scored if _g(its[i], "geometry").get("alignment_hash") == ahash)
+    base = _g(its[base_i], "geometry")
+    single = base_i == final_i
+    where = (f"loop round {_g(its[final_i], 'index', final_i)}, graph {graph.revision}, "
+             f"alignment {ahash}")
+    no_base = "single measured round; no baseline to compare"
+    base_label = f"baseline loop round {_g(its[base_i], 'index', base_i)} (same alignment)"
     rows = []
 
     crossings = final.get("illegal_crossings")
@@ -284,58 +331,65 @@ def _geometry_rows(session: Session) -> list[Requirement]:
                           for c in crossings[:3])
         ev = (f"{where}; path segments crossing a wall more than {GEOMETRY_DOOR_TOLERANCE_M} m "
               f"(declared) from any door" + (f"; {times}" if times else ""))
-        rows.append(_req("geometry_illegal_crossings", s_cross, "measured",
-                         "pass" if n == 0 else "fail", str(n), ev))
+        rows.append(_req("geometry_illegal_crossings", stmts["geometry_illegal_crossings"],
+                         "measured", "pass" if n == 0 else "fail", str(n), ev))
     else:
-        rows.append(_req("geometry_illegal_crossings", s_cross, "measured", "not_run", None,
-                         f"{where}; no crossings recorded"))
+        rows.append(_req("geometry_illegal_crossings", stmts["geometry_illegal_crossings"],
+                         "measured", "not_run", None, f"{where}; no crossings recorded"))
 
-    ws, ws0 = _num(final.get("wall_support")), _num(first.get("wall_support"))
+    ws, ws0 = _num(final.get("wall_support")), _num(base.get("wall_support"))
     if ws is None:
-        rows.append(_req("geometry_wall_support", s_wall, "measured", "not_run", None,
-                         f"{where}; no wall support recorded"))
+        rows.append(_req("geometry_wall_support", stmts["geometry_wall_support"], "measured",
+                         "not_run", None, f"{where}; no wall support recorded"))
     else:
         ev = (f"{where}; share of SfM points 0.5-2.0 m above the floor within "
-              f"{GEOMETRY_WALL_BAND_M} m (declared) of a modeled wall; first measured round "
-              f"{ws0:.2f}" if ws0 is not None else f"{where}")
-        if ws0 is not None and not same_alignment:
-            status: ReqStatus = "cannot_measure"
-            ev += "; alignment changed between rounds, so rounds are not comparable"
-        elif ws0 is not None and ws < ws0 - WALL_SUPPORT_MAX_DROP:
-            status = "fail"
-            ev += f"; dropped more than {WALL_SUPPORT_MAX_DROP}"
+              f"{GEOMETRY_WALL_BAND_M} m (declared) of a modeled wall")
+        status: ReqStatus = "pass"
+        if single or ws0 is None:
+            ev += f"; {no_base}"
         else:
-            status = "pass"
-        rows.append(_req("geometry_wall_support", s_wall, "measured", status, f"{ws:.2f}", ev))
+            from .geometry_score import REGRESSION_WALL_SUPPORT
+            ev += f"; {base_label} {ws0:.2f}"
+            if ws < ws0 - REGRESSION_WALL_SUPPORT:
+                status = "fail"
+                ev += f"; dropped more than {REGRESSION_WALL_SUPPORT}"
+        rows.append(_req("geometry_wall_support", stmts["geometry_wall_support"], "measured",
+                         status, f"{ws:.2f}", ev))
 
-    e = _num(final.get("edge_within_5px"))
-    e0 = next((_num(_g(it, "geometry").get("edge_within_5px")) for it in scored
-               if _num(_g(it, "geometry").get("edge_within_5px")) is not None), None)
+    e, e0 = _num(final.get("edge_within_5px")), _num(base.get("edge_within_5px"))
     if e is None:
-        rows.append(_req("geometry_edge_alignment", s_edge, "measured", "not_run", None,
-                         f"{where}; no held-out frames were scored"))
+        rows.append(_req("geometry_edge_alignment", stmts["geometry_edge_alignment"],
+                         "measured", "not_run", None, f"{where}; no held-out frames were scored"))
     else:
         px = _num(final.get("edge_chamfer_px"))
         value = f"{e:.0%} within {GEOMETRY_EDGE_PX} px" + (
             f"; mean distance {px:.1f} px" if px is not None else "")
         ev = (f"{where}; projected floor-wall lines and jambs against Canny edges on "
-              f"held-out frames; first measured round {e0:.0%}")
-        if not same_alignment:
-            status = "cannot_measure"
-            ev += "; alignment changed between rounds, so rounds are not comparable"
-        elif e < e0 - EDGE_WITHIN_MAX_DROP:
-            status = "fail"
-            ev += f"; dropped more than {EDGE_WITHIN_MAX_DROP:.0%}"
+              "held-out frames")
+        status = "pass"
+        if single or e0 is None:
+            ev += f"; {no_base}"
         else:
-            status = "pass"
-        rows.append(_req("geometry_edge_alignment", s_edge, "measured", status, value, ev))
+            from .geometry_score import REGRESSION_EDGE_WITHIN
+            ev += f"; {base_label} {e0:.0%}"
+            if e < e0 - REGRESSION_EDGE_WITHIN:
+                status = "fail"
+                ev += f"; dropped more than {REGRESSION_EDGE_WITHIN:.0%}"
+        rows.append(_req("geometry_edge_alignment", stmts["geometry_edge_alignment"],
+                         "measured", status, value, ev))
     return rows
 
 
-def _scale_row(session: Session) -> Requirement:
+def _scale_row(session: Session, unavailable: tuple[str, str] | None,
+               todos: dict[str, str]) -> Requirement:
     stmt = "SfM alignment residual and scale badge agree with the tape-measured anchor"
     al = _alignment(session.alignment)
+    if unavailable is not None:
+        todos["alignment_scale"] = unavailable[1]
     if al is None:
+        if unavailable is not None:
+            return _req("alignment_scale", stmt, "measured", "cannot_measure", None,
+                        unavailable[0])
         why = session.alignment_error or "no SfM alignment"
         return _req("alignment_scale", stmt, "measured", "not_run", None, _one_line(why))
     from .sfm import scale_badge
@@ -345,24 +399,55 @@ def _scale_row(session: Session) -> Requirement:
     ev = (f"alignment {al.hash}; the badge agrees when eye height is within "
           f"{EYE_HEIGHT_DECLARED} m (declared) and the residual is at most 0.5 m; "
           "the tape-measured anchor stays the authority")
-    return _req("alignment_scale", stmt, "measured", "pass" if badge == "agrees" else "fail",
-                value, ev)
+    if unavailable is not None:
+        return _req("alignment_scale", stmt, "measured", "cannot_measure", value,
+                    f"{unavailable[0]}; {ev}")
+    return _req("alignment_scale", stmt, "measured", "pass", value, ev)
 
 
-def _discrepancy_row(session: Session) -> Requirement:
+def _described_revision(its: list, i: int) -> str | None:
+    """Graph revision that round ``i``'s critique looked at.
+
+    A round's ``graph_revision`` is the graph after the round. When nothing was
+    kept that is also the graph it critiqued; when a patch was kept, the critiqued
+    graph is the previous round's ``graph_revision``.
+    """
+    it = its[i]
+    if not (_g(it, "applied") or []):
+        return _g(it, "graph_revision")
+    if i > 0:
+        idx, prev_idx = _g(it, "index"), _g(its[i - 1], "index")
+        if isinstance(idx, int) and isinstance(prev_idx, int) and idx == prev_idx + 1:
+            return _g(its[i - 1], "graph_revision")
+    return None
+
+
+def _discrepancy_row(session: Session, todos: dict[str, str]) -> Requirement:
     stmt = "Final loop discrepancy count (Argon's critique of renders against video)"
-    if not session.iterations:
+    graph = session.accepted_graph
+    if graph is None:
         return _req("loop_discrepancies", stmt, "model_reported", "not_run", None,
-                    "the critique loop did not run")
-    last = session.iterations[-1]
-    n = _g(last, "discrepancy_count")
-    idx = _g(last, "index", len(session.iterations) - 1)
+                    "no accepted graph")
+    its = list(session.iterations)
+    match = None
+    for i, it in enumerate(its):
+        if _g(it, "stop_reason") == "provider_failed":  # its count of 0 is not a critique
+            continue
+        if _described_revision(its, i) == graph.revision:
+            match = it
+    if match is None:
+        return _req("loop_discrepancies", stmt, "model_reported", "not_run", None,
+                    "no critique round for the accepted graph")
+    n = _g(match, "discrepancy_count")
+    idx = _g(match, "index", "?")
     if not isinstance(n, int) or isinstance(n, bool):
         return _req("loop_discrepancies", stmt, "model_reported", "not_run", None,
                     f"loop round {idx} has no count")
-    ev = f"loop round {idx}; model-reported, not a measurement"
+    ev = f"loop round {idx} on graph {graph.revision}; model-reported, not a measurement"
     if n == 0:
         return _req("loop_discrepancies", stmt, "model_reported", "pass", "0", ev)
+    todos["loop_discrepancies"] = (f"Review the {n} model-reported discrepancies from loop "
+                                   f"round {idx} against the video and correct the venue twin")
     return _req("loop_discrepancies", stmt, "model_reported", "cannot_measure", str(n), ev)
 
 
@@ -397,17 +482,18 @@ def _rule_todo(r: RuleResult) -> str:
     return f"Check {r.rule_id} at {el} ({cite})"
 
 
-def _hand_checks(rules: list[RuleResult], rows: list[Requirement]) -> list[str]:
+def _hand_checks(rules: list[RuleResult], rows: list[Requirement],
+                 todos: dict[str, str]) -> list[str]:
     out = [_rule_todo(r) for r in rules if r.status == "cannot_measure"]
     rule_ids = {f"{r.rule_id}:{r.element_id}" for r in rules}
     always = {rid for rid, _ in ALWAYS_CANNOT_MEASURE}
+    groups: dict[str, list[str]] = {}  # system to-do -> the rows it resolves
     for row in rows:
         if row.status != "cannot_measure" or row.id in rule_ids or row.id in always:
             continue
-        if row.id == "loop_discrepancies":
-            out.append(f"Review the {row.value} model-reported discrepancies against the venue")
-        else:
-            out.append(f"Check in the venue: {row.statement}")
+        todo = todos.get(row.id) or f"Resolve {row.id}: {row.statement}"
+        groups.setdefault(todo, []).append(row.id)
+    out += [f"{todo} ({', '.join(ids)})" for todo, ids in groups.items()]
     for rid, text in ALWAYS_CANNOT_MEASURE:
         todo = _ALWAYS_TODO.get(rid, f"Check in the venue: {text}")
         out.append(f"{todo} ({_ALWAYS_CITATION.get(rid, rid)})")
@@ -486,15 +572,17 @@ def build_report(session: Session) -> Report:
     run = accepted[1] if accepted else None
     check = accepted[2] if accepted else None
     rules = evaluate_rules(graph) if graph is not None else []
+    unavailable = _geometry_unavailable(session)
+    todos: dict[str, str] = {}
 
     rows: list[Requirement] = [
         _population_row(graph, run),
         _checker_row(run, check),
         _graph_row(session, graph),
         _exit_row(graph),
-        *_geometry_rows(session),
-        _scale_row(session),
-        _discrepancy_row(session),
+        *_geometry_rows(session, unavailable, todos),
+        _scale_row(session, unavailable, todos),
+        _discrepancy_row(session, todos),
         *(_rule_row(r) for r in rules),
         *_always_rows(),
     ]
@@ -510,11 +598,11 @@ def build_report(session: Session) -> Report:
         session_id=session.id,
         graph_revision=graph.revision if graph is not None else "",
         scenario_hash=session.scenario.hash,
-        run_id=session.current_run.run_id if session.current_run is not None else "",
+        run_id=run.run_id if run is not None else "",  # the accepted run only
         verdict=verdict,
         requirements=rows,
         rules=rules,
-        hand_checks=_hand_checks(rules, rows),
+        hand_checks=_hand_checks(rules, rows, todos),
         declared_parameters=_declared(session),
         provenance=_provenance(session, accepted),
         security_note=_latest_note(session),
@@ -675,11 +763,11 @@ def draft_security_note(session: Session, approval: Approval) -> str:
             lines.append(f"- note: the accepted graph is now {graph.revision}, "
                          f"not {approval.graph_revision} from the approval")
         doors = {d.id: d for d in graph.doors}
-        approved_ids = [i.split(":", 1)[1] for i in [approval.intervention_id] if ":" in i]
+        approved = approval.intervention_id.partition(":")[2]
         opened = {i.split(":", 1)[1] for i in session.scenario.interventions
                   if i.startswith("OPEN:")}
         hazards = {h.door_id for h in session.scenario.hazards}
-        order = [i for i in approved_ids if i in doors]
+        order = [approved] if approved in doors else []
         order += [d.id for d in sorted(graph.doors, key=lambda d: _door_key(d.id))
                   if _is_exit(d) and d.id not in order]
         lines += [_door_line(doors[i], opened, hazards, hhmm) for i in order]

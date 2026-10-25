@@ -194,11 +194,115 @@ def test_geometry_rows_measured_or_not_run():
     assert report.verdict == "verified_within_model"
 
 
-def test_scale_badge_disagrees_fails():
+GEOM_IDS = ("geometry_illegal_crossings", "geometry_wall_support", "geometry_edge_alignment")
+
+
+def _with_reason(s: Session, reason: str) -> Session:
+    """Set geometry_unavailable_reason (R30), whether or not the field is merged yet."""
+    if "geometry_unavailable_reason" in Session.model_fields:
+        s.geometry_unavailable_reason = reason
+        return s
+    return s.model_copy(update={"geometry_unavailable_reason": reason})
+
+
+def test_scale_badge_disagrees_is_cannot_measure_not_failed():
     s = _session()
     s.alignment = _alignment(eye=2.4)
-    row = _req(rp.build_report(s), "alignment_scale")
-    assert row.status == "fail" and "disagrees" in row.value
+    report = rp.build_report(s)
+    assert report.verdict == "verified_within_model"  # R31: the badge never fails the verdict
+    row = _req(report, "alignment_scale")
+    assert row.status == "cannot_measure" and "disagrees" in row.value
+    assert "scale badge disagrees" in row.evidence
+    for rid in GEOM_IDS:
+        row = _req(report, rid)
+        assert row.status == "cannot_measure" and "scale badge disagrees" in row.evidence, rid
+    todo = [h for h in report.hand_checks if h.startswith("Re-tape the anchor door")]
+    assert len(todo) == 1 and "re-capture the venue walkthrough" in todo[0]
+    assert "alignment_scale" in todo[0] and all(rid in todo[0] for rid in GEOM_IDS)
+
+
+def test_geometry_unavailable_reason_is_cannot_measure_not_failed():
+    s = _with_reason(_session(sfm=False), "sfm failed: no_floor_plane")
+    report = rp.build_report(s)
+    assert report.verdict == "verified_within_model"
+    for rid in (*GEOM_IDS, "alignment_scale"):
+        row = _req(report, rid)
+        assert row.status == "cannot_measure" and "no_floor_plane" in row.evidence, rid
+    todo = [h for h in report.hand_checks if h.startswith("Re-run SfM")]
+    assert len(todo) == 1 and "no_floor_plane" in todo[0] and "venue" in todo[0]
+    # a reason other than SfM failure still asks for SfM and alignment again
+    s = _with_reason(_session(), "scale badge unavailable: TypeError: boom")
+    report = rp.build_report(s)
+    assert report.verdict == "verified_within_model"
+    assert any(h.startswith("Re-run SfM and the alignment fit") for h in report.hand_checks)
+
+
+def test_geometry_rows_use_accepted_revision():
+    s = _session(sfm=True)
+    rev = s.accepted_graph.revision
+    # the final scored round describes another graph: it must not be reported
+    s.iterations.append(_iteration(2, "g-other", _geometry(crossings=5, wall=0.1, edge=0.1), 4))
+    s.iterations[-1]["applied"] = [0]
+    report = rp.build_report(s)
+    assert _req(report, "geometry_illegal_crossings").value == "0"
+    assert rev in _req(report, "geometry_wall_support").evidence
+    assert report.verdict == "verified_within_model"
+    # no scored round for the accepted graph at all
+    s = _session(sfm=True)
+    for it in s.iterations:
+        it["graph_revision"] = "g-other"
+    report = rp.build_report(s)
+    for rid in GEOM_IDS:
+        row = _req(report, rid)
+        assert row.status == "not_run"
+        assert row.evidence == "no geometry score for the accepted graph"
+    disc = _req(report, "loop_discrepancies")
+    assert disc.status == "not_run" and "accepted graph" in disc.evidence
+    # scored under a different alignment from the persisted one
+    s = _session(sfm=True)
+    s.alignment = {**_alignment(), "hash": "a-2"}
+    assert _req(rp.build_report(s), "geometry_wall_support").status == "not_run"
+
+
+def test_baseline_same_alignment_and_single_round():
+    s = _session(sfm=True)
+    s.iterations = [s.iterations[-1]]
+    report = rp.build_report(s)
+    for rid in ("geometry_wall_support", "geometry_edge_alignment"):
+        row = _req(report, rid)
+        assert row.status == "pass" and "single measured round; no baseline to compare" in row.evidence
+    # an earlier round under another alignment is not a baseline
+    s = _session(sfm=True)
+    s.iterations[0]["geometry"] = {**_geometry(wall=0.99, edge=0.99), "alignment_hash": "a-0"}
+    row = _req(rp.build_report(s), "geometry_wall_support")
+    assert row.status == "pass" and "single measured round" in row.evidence
+
+
+def test_discrepancy_row_uses_round_that_critiqued_accepted_graph():
+    s = _session(sfm=False)
+    rev = s.accepted_graph.revision
+    # round 0 critiqued an earlier graph and patched it into the accepted one
+    s.iterations = [{**_iteration(0, rev, None, 3), "applied": [0, 1]}]
+    s.iterations[0]["stop_reason"] = "max_iterations"
+    row = _req(rp.build_report(s), "loop_discrepancies")
+    assert row.status == "not_run" and "accepted graph" in row.evidence
+    # round 1 critiqued the accepted graph and reported 2
+    s.iterations.append({**_iteration(1, "g-next", None, 2), "applied": [0]})
+    report = rp.build_report(s)
+    row = _req(report, "loop_discrepancies")
+    assert row.status == "cannot_measure" and row.value == "2" and "round 1" in row.evidence
+    todo = [h for h in report.hand_checks if "loop_discrepancies" in h]
+    assert len(todo) == 1 and todo[0].startswith("Review the 2 model-reported discrepancies")
+    # a provider failure's count of 0 is not a critique
+    s.iterations.append({**_iteration(2, rev, None, 0), "stop_reason": "provider_failed"})
+    assert _req(rp.build_report(s), "loop_discrepancies").value == "2"
+
+
+def test_run_id_is_accepted_run_only():
+    s = _session()
+    s.scenario = Scenario(hazards=[Hazard(door_id="D4", kind="fire")])  # run is now stale
+    report = rp.build_report(s)
+    assert report.verdict == "incomplete" and report.run_id == ""
 
 
 def test_hand_checks_cover_cannot_measure():
@@ -216,18 +320,19 @@ def test_hand_checks_cover_cannot_measure():
 
 
 def test_html_has_no_script_or_external():
-    s = _session()
-    zones = [z.model_copy(update={"name": "<script>x</script> & \"hall\""})
-             if z.id == "Z1" else z for z in s.accepted_graph.zones]
-    s.accepted_graph = s.accepted_graph.model_copy(update={"zones": zones})
-    page = rp.render_html(rp.build_report(s))
+    s = _session(sfm=False)
+    s.alignment = None
+    s.alignment_error = "<script>alert(1)</script> & \"x\""  # reaches the alignment_scale row
+    report = rp.build_report(s)
+    assert "<script>" in _req(report, "alignment_scale").evidence
+    page = rp.render_html(report)
     assert CSP in page
     assert "<script" not in page.lower()
+    assert "&lt;script&gt;alert(1)&lt;/script&gt; &amp; &quot;x&quot;" in page
     assert "http://" not in page and "https://" not in page
     assert "http" not in page.replace(CSP, "")  # the CSP meta is the only "http" (http-equiv)
     assert not re.search(r"\b(src|href)\s*=", page, re.I)
-    assert "&lt;script&gt;" in page or "<script" not in page
-    assert "verified_within_model" in page or "incomplete" in page
+    assert "verified_within_model" in page
 
 
 def test_security_note_header_and_timestamp(tmp_path):
@@ -264,7 +369,10 @@ def test_report_security_note_is_latest_approval(tmp_path):
 
 def test_no_banned_words_in_generated_text(tmp_path):
     texts = []
-    for sess in (_session(), _session(sfm=False), _session(run=False)):
+    disagree = _session()
+    disagree.alignment = _alignment(eye=2.4)
+    for sess in (_session(), _session(sfm=False), _session(run=False), disagree,
+                 _with_reason(_session(sfm=False), "sfm failed: no_floor_plane")):
         rep = rp.build_report(sess)
         texts += [json.dumps(to_jsonable(rep)), rp.render_html(rep)]
     g = _office()
