@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types --test src/ai/policy.test.mjs"
+    "test": "node --experimental-strip-types --test src/ai/*.test.mjs"
   },
   "dependencies": {
     "lucide-react": "^1.16.0",

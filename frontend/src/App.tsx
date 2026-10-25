@@ -181,7 +181,7 @@ export function App() {
     if (isGrounding || !snapshotRef.current || connection !== 'connected') return;
     const request = ++groundingRequest.current;
     setIsGrounding(true); setGroundingError(null); setGrounding(null); setHeldCapture(captureRequest); setAppliedCaptureId(null);
-    addEvent('vision', captureRequest.mode === 'fixture' ? `Reviewing ${captureRequest.fixture_target} fixture. No Gemini call requested.` : `Captured still sent to Gemini · ${captureRequest.thinking_level} thinking.`);
+    addEvent('vision', captureRequest.mode === 'fixture' ? `Reviewing ${captureRequest.fixture_target} fixture. No Gemini call requested.` : `${captureRequest.source_kind === 'annotated_plan' ? 'Synthetic demo board image' : 'Captured camera still'} sent to Gemini · ${captureRequest.thinking_level} thinking.`);
     try {
       const response = await interpretGrounding('facility-demo', captureRequest);
       if (request !== groundingRequest.current) return;

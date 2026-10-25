@@ -22,12 +22,13 @@ export interface CaptureRequest {
   timestamp_iso: string;
   dimensions: [number, number];
   source_context: RunContext;
-  source_kind: 'tabletop_camera' | 'fixture';
+  source_kind: 'tabletop_camera' | 'annotated_plan' | 'fixture';
   mode: 'live' | 'fixture';
   image_base64?: string;
   fixture_target?: FixtureTarget;
   thinking_level: ThinkingLevel;
   image_sha256?: string;
+  deadline_seconds?: number;
 }
 
 export interface CaptureEvidence extends CaptureRequest { image_sha256?: string; }

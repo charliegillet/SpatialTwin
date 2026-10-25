@@ -75,6 +75,16 @@ uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 ```
 Open **`http://localhost:8000`** in your browser.
 
+### Demo without the physical board
+
+Keep `SERIAL_PORT` empty when starting the backend to use the hardware simulator. With server-side Gemini credentials configured, select **Demo board**, place the token at **P2**, and choose **Analyze board · Gemini**. This sends the displayed synthetic board image to the real provider; **Fixture** remains a separate option that uses no Gemini tokens.
+
+Review the proposed `portal:P2`, then **Apply closure**. The checked illustrative model changes from 120 crossings to 60 out of 120 synthetic occupants. In Intervention analysis, select **Live Gemini** and run the analysis. A successful managed response compares the checked current layout with opening P3: 60 versus 117 crossings over the same 40-second horizon.
+
+After reviewing the comparison, open **Device** and approve P3 while the workspace explicitly says **Simulator**. A simulated open endpoint creates a new physical revision and checked result. Provider receipts, original image/hash and tool evidence are available through **Inspect evidence**. Old proposals and predictions become stale after their context changes. **Reset scenario** clears blockages but preserves the reported gate position; restart the simulator backend to rehearse from a closed gate again.
+
+This demonstrates live Gemini on a synthetic image and simulated hardware. It does not verify real-camera accuracy, a surveyed venue plan or physical gate behavior.
+
 ---
 
 ## Running the Automated Test Suite

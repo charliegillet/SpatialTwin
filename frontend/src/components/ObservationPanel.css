@@ -128,6 +128,23 @@
   background-size: auto, 28px 28px, 28px 28px;
 }
 
+.observation-viewport-fixture {
+  background-image: radial-gradient(ellipse at 50% 73%, #273328 0%, transparent 67%), linear-gradient(#ffffff02 1px, transparent 1px), linear-gradient(90deg, #ffffff02 1px, transparent 1px);
+  background-size: auto, 28px 28px, 28px 28px;
+}
+
+.observation-synthetic-board {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 40px 8px 8px;
+  object-fit: contain;
+  background: #e5e9dc;
+}
+
+.observation-viewport-demo .observation-view-label { color: #3c5346; }
+.observation-source-switch { flex-wrap: wrap; max-width: 100%; }
+
 .observation-viewport-top {
   position: absolute;
   inset: 14px 16px auto;
@@ -512,6 +529,7 @@
 
   .observation-source-switch {
     margin-left: 42px;
+    max-width: calc(100% - 42px);
   }
 
   .observation-capture-bar {

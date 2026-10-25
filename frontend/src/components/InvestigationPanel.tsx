@@ -79,6 +79,7 @@ export function InvestigationPanel({ snapshot, investigation, progress, isLoadin
   const gain = comparisonReady && baseline && reserve ? reserve.completed_crossings - baseline.completed_crossings : null;
   const contextKey = currentContext ? `${currentContext.context_hash ?? currentContext.geometry_revision}:${currentContext.scenario_revision}:${currentContext.physical_revision}:${currentContext.parameters_revision}:${currentContext.solver_version}` : null;
   const requestSubmitted = Boolean(contextKey && requestedContext === contextKey);
+  const requestRecorded = requestedContext !== null;
   const gateState = snapshot?.physical_gate_state ?? 'UNKNOWN';
   const endpointReported = Boolean(snapshot?.last_hardware_boot_id);
   const observedOpen = endpointReported && gateState === 'OPEN';
@@ -145,12 +146,12 @@ export function InvestigationPanel({ snapshot, investigation, progress, isLoadin
         <div id={`${id}-device`} role="tabpanel" aria-labelledby={`${id}-device-tab`} className="investigation-body investigation-device-body">
           <div className="investigation-device-summary"><div className="investigation-device-icon"><Cpu size={24} strokeWidth={1.2} /></div><div><span className="investigation-eyebrow">RESERVE CONNECTOR · P3</span><h3>{endpointReported ? `Reported ${gateState.toLowerCase()}` : 'Awaiting endpoint evidence'}</h3><span className="investigation-device-mode">{hardwareMode ? `${hardwareMode} mode` : 'Connection mode unavailable'}</span></div></div>
           <ol className="investigation-device-ledger">
-            <li><span className={`investigation-step-icon${requestSubmitted ? ' investigation-step-icon-done' : ''}`}>{requestSubmitted ? <Check size={12} /> : <Circle size={8} />}</span><div><strong>Operator request</strong><span>{busy ? 'Submitting opening request…' : requestSubmitted ? 'Backend request accepted' : 'Opening requires your approval'}</span></div></li>
+            <li><span className={`investigation-step-icon${requestRecorded ? ' investigation-step-icon-done' : ''}`}>{requestRecorded ? <Check size={12} /> : <Circle size={8} />}</span><div><strong>Operator request</strong><span>{busy ? 'Submitting opening request…' : requestRecorded ? 'Backend request accepted for its reviewed context' : observedOpen ? 'No request recorded in this browser session' : 'Opening requires your approval'}</span></div></li>
             <li><span className="investigation-step-icon"><Radio size={12} /></span><div><strong>Device acknowledgement</strong><span>No device ACK receipt is exposed here</span></div></li>
             <li><span className={`investigation-step-icon${observedOpen ? ' investigation-step-icon-done' : ''}`}>{endpointReported ? <Check size={12} /> : <Unplug size={12} />}</span><div><strong>Endpoint observation</strong><span>{endpointReported ? `Snapshot reports ${gateState.toLowerCase()} · epoch ${snapshot?.last_gate_epoch ?? 'unknown'}` : 'No endpoint receipt in the current snapshot'}</span></div></li>
           </ol>
           <button type="button" className="investigation-primary investigation-approval" disabled={!canApprove} onClick={() => { void approve(); }}>{busy ? <LoaderCircle size={14} className="investigation-spin" /> : <ArrowDown size={14} />}<span>{busy ? 'Submitting request' : observedOpen ? 'Open endpoint reported' : requestSubmitted ? 'Request sent · awaiting observation' : 'Approve opening P3'}</span>{!busy && !observedOpen && !requestSubmitted && <ArrowRight size={15} />}</button>
-          <p className="investigation-device-note">{!comparisonReady ? 'Complete a current, checked comparison before approval.' : !improvementApproved ? 'No checked improvement recommends opening P3. Keep the current layout.' : 'Approval requests movement. Only endpoint evidence can establish the resulting position.'}</p>
+          <p className="investigation-device-note">{observedOpen ? `${hardwareMode === 'simulator' ? 'Simulated' : 'Reported'} open endpoint received. The workspace result uses the new physical revision; the earlier comparison remains historical evidence.` : !comparisonReady ? 'Complete a current, checked comparison before approval.' : !improvementApproved ? 'No checked improvement recommends opening P3. Keep the current layout.' : 'Approval requests movement. Only endpoint evidence can establish the resulting position.'}</p>
         </div>
       )}
       {visibleError && <div className="investigation-error" role="alert">{visibleError}</div>}

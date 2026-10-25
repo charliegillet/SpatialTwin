@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
-import { ArrowUpRight, Camera, Check, CircleAlert, Image, LoaderCircle, ScanLine, Unplug, Video } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowUpRight, Camera, Check, CircleAlert, Image, Layers2, LoaderCircle, ScanLine, Unplug, Video } from 'lucide-react';
 import type { CaptureRequest, GroundingProposalV1, GroundingResult, RunContext, ThinkingLevel } from '../types';
 import { canApplyGrounding, groundingLabel } from '../ai/policy';
 import { captureEvidence } from '../ai/evidence';
+import { DEMO_BOARD_SIZE, demoBoardCapture, demoBoardSvg } from '../ai/demoBoard';
 import { ExecutionReceipt } from './ExecutionReceipt';
 import './ObservationPanel.css';
 
@@ -76,7 +77,8 @@ function TabletopPreview({ target }: { target: FixtureTarget }) {
 }
 
 export function ObservationPanel({ proposal, result, currentContext, liveConfigured, fixturesEnabled, isLoading, isApplying, isProposalCurrent, isAvailable = true, appliedCaptureId, error, onCapture, onApply, onClearProposal }: ObservationPanelProps) {
-  const [source, setSource] = useState<'demo' | 'camera'>('demo');
+  const [source, setSource] = useState<'demo' | 'fixture' | 'camera'>('demo');
+  const [demoTarget, setDemoTarget] = useState<FixtureTarget>('P2');
   const [fixtureTarget, setFixtureTarget] = useState<FixtureTarget>('P2');
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('low');
   const [cameraState, setCameraState] = useState<CameraState>('idle');
@@ -87,6 +89,7 @@ export function ObservationPanel({ proposal, result, currentContext, liveConfigu
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const requestRef = useRef(0);
+  const demoImage = useMemo(() => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(demoBoardSvg(demoTarget))}`, [demoTarget]);
 
   function stopCamera() {
     requestRef.current += 1;
@@ -136,7 +139,7 @@ export function ObservationPanel({ proposal, result, currentContext, liveConfigu
     }
   }
 
-  function changeSource(next: 'demo' | 'camera') {
+  function changeSource(next: 'demo' | 'fixture' | 'camera') {
     if (next === source) return;
     stopCamera();
     setSource(next);
@@ -152,7 +155,28 @@ export function ObservationPanel({ proposal, result, currentContext, liveConfigu
       if (!currentContext) throw new Error('Wait for a current scenario before capturing.');
       const sourceRequest = requestRef.current;
       const metadata = { capture_id: crypto.randomUUID(), timestamp_iso: new Date().toISOString(), source_context: { ...currentContext }, thinking_level: thinkingLevel };
-      if (source === 'demo') { await onCapture({ ...metadata, dimensions: [600, 275], source_kind: 'fixture', mode: 'fixture', fixture_target: fixtureTarget }); return; }
+      if (source === 'fixture') { await onCapture({ ...metadata, dimensions: [600, 275], source_kind: 'fixture', mode: 'fixture', fixture_target: fixtureTarget }); return; }
+      if (source === 'demo') {
+        // Rasterize the exact displayed SVG. The provider receives image pixels, not a forced target.
+        const image = new window.Image();
+        image.src = demoImage;
+        await image.decode();
+        if (sourceRequest !== requestRef.current) return;
+        const canvas = document.createElement('canvas');
+        [canvas.width, canvas.height] = DEMO_BOARD_SIZE;
+        const drawing = canvas.getContext('2d');
+        if (!drawing) throw new Error('This browser could not render the synthetic board.');
+        drawing.drawImage(image, 0, 0, canvas.width, canvas.height);
+        const data = canvas.toDataURL('image/jpeg', .95);
+        const evidence = await captureEvidence(demoBoardCapture(data.slice(data.indexOf(',') + 1), {
+          captureId: metadata.capture_id, timestampIso: metadata.timestamp_iso,
+          context: metadata.source_context, thinkingLevel: metadata.thinking_level,
+        }));
+        if (sourceRequest !== requestRef.current) return;
+        setSnapshot(data);
+        await onCapture(evidence);
+        return;
+      }
       const video = videoRef.current;
       if (!video || video.readyState < 2 || !video.videoWidth || cameraState !== 'connected') throw new Error('Wait for the camera image before capturing.');
       const canvas = document.createElement('canvas');
@@ -163,7 +187,7 @@ export function ObservationPanel({ proposal, result, currentContext, liveConfigu
       context.drawImage(video, 0, 0);
       const data = canvas.toDataURL('image/jpeg', .9);
       setSnapshot(data);
-      const evidence = await captureEvidence({ ...metadata, dimensions: [canvas.width, canvas.height], source_kind: 'tabletop_camera', mode: 'live', image_base64: data.slice(data.indexOf(',') + 1) });
+      const evidence = await captureEvidence({ ...metadata, dimensions: [canvas.width, canvas.height], source_kind: 'tabletop_camera', mode: 'live', image_base64: data.slice(data.indexOf(',') + 1), deadline_seconds: 45 });
       if (sourceRequest !== requestRef.current) return;
       await onCapture(evidence);
     } catch (cause) { setActionError(cause instanceof Error ? cause.message : 'The capture could not be interpreted.'); }
@@ -181,13 +205,13 @@ export function ObservationPanel({ proposal, result, currentContext, liveConfigu
   return (
     <section className="observation-panel" aria-labelledby="observation-title">
       <header className="observation-header">
-        <div className="observation-heading"><span className="observation-camera-icon"><Camera size={16} /></span><div><h2 id="observation-title">Camera 01 <span>/ Physical tabletop</span></h2><p>Observe the board. Review the proposed change.</p></div></div>
-        <div className="observation-source-switch" aria-label="Observation source"><button type="button" aria-pressed={source === 'demo'} onClick={() => changeSource('demo')}><Image size={12} />Fixture</button><button type="button" aria-pressed={source === 'camera'} onClick={() => changeSource('camera')}><Video size={12} />Camera</button></div>
+        <div className="observation-heading"><span className="observation-camera-icon">{source === 'camera' ? <Camera size={16} /> : <Layers2 size={16} />}</span><div><h2 id="observation-title">Observation 01 <span>/ {source === 'camera' ? 'Physical tabletop' : source === 'demo' ? 'Synthetic board' : 'Offline fixture'}</span></h2><p>Observe the board. Review the proposed change.</p></div></div>
+        <div className="observation-source-switch" aria-label="Observation source"><button type="button" aria-pressed={source === 'demo'} onClick={() => changeSource('demo')}><Layers2 size={12} />Demo board</button><button type="button" aria-pressed={source === 'camera'} onClick={() => changeSource('camera')}><Video size={12} />Camera</button><button type="button" aria-pressed={source === 'fixture'} onClick={() => changeSource('fixture')}><Image size={12} />Fixture</button></div>
       </header>
 
       <div className={`observation-viewport observation-viewport-${source}`}>
-        <div className="observation-viewport-top"><span className={`observation-source-badge ${source === 'camera' && cameraState === 'connected' ? 'observation-source-connected' : ''}`}><i />{source === 'demo' ? 'Illustrative preview' : snapshot ? 'Captured still' : cameraState === 'connected' ? 'Camera connected' : cameraState === 'connecting' ? 'Connecting camera' : 'Camera disconnected'}</span><span className="observation-view-label">{source === 'demo' ? 'SCHEMATIC / DEMO' : 'LOCAL CAMERA'}</span></div>
-        {source === 'demo' ? <><TabletopPreview target={fixtureTarget} /><div className="observation-demo-caption"><span className="observation-cube-key" />Blockage cube <span>at {fixtureTarget}</span></div></> : <>
+        <div className="observation-viewport-top"><span className={`observation-source-badge ${source === 'camera' && cameraState === 'connected' ? 'observation-source-connected' : ''}`}><i />{source === 'demo' ? 'Synthetic board image' : source === 'fixture' ? 'Illustrative fixture preview' : snapshot ? 'Captured still' : cameraState === 'connected' ? 'Camera connected' : cameraState === 'connecting' ? 'Connecting camera' : 'Camera disconnected'}</span><span className="observation-view-label">{source === 'demo' ? 'LIVE INFERENCE INPUT' : source === 'fixture' ? 'OFFLINE FIXTURE' : 'LOCAL CAMERA'}</span></div>
+        {source === 'demo' ? <img className="observation-synthetic-board" src={snapshot ?? demoImage} alt={`Synthetic four-zone board with a red BLOCKED token on ${demoTarget}. This exact illustration is sent to Gemini; no physical hardware is present.`} /> : source === 'fixture' ? <><TabletopPreview target={fixtureTarget} /><div className="observation-demo-caption"><span className="observation-cube-key" />Fixture cube <span>at {fixtureTarget}</span></div></> : <>
           <video ref={videoRef} autoPlay muted playsInline className={`observation-video ${cameraState !== 'connected' || snapshot ? 'observation-media-hidden' : ''}`} onLoadedData={() => setFrameReady(true)} />
           {snapshot && <img className="observation-captured-image" src={snapshot} alt="Captured tabletop still submitted for review" />}
           {!snapshot && cameraState !== 'connected' && <div className="observation-camera-empty"><span className="observation-empty-icon"><Video size={23} strokeWidth={1.4} /></span><strong>{cameraState === 'connecting' ? 'Connecting your camera' : cameraState === 'error' ? 'Camera unavailable' : 'Bring your tabletop into view'}</strong><p>{cameraError || 'Connect a camera to preview the board, then choose a still to interpret.'}</p><button className="observation-connect-button" type="button" onClick={connectCamera} disabled={cameraState === 'connecting'}>{cameraState === 'connecting' ? <LoaderCircle size={13} className="observation-spin" /> : <Camera size={13} />}{cameraState === 'connecting' ? 'Waiting for permission…' : 'Connect camera'}</button></div>}
@@ -196,10 +220,10 @@ export function ObservationPanel({ proposal, result, currentContext, liveConfigu
       </div>
 
       <div className="observation-capture-bar">
-        {source === 'demo' ? <label className="observation-fixture-select"><span>DEMO TARGET</span><select value={fixtureTarget} onChange={event => { setFixtureTarget(event.target.value as FixtureTarget); setActionError(null); onClearProposal?.(); }} disabled={isLoading}><option value="P1">P1 · {fixtureNames.P1}</option><option value="P2">P2 · {fixtureNames.P2}</option><option value="B2">B2 · {fixtureNames.B2}</option></select></label> : <p className="observation-capture-hint">{snapshot ? 'Captured image held for review' : 'Only the selected still is analyzed'}</p>}
-        <button className="observation-capture-button" type="button" onClick={capture} disabled={!isAvailable || isLoading || isApplying || (source === 'demo' && !fixturesEnabled) || (source === 'camera' && (!liveConfigured || !frameReady || cameraState !== 'connected'))}>{isLoading ? <LoaderCircle size={14} className="observation-spin" /> : <ScanLine size={14} />}{!isAvailable ? 'Backend offline' : isLoading ? 'Interpreting…' : source === 'demo' ? 'Load fixture proposal' : 'Capture · Gemini'}{!isLoading && <ArrowUpRight size={13} />}</button>
+        {source !== 'camera' ? <label className="observation-fixture-select"><span>{source === 'demo' ? 'SYNTHETIC BLOCKED TOKEN' : 'FIXTURE TARGET'}</span><select aria-label={source === 'demo' ? 'Synthetic blocked token' : 'Fixture target'} value={source === 'demo' ? demoTarget : fixtureTarget} onChange={event => { source === 'demo' ? setDemoTarget(event.target.value as FixtureTarget) : setFixtureTarget(event.target.value as FixtureTarget); requestRef.current++; setSnapshot(null); setActionError(null); onClearProposal?.(); }} disabled={isLoading}><option value="P1">P1 · {fixtureNames.P1}</option><option value="P2">P2 · {fixtureNames.P2}</option><option value="B2">B2 · {fixtureNames.B2}</option></select></label> : <p className="observation-capture-hint">{snapshot ? 'Captured image held for review' : 'Only the selected still is analyzed'}</p>}
+        <button className="observation-capture-button" type="button" onClick={capture} disabled={!isAvailable || isLoading || isApplying || (source === 'fixture' && !fixturesEnabled) || (source !== 'fixture' && !liveConfigured) || (source === 'camera' && (!frameReady || cameraState !== 'connected'))}>{isLoading ? <LoaderCircle size={14} className="observation-spin" /> : <ScanLine size={14} />}{!isAvailable ? 'Backend offline' : isLoading ? 'Interpreting…' : source === 'fixture' ? 'Load fixture proposal' : source === 'demo' ? 'Analyze board · Gemini' : 'Capture · Gemini'}{!isLoading && <ArrowUpRight size={13} />}</button>
       </div>
-      <div className="observation-execution-options">{source === 'camera' ? <><label>Thinking<select aria-label="Gemini thinking level" value={thinkingLevel} onChange={event => setThinkingLevel(event.target.value as ThinkingLevel)} disabled={isLoading}><option value="low">Low · quick review</option><option value="medium">Medium</option><option value="high">High</option></select></label><span>{liveConfigured ? 'Gemini configured · this still requires a completed response' : 'Gemini unavailable · configure server credentials'}</span></> : <span>{fixturesEnabled ? 'Explicit fixture · no camera inference or Gemini tokens' : 'Fixtures disabled by the server'}</span>}</div>
+      <div className="observation-execution-options">{source !== 'fixture' ? <><label>Thinking<select aria-label="Gemini thinking level" value={thinkingLevel} onChange={event => setThinkingLevel(event.target.value as ThinkingLevel)} disabled={isLoading}><option value="low">Low · quick review</option><option value="medium">Medium</option><option value="high">High</option></select></label><span>{!liveConfigured ? 'Gemini unavailable · configure server credentials' : source === 'demo' ? 'Synthetic image · real Gemini request · up to 45s · no hardware' : 'Gemini configured · up to 45s · completed response required'}</span></> : <span>{fixturesEnabled ? 'Explicit fixture · no camera inference or Gemini tokens' : 'Fixtures disabled by the server'}</span>}</div>
 
       {visibleError && <div className="observation-error" role="alert"><CircleAlert size={13} /><span>{visibleError}</span></div>}
       <div className={`observation-review observation-review-${reviewState}`} aria-live="polite" aria-busy={isLoading || isApplying}>
