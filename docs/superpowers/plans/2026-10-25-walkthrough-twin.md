@@ -170,7 +170,7 @@ walktwin/
 **Files:**
 - Create: `README.md`, `NOTICE`, `LICENSE`, `.gitignore`, `requirements.txt`, `pytest.ini`, `frontend/` (Vite React-TS scaffold), `backend/walktwin/__init__.py`, `tests/test_smoke.py`
 
-- [ ] **Step 1:** After 10:30 AM PT, create the public GitHub repo `walktwin`. Add all team members.
+- [ ] **Step 1:** Done at 11:15 PT. The work lives on the orphan branch `charlie` of `charliegillet/SpatialTwin`, which has no pre-event history, checked out as a worktree at `/Users/charlie/hackathons/walktwin`. Commit and push to `origin charlie` after every task. The repo is currently **private**; the rules require it to be public before submission, and making it public is the user's call.
 - [ ] **Step 2:** Write `README.md` with three headed sections:
   - **Built at the Gemini 4 Argon SF Hackathon (25 Oct 2026):** everything in this repo.
   - **Prior work, not presented:** "Before the event the team built a hardware tabletop prototype (SpatialTwin). No code, data or assets from it are in this repo."
