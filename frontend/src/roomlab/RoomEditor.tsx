@@ -1,4 +1,5 @@
 import React from "react";
+import { AppearancePanel } from "./AppearancePanel";
 import { Sliders, Trash2, Lock, Unlock, ShieldAlert } from "lucide-react";
 import type {
   RoomObject,
@@ -149,6 +150,7 @@ export const RoomEditor: React.FC<RoomEditorProps> = ({
         </button>
       </div>
 
+      <AppearancePanel scene={scene} selected={selectedTarget} onChange={onUpdateScene} />
       <details
         className="rl-scene-checks"
         open={Boolean(validation) || scene.topology_review_required}

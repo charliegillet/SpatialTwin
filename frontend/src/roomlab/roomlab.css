@@ -1458,3 +1458,16 @@ input[type="range"] {
 .rl-preview-legend ~ .rl-canvas-hud-top {
   bottom: 52px;
 }
+
+.rl-appearance { margin: 16px 0; border-block: 1px solid var(--rl-border, #e3e6df); padding: 14px 0; }
+.rl-appearance summary { cursor: pointer; font-size: 12px; font-weight: 600; }
+.rl-appearance summary span { font-weight: 400; color: #8a8f83; }
+.rl-appearance-surface { margin: 16px 0; padding: 12px; border: 1px solid #e4e6df; border-radius: 10px; min-width: 0; }
+.rl-appearance-surface legend { padding: 0 5px; font-size: 12px; font-weight: 600; }
+.rl-appearance-surface label { display: grid; gap: 6px; font-size: 11px; }
+.rl-appearance-surface select { background: #fafbf8; border: 1px solid #e2e5dc; border-radius: 7px; padding: 8px; color: #555e50; width: 100%; }
+.rl-appearance-colors { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.rl-appearance-colors input { width: 32px; height: 28px; padding: 0; border: 0; cursor: pointer; }
+.rl-appearance-swatches { display: flex; gap: 8px; margin: 10px 0; }
+.rl-appearance-swatches button { width: 23px; height: 23px; border: 1px solid #aeb5a6; border-radius: 50%; cursor: pointer; }
+.rl-appearance button:focus-visible,.rl-appearance select:focus-visible { outline: 2px solid #337553; outline-offset: 2px; }

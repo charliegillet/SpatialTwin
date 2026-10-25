@@ -5,7 +5,7 @@ from pathlib import Path
 from PIL import Image
 from pydantic import ValidationError
 from .contracts import (RoomSceneV1,SceneReceipt,CritiqueFrame,CritiqueContext,CritiqueRequest,
-                        CritiqueResult,CritiqueJobRecord,geometry_hash)
+                        CritiqueResult,CritiqueJobRecord,geometry_hash,render_hash)
 from .store import ConflictError
 from .validation import validate_scene
 from .reachability import solve
@@ -33,7 +33,7 @@ def evidence_hash(scene:RoomSceneV1,root:Path)->str:
 
 def receipt(scene:RoomSceneV1,root:Path)->SceneReceipt:
     return SceneReceipt(scene_id=scene.scene_id,scene_revision=scene.scene_revision,
-                        geometry_hash=geometry_hash(scene),evidence_hash=evidence_hash(scene,root))
+                        geometry_hash=geometry_hash(scene),evidence_hash=evidence_hash(scene,root),render_hash=render_hash(scene))
 
 
 def make_context(scene:RoomSceneV1,root:Path,request:CritiqueRequest)->CritiqueContext:
@@ -62,7 +62,7 @@ def make_context(scene:RoomSceneV1,root:Path,request:CritiqueRequest)->CritiqueC
         raise ConflictError('Solver request revision does not match the reviewed scene.')
     result=solve(scene,request.solve_request) if request.solve_request else None
     return CritiqueContext(scene=scene,validation=validate_scene(scene),solve=result,
-                           geometry_hash=geometry_hash(scene),evidence_hash=evidence_hash(scene,root),
+                           geometry_hash=geometry_hash(scene),evidence_hash=evidence_hash(scene,root),render_hash=render_hash(scene),
                            bev_png=render_scene_preview(scene,result),frames=selected)
 
 
@@ -73,7 +73,7 @@ class CritiqueService:
 
     def fresh(self,scene:RoomSceneV1,request:CritiqueRequest):
         r=receipt(scene,self.media_root)
-        if (request.expected_revision,request.geometry_hash,request.evidence_hash)!=(r.scene_revision,r.geometry_hash,r.evidence_hash):
+        if (request.expected_revision,request.geometry_hash,request.evidence_hash,request.render_hash)!=(r.scene_revision,r.geometry_hash,r.evidence_hash,r.render_hash):
             raise ConflictError('Scene or evidence changed. Reload before requesting a review.')
         return r
 
@@ -99,8 +99,8 @@ class CritiqueService:
                     from .agent_critic import critique_scene
                     context=await asyncio.to_thread(make_context,scene,self.media_root,request)
                     result=CritiqueResult.model_validate(await (self.provider or critique_scene)(context,api_key=api_key))
-                    expected=(scene.scene_id,scene.scene_revision,context.geometry_hash,context.evidence_hash)
-                    if (result.scene_id,result.scene_revision,result.geometry_hash,result.evidence_hash)!=expected:
+                    expected=(scene.scene_id,scene.scene_revision,context.geometry_hash,context.evidence_hash,context.render_hash)
+                    if (result.scene_id,result.scene_revision,result.geometry_hash,result.evidence_hash,result.render_hash)!=expected:
                         raise ValueError('Critic receipt does not match the reviewed scene.')
                     ids=[f.record.frame_id for f in context.frames]
                     if result.reviewed_frame_ids!=ids:raise ValueError('Critic reviewed-frame catalog does not match source evidence.')

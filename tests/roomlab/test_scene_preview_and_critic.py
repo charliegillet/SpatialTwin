@@ -111,7 +111,7 @@ def _build_test_context() -> CritiqueContext:
         validation=report,
         solve=None,
         geometry_hash=ghash,
-        evidence_hash=ehash,
+        evidence_hash=ehash,render_hash="render-hash",
         bev_png=bev_bytes,
         frames=[
             CritiqueFrame(record=scene.evidence_frames[0], jpeg_bytes=jpeg_bytes),

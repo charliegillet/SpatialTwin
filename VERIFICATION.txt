@@ -204,3 +204,58 @@ visual critic and optional overlap repair. Anisotropic calibration remains defer
   runtime/roomlab/demo-v2-live-critique.json (ignored local artifacts).
 - Production JS remains a large chunk (~368 kB gzipped). Review/extraction jobs and
   review UI results are in memory, while saved scenes and source media persist.
+
+SELECTIVE APPEARANCE / CORRECTNESS PASS — 2026-10-25
+
+Reference: reviewed charlie-video 6176fe47d39037e0271e6354d2b161f90be099d7
+against V2 baseline 25e544b. This implementation retains the V2 renderer, signed
+shell winding, category-first matching, bicycle proxy, frames-only unknown doors,
+atomic gizmos, visual critic, previews and two full-height columns. It does not
+merge or replace the renderer with the older reference branch.
+
+- Full backend: 56 passed in 3.40s. Frontend: 12 passed. Production build passed.
+- Actual Three.js geometry vertex bounds cover all categories, unequal tiny and
+  normal dimensions, three parent yaw values, short glass frames and apertures.
+  Cylinders now use the smaller horizontal diameter after clamping. Tests reproduce
+  hidden mesh ray hits, disable picking, and restore original visible/curb picking.
+  Matching CW/CCW concave shell normals are tested; invalid/reversed unmatched
+  shell edges are left uncut rather than given assumed correct normals.
+- Colors/materials and their independent provenance round-trip with old JSON.
+  Geometry hash ignores all appearance fields at a fixed revision; pose changes
+  alter it. Normal saves still increment revision and invalidate old analysis.
+  Review receipts also carry render_hash. A fixed-revision appearance replacement
+  fails a running/stale review in integration tests.
+- Scope-aware floor fallback rejects negation, ambiguity, conflicting statements,
+  floor-to-ceiling compounds, furniture hints and partial/mixed zones. Unknown
+  stays neutral. Explicit per-wall glass metadata or disclosed scoped hints enable
+  bounded rails/mullions; role alone does not prove glass.
+- Browser test copy: scene-a2521fcda4cd4f71b5e3d8a2e8a73233. Changed floor material,
+  undid it in one step, selected terrazzo, saved revision 2 and reloaded. API
+  comparison confirmed exact geometry, calibration, source evidence and geometric
+  provenance equality with the original after excluding identities/revisions and
+  presentation fields. Original scene-1a585a9a46b34dcc9c366dad286f5e7d stays revision 2.
+- Real multimodal critic on that appearance test copy completed in ~21.2s with
+  source-cited advisory findings. Changing floor color cleared the completed review
+  immediately; Undo did not resurrect stale findings.
+- Fresh direct Gemini extraction of original demo.mp4 completed in 68.376s, creating
+  scene-851a54ec06f54b2b8705160cbead4da9. It returned source-cited estimated terrazzo
+  (#b4b6b3), cream painted shell walls, appearance for 13 objects and 8 walls,
+  one floor void and glass partition/railing materials. Original footage and saved
+  reviewed scene were not overwritten. New extraction also has three approximate
+  box overlaps and is uncalibrated; geometry differs between model runs. Improved
+  appearance is not evidence of improved dimensions or metric reconstruction.
+- Browser exported this appearance JSON to Downloads and imported it as new scene
+  scene-92caf418ac264529a49732cbc1f6ae8f; colors/material/provenance remained intact.
+  Exercised all six required floor finishes with Undo, Textures on/off, Bounds,
+  SVG fallback and return to 3D. A new table's gizmo moved X from 0 to 1 m; Undo
+  restored 0 in one step, then removed the unsaved table. Overlap ghost preview
+  on the imported new extraction reduced 3 pairs to 0; no fit was saved.
+- No captured browser console errors during these checks. Textures are memoized
+  by material/toggle and disposed on replacement/unmount; object geometries are
+  also disposed. No new shadow maps or dense asset libraries were added. This
+  resource lifecycle review is not a claim of measured GPU performance across devices.
+- Final proof: runtime/roomlab/appearance-final.png. Live extraction metadata and
+  scene: runtime/roomlab/appearance-live-extraction-job.json, appearance-live-scene.json.
+- Color estimates remain subject to lighting/white balance, patterns are procedural,
+  and one floor material cannot encode mixed zones. No new door-operation, stair
+  travel, accessibility certification, sweep planning or anisotropic-scale claims.

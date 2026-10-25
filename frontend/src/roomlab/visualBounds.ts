@@ -127,7 +127,7 @@ function clampPartToBounds(
  * Build deterministic local-space visual parts guaranteed to fit within
  * [-width_m/2, +width_m/2] x [0, height_m] x [-depth_m/2, +depth_m/2].
  */
-export function buildObjectVisualParts(
+function buildRawObjectVisualParts(
   widthM: number,
   heightM: number,
   depthM: number,
@@ -454,6 +454,15 @@ export function buildObjectVisualParts(
   }
 
   return rawParts.map((part) => clampPartToBounds(part, w, h, d));
+}
+
+/** Long-axis proxy layout only; canonical pose/dimensions remain unchanged. */
+export function buildObjectVisualParts(w:number,h:number,d:number,category?:string|null,label?:string|null,mode:VisualDisplayMode='proxy'):LocalVisualPart[] {
+  const kind=classifyVisualCategory(category,label);
+  if (mode==='proxy' && d>w && (kind==='sofa' || kind==='counter')) {
+    return buildRawObjectVisualParts(d,h,w,category,label,mode).map(p=>({...p,position:[p.position[2],p.position[1],-p.position[0]],size:[p.size[2],p.size[1],p.size[0]]}));
+  }
+  return buildRawObjectVisualParts(w,h,d,category,label,mode);
 }
 
 /**

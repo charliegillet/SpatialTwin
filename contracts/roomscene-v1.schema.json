@@ -126,6 +126,132 @@
     "title": "MediaRecord",
     "type": "object"
   },
+  "AppearanceProvenance": {
+    "additionalProperties": false,
+    "properties": {
+      "source": {
+        "default": "heuristic_fallback",
+        "enum": [
+          "model_estimate",
+          "heuristic_fallback"
+        ],
+        "title": "Source",
+        "type": "string"
+      },
+      "evidence_frame_ids": {
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 100,
+        "title": "Evidence Frame Ids",
+        "type": "array"
+      },
+      "note": {
+        "default": "",
+        "maxLength": 1000,
+        "title": "Note",
+        "type": "string"
+      }
+    },
+    "title": "AppearanceProvenance",
+    "type": "object"
+  },
+  "AppearanceChoice": {
+    "additionalProperties": false,
+    "properties": {
+      "color": {
+        "anyOf": [
+          {
+            "pattern": "^#[0-9a-fA-F]{6}$",
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Color"
+      },
+      "material": {
+        "default": "unknown",
+        "enum": [
+          "unknown",
+          "paint",
+          "glass",
+          "wood",
+          "terrazzo",
+          "tile",
+          "stone",
+          "marble",
+          "carpet",
+          "concrete",
+          "fabric",
+          "metal",
+          "ceramic",
+          "foliage"
+        ],
+        "title": "Material",
+        "type": "string"
+      }
+    },
+    "title": "AppearanceChoice",
+    "type": "object"
+  },
+  "SurfaceAppearance": {
+    "additionalProperties": false,
+    "properties": {
+      "color": {
+        "anyOf": [
+          {
+            "pattern": "^#[0-9a-fA-F]{6}$",
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Color"
+      },
+      "material": {
+        "default": "unknown",
+        "enum": [
+          "unknown",
+          "paint",
+          "glass",
+          "wood",
+          "terrazzo",
+          "tile",
+          "stone",
+          "marble",
+          "carpet",
+          "concrete",
+          "fabric",
+          "metal",
+          "ceramic",
+          "foliage"
+        ],
+        "title": "Material",
+        "type": "string"
+      },
+      "provenance": {
+        "$ref": "#/$defs/AppearanceProvenance"
+      },
+      "user_override": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/AppearanceChoice"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      }
+    },
+    "title": "SurfaceAppearance",
+    "type": "object"
+  },
   "FloorVoid": {
     "additionalProperties": false,
     "properties": {
@@ -163,6 +289,17 @@
   "Wall": {
     "additionalProperties": false,
     "properties": {
+      "appearance": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/SurfaceAppearance"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
       "role": {
         "default": "shell",
         "enum": [
@@ -305,6 +442,17 @@
   "RoomObject": {
     "additionalProperties": false,
     "properties": {
+      "appearance": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/SurfaceAppearance"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
       "id": {
         "maxLength": 80,
         "minLength": 1,
@@ -482,6 +630,28 @@
   "RoomDraft": {
     "additionalProperties": false,
     "properties": {
+      "floor_appearance": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/SurfaceAppearance"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "wall_appearance": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/SurfaceAppearance"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
       "topology_review_required": {
         "default": false,
         "title": "Topology Review Required",
@@ -558,6 +728,28 @@
   "RoomSceneV1": {
     "additionalProperties": false,
     "properties": {
+      "floor_appearance": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/SurfaceAppearance"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "wall_appearance": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/SurfaceAppearance"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
       "topology_review_required": {
         "default": false,
         "title": "Topology Review Required",
@@ -1260,13 +1452,18 @@
       "evidence_hash": {
         "title": "Evidence Hash",
         "type": "string"
+      },
+      "render_hash": {
+        "title": "Render Hash",
+        "type": "string"
       }
     },
     "required": [
       "scene_id",
       "scene_revision",
       "geometry_hash",
-      "evidence_hash"
+      "evidence_hash",
+      "render_hash"
     ],
     "title": "SceneReceipt",
     "type": "object"
@@ -1319,6 +1516,10 @@
         "title": "Evidence Hash",
         "type": "string"
       },
+      "render_hash": {
+        "title": "Render Hash",
+        "type": "string"
+      },
       "bev_png": {
         "format": "binary",
         "maxLength": 5242880,
@@ -1340,6 +1541,7 @@
       "validation",
       "geometry_hash",
       "evidence_hash",
+      "render_hash",
       "bev_png",
       "frames"
     ],
@@ -1419,6 +1621,10 @@
         "title": "Evidence Hash",
         "type": "string"
       },
+      "render_hash": {
+        "title": "Render Hash",
+        "type": "string"
+      },
       "summary": {
         "maxLength": 1000,
         "minLength": 1,
@@ -1465,6 +1671,7 @@
       "scene_revision",
       "geometry_hash",
       "evidence_hash",
+      "render_hash",
       "summary",
       "reviewed_frame_ids",
       "latency_ms"
@@ -1486,6 +1693,10 @@
       },
       "evidence_hash": {
         "title": "Evidence Hash",
+        "type": "string"
+      },
+      "render_hash": {
+        "title": "Render Hash",
         "type": "string"
       },
       "focus_element_ids": {
@@ -1511,7 +1722,8 @@
     "required": [
       "expected_revision",
       "geometry_hash",
-      "evidence_hash"
+      "evidence_hash",
+      "render_hash"
     ],
     "title": "CritiqueRequest",
     "type": "object"
@@ -1533,6 +1745,10 @@
       },
       "evidence_hash": {
         "title": "Evidence Hash",
+        "type": "string"
+      },
+      "render_hash": {
+        "title": "Render Hash",
         "type": "string"
       },
       "job_id": {
@@ -1579,6 +1795,7 @@
       "scene_revision",
       "geometry_hash",
       "evidence_hash",
+      "render_hash",
       "job_id",
       "status"
     ],

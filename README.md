@@ -89,3 +89,30 @@ Furniture search tries bounded single-object translations (up to 0.8 m), or sele
 poses only; it does not plan a physical movement sweep or guarantee a global optimum.
 One-anchor isotropic calibration and independent residual checks remain the scale
 model; separate X/Z stretching is intentionally unsupported.
+
+## Appearance controls
+
+Objects → Appearance provides floor/default-wall and selected-object/wall controls.
+Material choices, color swatches and an explicit Apply color action create undoable
+presentation edits. Reset restores the estimate/default beneath a user override.
+Appearance saves, exports, imports and reloads with the scene; it never changes
+measurements, uncertainty, dimensions, calibration or source evidence.
+
+New extractions may supply approximate colors and material hints with independent
+appearance provenance and actual frame citations. Legacy scenes use neutral defaults
+or narrowly scoped description hints, labelled heuristic. A marble counter or wood
+stool does not determine the floor. Floor inference rejects negation, conflicts and
+partial/mixed zones. Colors are model estimates under the video's lighting and white
+balance, not pixel measurements. Procedural floor patterns have an illustrative
+2-scene-unit repeat anchored to world X/Z. Textures can be disabled, and Bounds/SVG
+views remain available. Glass wall framing requires material metadata or a disclosed
+wall-specific hint/user choice; partition or railing role alone does not imply glass.
+Doors retain frames only when their operating state is unknown.
+
+Presentation fields and their provenance are excluded from `geometry_hash` at a
+fixed revision. Scene identity, revision and geometric provenance remain included;
+normal saves increment the revision and invalidate earlier solver receipts. Visual
+reviews additionally bind a `render_hash`, covering appearance and floor-note hints,
+so stale recolorings cannot publish results. This is not a cache that reuses reviews
+across edits. Floors currently have one global finish; mixed-material zoning remains
+unsupported. No external texture assets or arbitrary uploaded shaders are used.

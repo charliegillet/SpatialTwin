@@ -25,7 +25,7 @@ def app_scene(tmp_path):
 
 def response(context,**overrides):
     data=dict(scene_id=context.scene.scene_id,scene_revision=context.scene.scene_revision,
-       geometry_hash=context.geometry_hash,evidence_hash=context.evidence_hash,
+       geometry_hash=context.geometry_hash,evidence_hash=context.evidence_hash,render_hash=context.render_hash,
        reviewed_frame_ids=[f.record.frame_id for f in context.frames],summary='Compare with the source.',latency_ms=1.,
        findings=[CritiqueFinding(kind='needs_evidence',element_ids=['move'],frame_ids=['frame-1'],message='Measure this object.')])
     data.update(overrides);return CritiqueResult(**data)
@@ -34,7 +34,7 @@ def response(context,**overrides):
 def start(client,scene):
     r=client.get(f'/api/roomlab/scenes/{scene.scene_id}/receipt');r.raise_for_status();receipt=r.json()
     return client.post(f'/api/roomlab/scenes/{scene.scene_id}/critique',json={
-      'expected_revision':scene.scene_revision,'geometry_hash':receipt['geometry_hash'],'evidence_hash':receipt['evidence_hash']})
+      'expected_revision':scene.scene_revision,'geometry_hash':receipt['geometry_hash'],'evidence_hash':receipt['evidence_hash'],'render_hash':receipt['render_hash']})
 
 
 def finish(client,id):
@@ -118,7 +118,7 @@ def test_stale_review_and_cancel_are_not_completed(tmp_path):
         app.state.store.save(scene.scene_id,scene,1)
         job=finish(c,id);assert job['status']=='failed' and job['result'] is None
         # The old receipt cannot authorize another review.
-        old=c.post(f'/api/roomlab/scenes/{scene.scene_id}/critique',json={'expected_revision':1,'geometry_hash':r.json()['geometry_hash'],'evidence_hash':r.json()['evidence_hash']})
+        old=c.post(f'/api/roomlab/scenes/{scene.scene_id}/critique',json={'expected_revision':1,'geometry_hash':r.json()['geometry_hash'],'evidence_hash':r.json()['evidence_hash'],'render_hash':r.json()['render_hash']})
         assert old.status_code==409
         current=app.state.store.get(scene.scene_id);r=start(c,current)
         cancelled=c.delete('/api/roomlab/critique-jobs/'+r.json()['job_id']).json();assert cancelled['status']=='cancelled'

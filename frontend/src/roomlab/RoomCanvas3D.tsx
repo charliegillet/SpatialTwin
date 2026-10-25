@@ -21,6 +21,8 @@ import {
   type ViewMode,
 } from "./editorState";
 
+import { resolveFloorAppearance, resolveWallAppearance } from "./appearance";
+import { createFloorTexture } from "./floorTextures";
 import { RoomObjectVisual } from "./RoomObjectVisual";
 import { OpeningVisual } from "./OpeningVisual";
 import { RoomTransformGizmo } from "./RoomTransformGizmo";
@@ -68,8 +70,12 @@ function detectWebGLAvailable(): boolean {
 function FloorMesh({
   floor,
   voids = [],
+  appearance,
+  textures,
 }: {
   floor: number[][];
+  appearance: ReturnType<typeof resolveFloorAppearance>;
+  textures: boolean;
   voids?: Array<{ polygon: number[][] }>;
 }) {
   const geometry = useMemo(() => {
@@ -93,6 +99,11 @@ function FloorMesh({
   }, [floor, voids]);
   useEffect(() => () => geometry?.dispose(), [geometry]);
 
+  const texture = useMemo(
+    () => (textures ? createFloorTexture(appearance.material) : null),
+    [appearance.material, textures],
+  );
+  useEffect(() => () => texture?.dispose(), [texture]);
   if (!geometry) return null;
   return (
     <mesh
@@ -101,7 +112,8 @@ function FloorMesh({
       position={[0, 0.002, 0]}
     >
       <meshStandardMaterial
-        color="#e5e7df"
+        color={appearance.color}
+        map={texture}
         roughness={0.9}
         metalness={0.05}
         side={THREE.DoubleSide}
@@ -170,20 +182,6 @@ function CameraController({
   );
 }
 
-function categoryColor(category: string, source?: string): string {
-  if (source === "user_measurement") return "#10b981";
-  const c = (category || "").toLowerCase();
-  if (c.includes("stair")) return "#c2ac85";
-  if (c.includes("table") || c.includes("desk")) return "#9eb7a5";
-  if (c.includes("chair") || c.includes("seat")) return "#aab4c3";
-  if (c.includes("sofa") || c.includes("couch")) return "#b7aaa0";
-  if (c.includes("pillar") || c.includes("column") || c.includes("fixed"))
-    return "#b6bcb0";
-  if (c.includes("plant")) return "#9cad8d";
-  if (c.includes("stool")) return "#c4b295";
-  return "#a9b8a1";
-}
-
 function RoomSceneContent({
   scene,
   selectedTarget,
@@ -203,12 +201,14 @@ function RoomSceneContent({
   onTransformObject,
   visualMode,
   cutaway,
+  textures,
   transformMode,
 }: RoomCanvas3DProps & {
   scene: RoomSceneV1;
   showLabels: boolean;
   visualMode: "proxy" | "bounds";
   cutaway: boolean;
+  textures: boolean;
   transformMode: "select" | "translate" | "rotate";
 }) {
   const [isTransforming, setTransforming] = useState(false);
@@ -297,7 +297,12 @@ function RoomSceneContent({
         position={[0, 0.001, 0]}
       />
 
-      <FloorMesh floor={scene.floor} voids={scene.floor_voids} />
+      <FloorMesh
+        floor={scene.floor}
+        voids={scene.floor_voids}
+        appearance={resolveFloorAppearance(scene)}
+        textures={textures && visualMode !== "bounds"}
+      />
       {(scene.floor_voids ?? []).map((v) => (
         <group key={v.id}>
           <Line
@@ -331,16 +336,6 @@ function RoomSceneContent({
           selectedTarget?.kind === "wall" && selectedTarget.id === piece.wallId;
         const isAnchor = scene.calibration?.anchor_id === piece.wallId;
         const boundary = walls.find((w) => w.id === piece.wallId);
-        const wallColor =
-          boundary?.role === "railing"
-            ? "#b6a27c"
-            : boundary?.role === "partition"
-              ? "#8eb1a3"
-              : isSelected
-                ? "#538568"
-                : isAnchor
-                  ? "#538568"
-                  : "#bfc6b6";
         return (
           <ArchitecturalWall
             key={piece.key}
@@ -349,7 +344,8 @@ function RoomSceneContent({
             floor={scene.floor}
             cutaway={cutaway && viewMode === "orbit"}
             selected={isSelected}
-            color={wallColor}
+            appearance={resolveWallAppearance(boundary, scene.wall_appearance)}
+            measured={isAnchor}
             onSelect={() => onSelectTarget({ kind: "wall", id: piece.wallId })}
           />
         );
@@ -426,16 +422,6 @@ function RoomSceneContent({
           selectedTarget?.kind === "object" && selectedTarget.id === obj.id;
         const isAnchor = scene.calibration?.anchor_id === obj.id;
         const yawRad = ((obj.yaw_deg ?? 0) * Math.PI) / 180;
-        const color = isSelected
-          ? "#548768"
-          : isAnchor
-            ? "#10b981"
-            : categoryColor(
-                obj.category ?? "furniture",
-                obj.provenance?.source,
-              );
-        const vis = obj.provenance?.visibility ?? "partial";
-        const isSolid = obj.provenance?.source === "user_measurement";
         const uncRadius = obj.uncertainty_radius_m ?? 0;
 
         return (
@@ -660,7 +646,7 @@ function FallbackPlan2D({
             .map((poly) => "M" + poly.map(toSvg).join(" L") + " Z")
             .join(" ")}
           fillRule="evenodd"
-          fill="#e6e9de"
+          fill={resolveFloorAppearance(scene).color}
           stroke="#a9b59c"
           strokeWidth="3"
         />
@@ -813,6 +799,7 @@ export const RoomCanvas3D: React.FC<RoomCanvas3DProps> = (props) => {
   const [showLabels, setShowLabels] = useState(false);
   const [visualMode, setVisualMode] = useState<"proxy" | "bounds">("proxy");
   const [cutaway, setCutaway] = useState(true);
+  const [textures, setTextures] = useState(true);
   const [transformMode, setTransformMode] = useState<
     "select" | "translate" | "rotate"
   >("select");
@@ -856,6 +843,13 @@ export const RoomCanvas3D: React.FC<RoomCanvas3DProps> = (props) => {
           onClick={() => setCutaway((v) => !v)}
         >
           Cutaway walls
+        </button>
+        <button
+          className="rl-btn rl-btn--xs"
+          aria-pressed={textures}
+          onClick={() => setTextures((v) => !v)}
+        >
+          Textures
         </button>
         <span className="rl-tool-separator" />
         {(
@@ -959,6 +953,7 @@ export const RoomCanvas3D: React.FC<RoomCanvas3DProps> = (props) => {
               scene={props.scene}
               showLabels={showLabels}
               visualMode={visualMode}
+              textures={textures}
               cutaway={cutaway}
               transformMode={transformMode}
             />

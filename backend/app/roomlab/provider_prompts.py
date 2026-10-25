@@ -45,6 +45,13 @@ EPISTEMIC HONESTY & EVIDENCE LINKING:
 - Every interior wall, floor void, opening, and object MUST reference one or more exact `evidence_frame_ids` from the provided frame catalog where it is visible.
 - Mark `visibility = "observed"` when all relevant edges are clearly visible, `"partial"` when partially occluded, and `"unobserved"` when inferred to close the shell.
 - Never claim that estimated dimensions are ground-truth measurements; note any occluded corners, atrium drop-offs, glass partitions, or staircase placeholders in `notes`.
+
+SURFACE APPEARANCE HINTS (PRESENTATION-ONLY MODEL ESTIMATES, NOT PIXEL MEASUREMENTS):
+- Provide optional visual appearance estimates so the 3D editor resembles the video walkthrough without affecting geometric footprints:
+  - `floor_color` (`#rrggbb`), `floor_material` (`unknown | paint | glass | wood | terrazzo | tile | stone | marble | carpet | concrete | fabric | metal | ceramic | foliage`), and `floor_evidence_frame_ids` (exact frame IDs where the floor surface is visible). Judge floor material strictly from the actual floor surface, never from furniture or counters!
+  - `wall_color` (`#rrggbb`), `wall_material`, and `wall_evidence_frame_ids` for the dominant outer shell walls.
+  - Per `interior_walls` item: `color` (`#rrggbb`) and `material` (e.g. `glass` or `metal` for glass partitions and railings).
+  - Per `objects` item: `color` (`#rrggbb`) and `material` (e.g. `marble`, `wood`, `fabric`, `metal`, `foliage`) judged from well-lit frames.
 """
 
 
@@ -61,10 +68,11 @@ def build_extraction_prompt(media: MediaRecord) -> str:
         "Return a JSON object matching the required schema with:\n"
         "1. `floor_vertices`: simple closed outer perimeter in meters [x_m, z_m] centered near (0, 0).\n"
         "2. `floor_voids`: any non-walkable atrium drop-offs or floor cutouts strictly inside the outer perimeter (empty array `[]` if the entire floor is solid).\n"
-        "3. `interior_walls`: any interior dividing walls, glass storefront partitions (`role = \"partition\"`), or atrium balustrades (`role = \"railing\"`, height ~1.05m) inside the perimeter. Do NOT merge an interior glass partition with the far back wall behind it.\n"
+        "3. `interior_walls`: any interior dividing walls, glass storefront partitions (`role = \"partition\"`), or atrium balustrades (`role = \"railing\"`, height ~1.05m) inside the perimeter, including optional `color` and `material` hints. Do NOT merge an interior glass partition with the far back wall behind it.\n"
         "4. `openings`: doors/windows/passages attached to the exact `wall_id` (`wall-1`..`wall-N` or an `interior_walls` id) where they physically sit, with non-overlapping `offset_m` and `width_m`.\n"
-        "5. `objects`: all visible furniture, counters, stools, plants, bikes, pillars, or staircases (`category = \"stairs\"`, `movable = false`) placed on the walkable floor without intersecting walls or voids.\n"
-        "6. `notes`: concise notes on scale assumptions, glass partitions vs. outer walls, atrium voids/railings, and staircase single-level limitations."
+        "5. `objects`: all visible furniture, counters, stools, plants, bikes, pillars, or staircases (`category = \"stairs\"`, `movable = false`) placed on the walkable floor without intersecting walls or voids, including optional `color` and `material` hints.\n"
+        "6. `notes`: concise notes on scale assumptions, glass partitions vs. outer walls, atrium voids/railings, and staircase single-level limitations.\n"
+        "7. Optional appearance estimates (`floor_color`, `floor_material`, `floor_evidence_frame_ids`, `wall_color`, `wall_material`, `wall_evidence_frame_ids`) citing only exact frame IDs from the catalog above."
     )
 
 

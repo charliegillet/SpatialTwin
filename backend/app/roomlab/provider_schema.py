@@ -15,12 +15,107 @@ from pydantic import BaseModel, ConfigDict, Field
 from shapely.geometry import LineString, Polygon
 
 from backend.app.roomlab.contracts import (
+    AppearanceProvenance,
     FloorVoid,
+    Material,
     Opening,
     Provenance,
     RoomDraft,
     RoomObject,
+    SurfaceAppearance,
     Wall,
+)
+
+VALID_MATERIALS: tuple[Material, ...] = (
+    "unknown",
+    "paint",
+    "glass",
+    "wood",
+    "terrazzo",
+    "tile",
+    "stone",
+    "marble",
+    "carpet",
+    "concrete",
+    "fabric",
+    "metal",
+    "ceramic",
+    "foliage",
+)
+
+_FLOOR_COMPOUND_SCRUB_RE = re.compile(
+    r"\bfloor(?:\s*-\s*|\s+)to(?:\s*-\s*|\s+)ceiling\b"
+    r"|\bfloor\s+(?:plan|lamp|lamps|mat|mats|void|voids|cutout|cutouts|drain|drains|outlet|outlets|level|levels|number|area|space)\b",
+    re.I,
+)
+
+_FLOOR_AMBIGUOUS_OR_NEGATED_RE = re.compile(
+    r"\b(?:not|no|never|neither|nor|without|non|isn't|isnt|aren't|arent|unclear|unsure|unknown|ambiguous|either|or|mixed|mix\s+of|combination\s+of|transitions?\s+(?:to|between|from)|varies|multiple\s+floor|different\s+floor)\b",
+    re.I,
+)
+
+_FLOOR_ZONE_PARTIAL_RE = re.compile(
+    r"\b(?:landing|corridor|hallway|walkway|balcony|lobby|lounge|entryway|foyer|alcove|kitchen|zone|section|part|half|side)\b",
+    re.I,
+)
+
+_FLOOR_EXPLICIT_CLAUSE_PATTERNS: tuple[tuple[re.Pattern[str], Material], ...] = (
+    (
+        re.compile(
+            r"\bterrazzo\s+(?:floor|flooring)\b"
+            r"|\b(?:floor|flooring)(?:\s+(?:surface|material|finish))?\s+(?:is|has|features|consists\s+of|appears\s+to\s+be)\s+(?:a\s+|an\s+)?(?:polished\s+|light\s+|dark\s+|warm\s+|grey\s+|gray\s+|speckled\s+)*terrazzo\b",
+            re.I,
+        ),
+        "terrazzo",
+    ),
+    (
+        re.compile(
+            r"\b(?:hardwood|parquet|wood|wooden|oak|timber|plank|laminate)\s+(?:floor|flooring)\b"
+            r"|\b(?:floor|flooring)(?:\s+(?:surface|material|finish))?\s+(?:is|has|features|consists\s+of|appears\s+to\s+be)\s+(?:a\s+|an\s+)?(?:polished\s+|light\s+|dark\s+|warm\s+)*(?:hardwood|parquet|wood|wooden|oak|timber|plank|laminate)\b",
+            re.I,
+        ),
+        "wood",
+    ),
+    (
+        re.compile(
+            r"\bmarble\s+(?:floor|flooring)\b"
+            r"|\b(?:floor|flooring)(?:\s+(?:surface|material|finish))?\s+(?:is|has|features|consists\s+of|appears\s+to\s+be)\s+(?:a\s+|an\s+)?(?:polished\s+|white\s+|light\s+|dark\s+)*marble\b",
+            re.I,
+        ),
+        "marble",
+    ),
+    (
+        re.compile(
+            r"\b(?:stone|slate|travertine|granite|limestone)\s+(?:floor|flooring)\b"
+            r"|\b(?:floor|flooring)(?:\s+(?:surface|material|finish))?\s+(?:is|has|features|consists\s+of|appears\s+to\s+be)\s+(?:a\s+|an\s+)?(?:polished\s+|natural\s+|light\s+|dark\s+)*(?:stone|slate|travertine|granite|limestone)\b",
+            re.I,
+        ),
+        "stone",
+    ),
+    (
+        re.compile(
+            r"\b(?:tile|tiled|ceramic\s+tile|porcelain\s+tile)\s+(?:floor|flooring)\b"
+            r"|\b(?:floor|flooring)(?:\s+(?:surface|material|finish))?\s+(?:is|has|features|consists\s+of|appears\s+to\s+be)\s+(?:a\s+|an\s+)?(?:ceramic\s+|porcelain\s+|glazed\s+)*(?:tile|tiled)\b",
+            re.I,
+        ),
+        "tile",
+    ),
+    (
+        re.compile(
+            r"\b(?:carpet|carpeted)\s+(?:floor|flooring)\b"
+            r"|\b(?:floor|flooring)(?:\s+(?:surface|material|finish))?\s+(?:is|has|features|consists\s+of|appears\s+to\s+be)\s+(?:a\s+|an\s+)?(?:plush\s+|grey\s+|gray\s+|low-pile\s+)*(?:carpet|carpeted)\b",
+            re.I,
+        ),
+        "carpet",
+    ),
+    (
+        re.compile(
+            r"\b(?:concrete|cement)\s+(?:floor|flooring)\b"
+            r"|\b(?:floor|flooring)(?:\s+(?:surface|material|finish))?\s+(?:is|has|features|consists\s+of|appears\s+to\s+be)\s+(?:a\s+|an\s+)?(?:polished\s+|sealed\s+|grey\s+|gray\s+)*(?:concrete|cement)\b",
+            re.I,
+        ),
+        "concrete",
+    ),
 )
 
 
@@ -52,6 +147,8 @@ class ProviderInteriorWallDraft(BaseModel):
     end_z_m: float
     height_m: float = 2.7
     thickness_m: float = 0.12
+    color: str = ""
+    material: str = "unknown"
     visibility: Literal["observed", "partial", "unobserved"] = "observed"
     evidence_frame_ids: list[str] = Field(default_factory=list)
     note: str = ""
@@ -88,6 +185,8 @@ class ProviderObjectDraft(BaseModel):
     yaw_deg: float = 0.0
     movable: bool = True
     uncertainty_radius_m: float = 0.1
+    color: str = ""
+    material: str = "unknown"
     visibility: Literal["observed", "partial", "unobserved"] = "observed"
     evidence_frame_ids: list[str] = Field(default_factory=list)
     note: str = ""
@@ -102,6 +201,14 @@ class ProviderRoomPayload(BaseModel):
     interior_walls: list[ProviderInteriorWallDraft] = Field(default_factory=list)
     wall_height_m: float = 2.7
     wall_thickness_m: float = 0.12
+    floor_color: str = ""
+    floor_material: str = "unknown"
+    floor_evidence_frame_ids: list[str] = Field(default_factory=list)
+    floor_appearance_note: str = ""
+    wall_color: str = ""
+    wall_material: str = "unknown"
+    wall_evidence_frame_ids: list[str] = Field(default_factory=list)
+    wall_appearance_note: str = ""
     openings: list[ProviderOpeningDraft] = Field(default_factory=list)
     objects: list[ProviderObjectDraft] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
@@ -129,6 +236,42 @@ def provider_response_json_schema() -> dict:
             "wall_thickness_m": {
                 "type": "number",
                 "description": "Estimated outer shell wall thickness in meters (typically 0.12 to 0.25).",
+            },
+            "floor_color": {
+                "type": "string",
+                "description": "Estimated dominant walkable floor color as #rrggbb (presentation hint only).",
+            },
+            "floor_material": {
+                "type": "string",
+                "enum": list(VALID_MATERIALS),
+                "description": "Estimated walkable floor surface material judged strictly from the floor itself.",
+            },
+            "floor_evidence_frame_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Exact evidence_frame_ids where the floor surface color/material is visible.",
+            },
+            "floor_appearance_note": {
+                "type": "string",
+                "description": "Optional note on floor surface appearance estimate.",
+            },
+            "wall_color": {
+                "type": "string",
+                "description": "Estimated dominant outer shell wall color as #rrggbb (presentation hint only).",
+            },
+            "wall_material": {
+                "type": "string",
+                "enum": list(VALID_MATERIALS),
+                "description": "Estimated dominant outer shell wall surface material.",
+            },
+            "wall_evidence_frame_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Exact evidence_frame_ids where outer shell walls are visible.",
+            },
+            "wall_appearance_note": {
+                "type": "string",
+                "description": "Optional note on outer wall surface appearance estimate.",
             },
             "floor_vertices": {
                 "type": "array",
@@ -199,6 +342,15 @@ def provider_response_json_schema() -> dict:
                         "end_z_m": {"type": "number"},
                         "height_m": {"type": "number"},
                         "thickness_m": {"type": "number"},
+                        "color": {
+                            "type": "string",
+                            "description": "Optional interior wall/frame color as #rrggbb.",
+                        },
+                        "material": {
+                            "type": "string",
+                            "enum": list(VALID_MATERIALS),
+                            "description": "Optional interior wall material (e.g. glass, metal, paint).",
+                        },
                         "visibility": {
                             "type": "string",
                             "enum": ["observed", "partial", "unobserved"],
@@ -281,6 +433,15 @@ def provider_response_json_schema() -> dict:
                         "yaw_deg": {"type": "number"},
                         "movable": {"type": "boolean"},
                         "uncertainty_radius_m": {"type": "number"},
+                        "color": {
+                            "type": "string",
+                            "description": "Optional object dominant visible color as #rrggbb.",
+                        },
+                        "material": {
+                            "type": "string",
+                            "enum": list(VALID_MATERIALS),
+                            "description": "Optional object surface material.",
+                        },
                         "visibility": {
                             "type": "string",
                             "enum": ["observed", "partial", "unobserved"],
@@ -300,6 +461,104 @@ def provider_response_json_schema() -> dict:
             },
         },
     }
+
+
+def normalize_hex_color(value: str | None) -> str | None:
+    """Normalize #rgb or #rrggbb (any case) to canonical lowercase #rrggbb, or None."""
+    raw = (value or "").strip().lower()
+    if re.fullmatch(r"#[0-9a-f]{3}", raw):
+        return "#" + "".join(ch * 2 for ch in raw[1:])
+    if re.fullmatch(r"#[0-9a-f]{6}", raw):
+        return raw
+    return None
+
+
+def normalize_material_name(value: str | None) -> Material:
+    """Normalize material string to canonical Material enum or 'unknown'."""
+    raw = (value or "").strip().lower()
+    if raw in VALID_MATERIALS:
+        return raw  # type: ignore[return-value]
+    return "unknown"
+
+
+def infer_floor_material_from_floor_notes(notes: list[str]) -> Material:
+    """Infer floor material strictly from unambiguous, whole-floor note statements.
+
+    Rejects:
+    - Non-floor compounds (e.g. 'floor-to-ceiling wooden partition', 'floor lamp'),
+    - Furniture/counter notes (e.g. 'marble counter', 'wood stools'),
+    - Negations ('Floor is not wood'),
+    - Mixed or multi-material statements ('Floor is mixed wood and stone'),
+    - Zone-specific partial floor descriptions when multiple zones/surfaces are mentioned
+      (e.g. 'terrazzo landing' vs 'carpeted lounge'), and
+    - Conflicting floor statements across notes.
+    """
+    matched_materials: set[Material] = set()
+    saw_floor_ambiguity = False
+    zone_mentions = 0
+
+    for note in notes:
+        raw_text = (note or "").strip()
+        if not raw_text:
+            continue
+        scrubbed = _FLOOR_COMPOUND_SCRUB_RE.sub(" ", raw_text)
+        clauses = re.split(r"[.;\n]+", scrubbed)
+        for clause in clauses:
+            clause = clause.strip()
+            if not clause:
+                continue
+            has_floor_word = bool(re.search(r"\b(?:floor|flooring)\b", clause, re.I))
+            if not has_floor_word:
+                if _FLOOR_ZONE_PARTIAL_RE.search(clause):
+                    zone_mentions += 1
+                continue
+
+            if _FLOOR_AMBIGUOUS_OR_NEGATED_RE.search(clause):
+                saw_floor_ambiguity = True
+                continue
+
+            clause_hits: set[Material] = set()
+            for pattern, mat in _FLOOR_EXPLICIT_CLAUSE_PATTERNS:
+                if pattern.search(clause):
+                    clause_hits.add(mat)
+
+            if not clause_hits:
+                continue
+            if len(clause_hits) > 1:
+                return "unknown"
+            if _FLOOR_ZONE_PARTIAL_RE.search(clause):
+                # Do not guess whole-floor material from a single sub-zone (e.g. 'terrazzo landing')
+                return "unknown"
+            matched_materials.update(clause_hits)
+
+    if saw_floor_ambiguity or len(matched_materials) != 1:
+        return "unknown"
+    return next(iter(matched_materials))
+
+
+def _build_surface_appearance(
+    raw_color: str | None,
+    raw_material: str | None,
+    ev_ids: list[str],
+    raw_note: str = "",
+    *,
+    default_note: str = "Visual appearance estimated from video frames (not a colorimeter/pixel measurement).",
+) -> SurfaceAppearance | None:
+    color = normalize_hex_color(raw_color)
+    material = normalize_material_name(raw_material)
+    if color is None and material == "unknown":
+        return None
+    note_text = (raw_note or "").strip() or default_note
+    return SurfaceAppearance(
+        color=color,
+        material=material,
+        provenance=AppearanceProvenance(
+            source="model_estimate",
+            evidence_frame_ids=list(ev_ids),
+            note=note_text[:1000],
+        ),
+        user_override=None,
+    )
 
 
 def _clamp_with_warning(
@@ -366,18 +625,30 @@ def normalize_provider_payload(
     wall_h, _ = _clamp_with_warning(payload.wall_height_m, 1.8, 6.0, 2.7, "wall_height_m", warnings)
     wall_t, _ = _clamp_with_warning(payload.wall_thickness_m, 0.05, 0.6, 0.12, "wall_thickness_m", warnings)
 
-    def _clean_frame_ids(raw_ids: list[str], element_label: str) -> list[str]:
+    def _clean_frame_ids(raw_ids: list[str], element_label: str, *, warn_on_empty: bool = True) -> list[str]:
         matched: list[str] = []
         for fid in raw_ids:
             if fid in valid_frame_ids and fid not in matched:
                 matched.append(fid)
         if len(matched) < len(raw_ids):
             warnings.append(f"Dropped unknown evidence frame IDs on {element_label}.")
-        if not matched:
+        if not matched and warn_on_empty:
             warnings.append(f"No valid evidence frame IDs cited for {element_label}; keeping evidence_frame_ids=[].")
         return matched
 
     seen_ids: set[str] = set()
+
+    # Global wall appearance (optional; outer shell walls can inherit this)
+    wall_app_ev = _clean_frame_ids(
+        payload.wall_evidence_frame_ids, "wall_appearance", warn_on_empty=False
+    )
+    wall_appearance = _build_surface_appearance(
+        payload.wall_color,
+        payload.wall_material,
+        wall_app_ev,
+        payload.wall_appearance_note,
+        default_note="Outer wall surface appearance estimated from video frames (model estimate, not pixel measurement).",
+    )
 
     # 1. Outer shell walls (wall-1 .. wall-N)
     walls: list[Wall] = []
@@ -391,6 +662,7 @@ def normalize_provider_payload(
         w_len = math.hypot(b[0] - a[0], b[1] - a[1])
         wall_lengths[wid] = w_len
         w_obj = Wall(
+            appearance=wall_appearance.model_copy(deep=True) if wall_appearance is not None else None,
             role="shell",
             id=wid,
             start=a,
@@ -547,9 +819,18 @@ def normalize_provider_payload(
         if repaired:
             note_parts.append("Endpoints or dimensions clamped during normalization.")
 
+        iw_appearance = _build_surface_appearance(
+            iw.color,
+            iw.material,
+            ev_ids,
+            iw.note,
+            default_note=f"Interior {iw.role} appearance estimated from video frames (model estimate).",
+        )
+
         seen_ids.add(iwid)
         wall_lengths[iwid] = seg_len
         w_obj = Wall(
+            appearance=iw_appearance,
             role=iw.role,
             id=iwid[:80],
             start=p_start,
@@ -789,9 +1070,18 @@ def normalize_provider_payload(
         elif repaired:
             note_parts.append("Geometry clamped during normalization.")
 
+        obj_appearance = _build_surface_appearance(
+            obj.color,
+            obj.material,
+            ev_ids,
+            obj.note,
+            default_note=f"Object '{obj_id}' appearance estimated from video frames (model estimate).",
+        )
+
         seen_ids.add(obj_id)
         objects.append(
             RoomObject(
+                appearance=obj_appearance,
                 id=obj_id[:80],
                 label=(obj.label or obj_id).strip()[:160],
                 category=category,
@@ -829,7 +1119,44 @@ def normalize_provider_payload(
             "Estimated 3D room draft inferred from video frames; metric scale requires a measured anchor.",
         ]
 
+    # Floor appearance: direct provider estimate or floor-specific note fallback (never from furniture/counter notes)
+    floor_app_ev = _clean_frame_ids(
+        payload.floor_evidence_frame_ids, "floor_appearance", warn_on_empty=False
+    )
+    floor_color = normalize_hex_color(payload.floor_color)
+    floor_mat = normalize_material_name(payload.floor_material)
+    floor_appearance: SurfaceAppearance | None = None
+    if floor_color is not None or floor_mat != "unknown":
+        floor_appearance = SurfaceAppearance(
+            color=floor_color,
+            material=floor_mat,
+            provenance=AppearanceProvenance(
+                source="model_estimate",
+                evidence_frame_ids=floor_app_ev,
+                note=(
+                    (payload.floor_appearance_note or "").strip()
+                    or "Floor surface appearance estimated from video frames (model estimate, not pixel measurement)."
+                )[:1000],
+            ),
+            user_override=None,
+        )
+    else:
+        inferred_floor_mat = infer_floor_material_from_floor_notes(notes)
+        if inferred_floor_mat != "unknown":
+            floor_appearance = SurfaceAppearance(
+                color=None,
+                material=inferred_floor_mat,
+                provenance=AppearanceProvenance(
+                    source="heuristic_fallback",
+                    evidence_frame_ids=floor_app_ev,
+                    note="Inferred floor material from floor-specific room notes (heuristic fallback).",
+                ),
+                user_override=None,
+            )
+
     draft = RoomDraft(
+        floor_appearance=floor_appearance,
+        wall_appearance=wall_appearance,
         topology_review_required=topology_review_required,
         name=(payload.name or "Estimated room").strip()[:160] or "Estimated room",
         floor=floor,

@@ -281,6 +281,7 @@ async def critique_scene(
         scene_revision=scene.scene_revision,
         geometry_hash=context.geometry_hash,
         evidence_hash=context.evidence_hash,
+        render_hash=context.render_hash,
         summary=summary,
         findings=findings,
         reviewed_frame_ids=reviewed_frame_ids,

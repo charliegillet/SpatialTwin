@@ -60,6 +60,7 @@ export function useSceneCritique(
         expected_revision: scene.scene_revision,
         geometry_hash: receipt.geometry_hash,
         evidence_hash: receipt.evidence_hash,
+        render_hash: receipt.render_hash,
         focus_element_ids: focus,
         solve_request: solveRequest,
       });
@@ -81,7 +82,8 @@ export function useSceneCritique(
               r.scene_id !== scene.scene_id ||
               r.scene_revision !== scene.scene_revision ||
               r.geometry_hash !== receipt.geometry_hash ||
-              r.evidence_hash !== receipt.evidence_hash
+              r.evidence_hash !== receipt.evidence_hash ||
+              r.render_hash !== receipt.render_hash
             )
               throw new Error("Review receipt does not match this room.");
             setResult(r);

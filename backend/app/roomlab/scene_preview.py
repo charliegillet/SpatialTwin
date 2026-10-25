@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import io
 import math
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageColor
 
 from backend.app.roomlab.contracts import RoomObject, RoomSceneV1, SolveResult, geometry_hash
 
@@ -27,6 +27,11 @@ def _rotated_footprint_pts(obj: RoomObject) -> list[tuple[float, float]]:
     hw, hd = obj.width_m * 0.5, obj.depth_m * 0.5
     corners = [(-hw, -hd), (hw, -hd), (hw, hd), (-hw, hd)]
     return [(cx + c * dx + s * dz, cz - s * dx + c * dz) for dx, dz in corners]
+
+
+def _appearance_color(appearance, fallback):
+    choice=appearance.user_override or appearance if appearance else None
+    return (*ImageColor.getrgb(choice.color),255) if choice and choice.color else fallback
 
 
 def render_scene_preview(
@@ -94,7 +99,7 @@ def render_scene_preview(
     # 2. Outer floor polygon
     if len(scene.floor) >= 3:
         floor_pts = [to_px(p[0], p[1]) for p in scene.floor]
-        draw.polygon(floor_pts, fill=(231, 234, 225, 255), outline=(156, 166, 148, 255))
+        draw.polygon(floor_pts, fill=_appearance_color(scene.floor_appearance,(231, 234, 225, 255)), outline=(156, 166, 148, 255))
 
     # 3. Non-walkable floor voids (atrium cutouts)
     for void in scene.floor_voids:
@@ -124,6 +129,7 @@ def render_scene_preview(
         else:
             color = (108, 118, 104, 255)
             width_px = max(4, int(round(w.thickness_m * scale)))
+        color=_appearance_color(w.appearance or scene.wall_appearance,color)
         draw.line([p1, p2], fill=color, width=width_px)
 
         mx, my = (p1[0] + p2[0]) * 0.5, (p1[1] + p2[1]) * 0.5
@@ -162,7 +168,7 @@ def render_scene_preview(
         is_fixed = not obj.movable
         fill_rgba = (196, 174, 136, 195) if is_fixed else (154, 179, 160, 195)
         outline_rgba = (118, 96, 62, 255) if is_fixed else (74, 108, 86, 255)
-        draw.polygon(corners_px, fill=fill_rgba, outline=outline_rgba)
+        draw.polygon(corners_px, fill=_appearance_color(obj.appearance,fill_rgba), outline=outline_rgba)
 
         # Orientation tick from center toward local +X
         ang = math.radians(obj.yaw_deg)

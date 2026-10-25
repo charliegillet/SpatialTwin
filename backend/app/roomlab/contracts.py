@@ -35,12 +35,30 @@ class MediaRecord(Contract):
     video_url: str
     frames: list[EvidenceFrame]
 
+class AppearanceProvenance(Contract):
+    source: Literal['model_estimate','heuristic_fallback'] = 'heuristic_fallback'
+    evidence_frame_ids: list[str] = Field(default_factory=list,max_length=100)
+    note: str = Field(default='',max_length=1000)
+
+Material = Literal['unknown','paint','glass','wood','terrazzo','tile','stone','marble','carpet','concrete','fabric','metal','ceramic','foliage']
+HexColor = Annotated[str,Field(pattern=r'^#[0-9a-fA-F]{6}$')]
+
+class AppearanceChoice(Contract):
+    color: HexColor | None = None
+    material: Material = 'unknown'
+
+class SurfaceAppearance(AppearanceChoice):
+    provenance: AppearanceProvenance = Field(default_factory=AppearanceProvenance)
+    # User choices are presentation-only and never geometric measurements.
+    user_override: AppearanceChoice | None = None
+
 class FloorVoid(Contract):
     id: str = Field(min_length=1,max_length=80)
     polygon: Annotated[list[Point2],Field(min_length=3,max_length=100)]
     provenance: Provenance = Field(default_factory=Provenance)
 
 class Wall(Contract):
+    appearance: SurfaceAppearance | None = None
     role: Literal['shell','partition','railing'] = 'shell'
     id: str = Field(min_length=1,max_length=80)
     start: Point2
@@ -61,6 +79,7 @@ class Opening(Contract):
     provenance: Provenance = Field(default_factory=Provenance)
 
 class RoomObject(Contract):
+    appearance: SurfaceAppearance | None = None
     id: str = Field(min_length=1,max_length=80)
     label: str = Field(min_length=1,max_length=160)
     category: str = Field(default='furniture',max_length=80)
@@ -86,6 +105,8 @@ class Calibration(Contract):
     holdout_residual_m: Finite | None = None
 
 class RoomDraft(Contract):
+    floor_appearance: SurfaceAppearance | None = None
+    wall_appearance: SurfaceAppearance | None = None
     topology_review_required: bool = False
     name: str = Field(default='Estimated room',min_length=1,max_length=160)
     floor: Annotated[list[Point2],Field(min_length=3,max_length=100)]
@@ -184,6 +205,7 @@ class SceneReceipt(Contract):
     scene_revision: int
     geometry_hash: str
     evidence_hash: str
+    render_hash: str
 
 class CritiqueFrame(Contract):
     record: EvidenceFrame
@@ -195,6 +217,7 @@ class CritiqueContext(Contract):
     solve: SolveResult | None = None
     geometry_hash: str
     evidence_hash: str
+    render_hash: str
     bev_png: bytes = Field(max_length=5*1024*1024)
     frames: list[CritiqueFrame] = Field(min_length=1,max_length=6)
 
@@ -217,6 +240,7 @@ class CritiqueRequest(Contract):
     expected_revision: int = Field(ge=1)
     geometry_hash: str
     evidence_hash: str
+    render_hash: str
     focus_element_ids: list[str] = Field(default_factory=list,max_length=12)
     solve_request: SolveRequest | None = None
 
@@ -250,4 +274,14 @@ class RepairResult(Contract):
 
 def geometry_hash(scene: RoomSceneV1) -> str:
     payload = scene.model_dump(mode='json',exclude={'evidence_frames','notes','name'})
+    payload.pop('floor_appearance',None);payload.pop('wall_appearance',None)
+    for element in payload.get('walls',[])+payload.get('objects',[]):element.pop('appearance',None)
     return hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+
+
+def render_hash(scene: RoomSceneV1) -> str:
+    appearance={'floor_notes':scene.notes,'floor':scene.floor_appearance,'walls_default':scene.wall_appearance,
+                'walls':[(w.id,w.appearance) for w in scene.walls],
+                'objects':[(o.id,o.appearance) for o in scene.objects]}
+    def encode(value):return value.model_dump(mode='json') if isinstance(value,Contract) else value
+    return hashlib.sha256(json.dumps(appearance,default=encode,sort_keys=True,separators=(',',':')).encode()).hexdigest()
