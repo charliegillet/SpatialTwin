@@ -10,7 +10,8 @@ modeled exit in 120 s.
 ## Method
 
 1. Load and check this investigation's inputs. `D` is the directory named in the
-   prompt, `/workspace/inv-<id>` (or its `from_prompt/` copy).
+   prompt, `/workspace/inv-<id>`. Before running this, write the prompt's three
+   JSON blocks to `D/from_prompt/` (and to `D/` for any file that is missing).
 
    ```python
    import sys
@@ -18,11 +19,23 @@ modeled exit in 120 s.
    from walktwin.contracts import VenueGraph, Scenario, FlowParams
    from walktwin import flow
    D = "/workspace/inv-<id>"
-   g = VenueGraph.model_validate_json(open(f"{D}/graph.json").read())
-   s = Scenario.model_validate_json(open(f"{D}/scenario.json").read())
-   p = FlowParams.model_validate_json(open(f"{D}/params.json").read())  # declared
-   assert g.revision == "<graph revision from prompt>"
-   assert s.hash == "<scenario hash from prompt>"
+   REV, HASH = "<graph revision from prompt>", "<scenario hash from prompt>"
+
+   def load(d):
+       g = VenueGraph.model_validate_json(open(f"{d}/graph.json").read())
+       s = Scenario.model_validate_json(open(f"{d}/scenario.json").read())
+       p = FlowParams.model_validate_json(open(f"{d}/params.json").read())  # declared
+       return g, s, p
+
+   try:
+       g, s, p = load(D)
+       ok = g.revision == REV and s.hash == HASH
+   except Exception:
+       ok = False
+   if not ok:  # stale or missing: use the prompt's copies, as the prompt says
+       g, s, p = load(f"{D}/from_prompt")
+       if g.revision != REV or s.hash != HASH:
+           raise SystemExit("inputs do not match the prompt; report this in caveats")
    base = flow.solve(g, s, p).reached_exit
    ```
 
