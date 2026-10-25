@@ -52,10 +52,11 @@ def final(text: str, identifier: Optional[str] = None) -> NS:
 
 
 class FakeStream:
-    """Async iterator of recorded-shape SSE events; ``drop_after`` raises a connection error mid-stream."""
+    """Async iterator of recorded-shape SSE events; ``drop_after`` raises a connection error mid-stream and
+    ``silent_after`` stops sending (the connection stays open) after that many events."""
 
-    def __init__(self, events: List[dict], drop_after: Optional[int] = None):
-        self.events, self.drop_after, self.closed = list(events), drop_after, False
+    def __init__(self, events: List[dict], drop_after: Optional[int] = None, silent_after: Optional[int] = None):
+        self.events, self.drop_after, self.silent_after, self.closed = list(events), drop_after, silent_after, False
 
     def __aiter__(self):
         return self._gen()
@@ -64,6 +65,8 @@ class FakeStream:
         for index, event in enumerate(self.events):
             if self.drop_after is not None and index >= self.drop_after:
                 raise ConnectionResetError("stream dropped")
+            if self.silent_after is not None and index >= self.silent_after:
+                await asyncio.Event().wait()  # never set: an open, silent connection
             await asyncio.sleep(0)
             yield event
 

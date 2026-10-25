@@ -45,8 +45,8 @@ from .adapter import (
 from .costs import estimate_cost
 from .ledger import LedgerConflict
 from .robustness import (
-    MAX_SWEEP_SOLVES, ScenarioEvaluator, robustness_headline, robustness_sweep, single_failure_scenarios,
-    verify_claims,
+    MAX_SWEEP_SOLVES, ScenarioEvaluator, expand_states, robustness_headline, robustness_sweep,
+    single_failure_scenarios, verify_claims,
 )
 from .sandbox import SandboxKitError, input_documents, kit_summary, sandbox_environment
 from .scenarios import MAX_SCENARIO_CHARS, ScenarioError, parse_scenario
@@ -81,6 +81,8 @@ RETRY_BASE_SECONDS = 1.0
 RETRY_CAP_SECONDS = 8.0
 MIN_ATTEMPT_SECONDS = 2.0
 ACK_TIMEOUT_SECONDS = 20.0
+# A stream silent this long is abandoned for polling (a stream left open at requires_action must not eat the lane).
+STREAM_IDLE_SECONDS = 20.0
 STOP_STATUSES = frozenset({"requires_action", "completed", "failed", "cancelled", "incomplete", "budget_exceeded"})
 # Filesystem tools are represented as function calls but executed by the environment (antigravity-agent.md).
 ENVIRONMENT_TOOLS = frozenset({"view_file", "write_to_file", "replace_file_content", "list_dir", "delete_file"})
@@ -559,7 +561,8 @@ def lane_deadline(lane: str, requested: Any) -> float:
 class DoorAgentRunner:
     def __init__(self, adapter: ManagedAgentAdapter, *, trace: Optional[TraceHub] = None, stream: bool = True,
                  retry_base: float = RETRY_BASE_SECONDS, max_retries: int = MAX_PROVIDER_RETRIES,
-                 acknowledge: bool = True, sweep_max_solves: int = MAX_SWEEP_SOLVES):
+                 acknowledge: bool = True, sweep_max_solves: int = MAX_SWEEP_SOLVES,
+                 stream_idle_seconds: float = STREAM_IDLE_SECONDS):
         self.adapter = adapter
         self.trace = trace
         self.stream = stream
@@ -567,7 +570,9 @@ class DoorAgentRunner:
         self.max_retries = max(0, max_retries)
         self.acknowledge = acknowledge
         self.sweep_max_solves = sweep_max_solves
+        self.stream_idle_seconds = max(0.01, stream_idle_seconds)
         self._background: set = set()
+        self._acks: Dict[str, asyncio.Future] = {}  # lane investigation id -> pending acknowledgement
 
     # Persistence helpers -------------------------------------------------------------------------
     async def get_progress(self, investigation_id: str) -> list[dict]:
@@ -579,6 +584,19 @@ class DoorAgentRunner:
             return DoorAgentResult.model_validate_json(raw) if raw else None
         except Exception:
             return None
+
+    async def wait_acknowledged(self, investigation_id: str, timeout: float) -> bool:
+        """Wait (bounded) for a lane's pending acknowledgement. True when none is pending any more."""
+        task = self._acks.get(investigation_id)
+        if task is None or task.done():
+            return True
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout)
+        except (asyncio.TimeoutError, TimeoutError):
+            return False
+        except Exception:
+            return True
+        return True
 
     async def wait_background(self) -> None:
         """Tests and shutdown: let acknowledgement tasks finish (each is bounded by ACK_TIMEOUT_SECONDS)."""
@@ -624,7 +642,8 @@ class DoorAgentRunner:
         model = adapter.model
         lane_state = _LaneState()
         stream_info = {"requested": bool(self.stream and mode == "live"), "used": False, "events": 0,
-                       "steps": 0, "drops": 0, "resumed": 0, "fell_back_to_polling": False, "rejected": False}
+                       "steps": 0, "drops": 0, "resumed": 0, "idle": 0, "fell_back_to_polling": False,
+                       "rejected": False}
         use_stream = stream_info["requested"]
         emitted_steps: dict[str, int] = {}
         streamed_ids: set = set()
@@ -683,9 +702,19 @@ class DoorAgentRunner:
             last_event_id: Optional[str] = None
             accumulator = StepAccumulator()
 
-            async def iterate(source: Any) -> bool:
-                nonlocal interaction_id, last_event_id
-                async for event in source:
+            async def iterate(source: Any) -> str:
+                """'done' at requires_action or a terminal status, 'dropped' on an error, 'idle' when silent."""
+                nonlocal interaction_id, last_event_id, provider_id, remote_active
+                events = source.__aiter__()
+                while True:
+                    try:
+                        event = await asyncio.wait_for(events.__anext__(), timeout=self.stream_idle_seconds)
+                    except StopAsyncIteration:
+                        return "done"
+                    except (asyncio.TimeoutError, TimeoutError):
+                        if time.monotonic() >= work_deadline:
+                            raise TimeoutError() from None
+                        return "idle"
                     stream_info["events"] += 1
                     event_id = field(event, "event_id")
                     if isinstance(event_id, str) and event_id:
@@ -715,10 +744,14 @@ class DoorAgentRunner:
                             await trace("step", **record)
                     elif kind == "error":
                         await progress("stream_error_event")
-                        return False
+                        return "dropped"
+                    if isinstance(interaction_id, str) and interaction_id and interaction_id != provider_id:
+                        # Known as soon as the stream names it: a cancellation or deadline during this first
+                        # turn must cancel the remote run, not leave it spending tokens after the slot is freed.
+                        provider_id = interaction_id
+                        remote_active = True
                     if status_value in STOP_STATUSES:
-                        return True
-                return True
+                        return "done"
 
             async def close(source: Any) -> None:
                 closer = getattr(source, "close", None) or getattr(source, "aclose", None)
@@ -728,16 +761,22 @@ class DoorAgentRunner:
                     except Exception:
                         pass
 
-            ended_cleanly = False
+            outcome = "dropped"
             try:
-                ended_cleanly = await iterate(stream)
-            except (InvestigationError, LedgerConflict):
+                outcome = await iterate(stream)
+            except (InvestigationError, LedgerConflict, TimeoutError):
                 raise
             except Exception:
-                ended_cleanly = False
+                outcome = "dropped"
             finally:
                 await close(stream)
-            if not ended_cleanly:
+            if outcome == "idle":
+                # A silent stream is not resumed (it would likely stay silent): poll instead.
+                stream_info["idle"] += 1
+                stream_info["fell_back_to_polling"] = True
+                await progress("stream_idle_polling", interaction_id=interaction_id)
+                await trace("stream", action="polling", reason="idle")
+            elif outcome == "dropped":
                 stream_info["drops"] += 1
                 await progress("stream_dropped", interaction_id=interaction_id, resumable=bool(last_event_id))
                 resumed = False
@@ -748,8 +787,8 @@ class DoorAgentRunner:
                             stream_info["resumed"] += 1
                             await trace("stream", action="resumed", last_event_id=last_event_id)
                             try:
-                                resumed = await iterate(source)
-                            except (InvestigationError, LedgerConflict):
+                                resumed = await iterate(source) == "done"
+                            except (InvestigationError, LedgerConflict, TimeoutError):
                                 raise
                             except Exception:
                                 resumed = False
@@ -868,7 +907,7 @@ class DoorAgentRunner:
                 if worst is None or local["completed_crossings"] < worst["completed_crossings"]:
                     worst = local
             if worst is not None and worst["best_is_valid"]:
-                fallback = dict(worst["best_door_states"])
+                fallback = expand_states(worst["best_door_states"], toolbox.free)
             claims = []
             for label in scenarios[:MAX_CLAIMS]:
                 local = evaluator.evaluate(states, label)
@@ -941,13 +980,18 @@ class DoorAgentRunner:
                     else:
                         assert scenario_obj is not None
                         result_now = await asyncio.to_thread(evaluator.evaluate, best_states, scenario_obj)
-                        recommended = dict(result_now["best_door_states"]) if result_now["best_is_valid"] \
-                            else best_states
+                        # A hazard scenario (gas) can lock a free door: it leaves the scenario's free set and stays
+                        # closed, so the recommendation is expanded back to every controllable door.
+                        recommended = expand_states(result_now["best_door_states"], toolbox.free) \
+                            if result_now["best_is_valid"] else best_states
+                        locked_now = sorted(set(toolbox.free) - set(result_now["best_door_states"]))
                         submission, verification = await asyncio.to_thread(
                             local_submission, recommended, [scenario_obj.label, "baseline"])
                         explanation = (f"{LOCAL_LABEL}. Under {scenario_obj.label}: {format_states(recommended)} gives "
                                        f"{result_now['best_completed_crossings']} of {plan.chosen.initial_population} "
-                                       f"modeled crossings; the checked best gives {result_now['completed_crossings']}.")
+                                       f"modeled crossings; the checked best gives {result_now['completed_crossings']}."
+                                       + (f" Locked closed by the scenario: {', '.join(locked_now)}." if locked_now
+                                          else ""))
                     lane_state.submission, lane_state.verification = submission, verification
                     lane_state.recommendation_source = "local"
                     status = InvestigationStatus.COMPLETED
@@ -1200,7 +1244,10 @@ class DoorAgentRunner:
             task = asyncio.ensure_future(self._acknowledge(investigation_id, provider_id, environment_id,
                                                            lane_state.ack_payload))
             self._background.add(task)
+            self._acks[investigation_id] = task
             task.add_done_callback(self._background.discard)
+            task.add_done_callback(lambda done, key=investigation_id: self._acks.pop(key, None)
+                                   if self._acks.get(key) is done else None)
         return result
 
     async def _wait_settled(self, provider: Any, interaction_id: str, work_deadline: float) -> None:

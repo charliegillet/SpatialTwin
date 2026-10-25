@@ -104,6 +104,15 @@ def check_venue(venue: VenueV2) -> List[GraphIssue]:
     for exit_ in venue.exits:
         zone = zones[exit_.zone]
         others = [other for other in venue.zones if other.id != zone.id]
+        if exit_.kind == "stair":
+            # An exit stair core inside the floor plate: on a wall of its own zone, interior walls allowed.
+            if not _on_boundary(exit_.position, zone.polygon) or not _opening_fits(
+                    exit_.position, exit_.width, [zone.polygon], None):
+                issues.append(GraphIssue("exit_off_its_stair_wall", "error",
+                                         f"{exit_.id} is not on a wall of its stair {zone.name}.", (exit_.id,)))
+            if not MIN_OPENING_M <= exit_.width <= MAX_OPENING_M:
+                issues.append(GraphIssue("unusual_width", "warning", f"{exit_.id} is {exit_.width:.1f} m wide.", (exit_.id,)))
+            continue
         shared = [other.id for other in others if _on_boundary(exit_.position, other.polygon)]
         if not _on_boundary(exit_.position, zone.polygon) or shared:
             issues.append(GraphIssue("exit_not_on_outside_wall", "error",

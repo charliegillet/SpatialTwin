@@ -81,6 +81,8 @@ with ymin < ymax and xmin < xmax. y grows downwards.
 
 Rooms: every enclosed space you can see, at most {MAX_ROOMS}. A box follows the room's walls tightly; an L- or
 T-shaped room is its main box plus at most two extra_boxes. Corridors, halls, lobbies and stairs are rooms too.
+Areas marked OPEN TO BELOW, atria, light wells and shafts are kind void: give their box, but they are not floor and
+never get doors or exits.
 key is an uppercase identifier ({KEY_PATTERN}), unique across rooms, doors and exits; name is the printed label or a
 plain description; label_point is where the name is written (or the room centre). occupants_hint only when a
 number of people is printed for that room.
@@ -118,9 +120,9 @@ def _provider_schema() -> Dict[str, Any]:
 
 
 def provider_schema_copy() -> Dict[str, Any]:
-    """The lead-owned response schema (schema.py ``provider_response_schema``): VenueDraftV1 without the keywords
-    the provider has not accepted live here (pattern, default, title; const -> enum; exclusive bounds -> bounds).
-    Constrained decoding cannot enforce cross-references or box order; ``salvage_draft`` does, per element."""
+    """The lead-owned response schema (schema.py ``provider_response_schema``): VenueDraftV1's structure only (types,
+    enums, required fields); every bound and length was refused live as "too many states" and is enforced by
+    ``salvage_draft`` per element, as are cross-references and box order."""
     return copy.deepcopy(_provider_schema())
 
 

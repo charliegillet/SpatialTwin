@@ -11,7 +11,7 @@ sensitivity and the worst second hazard per zone. ``verify_claims`` re-runs ever
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, FrozenSet, List, Mapping, Optional, Tuple
+from typing import Any, Dict, FrozenSet, List, Mapping, Optional
 
 from backend.app.hazard.door_planner import (
     MAX_HAZARDS, DoorPlanError, Faults, PlanContext, evaluate_candidate, evaluate_states, opened_from_states,
@@ -93,6 +93,12 @@ class ScenarioEvaluator:
             "best_is_valid": checked,
             "holds": holds,
         }
+
+
+def expand_states(states: Mapping[str, str], free: List[str]) -> Dict[str, str]:
+    """A scenario's door states keyed back to the request's controllable doors. A door a scenario hazard locked
+    (gas) is absent from the scenario's free set and stays closed."""
+    return {door: states.get(door, "closed") for door in free}
 
 
 def _states(free: List[str], opened: FrozenSet[str]) -> Dict[str, str]:

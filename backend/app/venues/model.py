@@ -60,6 +60,9 @@ class VenueExit(_Strict):
     position: Point2
     width: float = Field(gt=0)
     service_rate_per_sec: float = Field(gt=0)
+    # "stair": an exit stair core inside the floor plate (upper floors), allowed on an interior wall of its own zone.
+    # Unset (building-v2) and "door"/"window" exits must sit on an outside wall.
+    kind: Optional[Literal["door", "stair", "window"]] = None
 
 
 class HazardDefaults(_Strict):

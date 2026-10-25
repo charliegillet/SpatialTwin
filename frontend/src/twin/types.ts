@@ -37,6 +37,8 @@ export interface VenueExit {
   position: Point2;
   width: number;
   service_rate_per_sec: number;
+  /** 'stair': an exit stair core inside the floor plate (upper floors). Absent on building-v2. */
+  kind?: 'door' | 'stair' | 'window';
 }
 export interface HazardDefaults {
   untenable_s?: number;

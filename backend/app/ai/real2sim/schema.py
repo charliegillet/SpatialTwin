@@ -29,8 +29,10 @@ Box = Annotated[List[Coordinate], Field(min_length=4, max_length=4)]     # [ymin
 Key = Annotated[str, Field(pattern=KEY_PATTERN)]
 ShortText = Annotated[str, Field(max_length=160)]
 
+# "void": drawn but not floor (OPEN TO BELOW, atrium, light well, shaft). The compiler keeps it out of the walkable
+# zones; a live Ferry Building reading (26 Oct 2026) showed atria otherwise become unreachable rooms.
 RoomKind = Literal["room", "corridor", "lobby", "hall", "stair", "kitchen", "bedroom", "bathroom", "office",
-                   "storage", "other"]
+                   "storage", "void", "other"]
 DoorSymbol = Literal["swing", "double", "sliding", "opening", "fire_door", "unknown"]
 ExitKind = Literal["door", "stair", "window", "unknown"]
 ScaleBasis = Literal["dimension_label", "scale_bar", "door_width_prior", "operator_input", "unknown"]

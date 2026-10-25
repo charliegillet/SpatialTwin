@@ -296,6 +296,27 @@ def compile_draft(draft: VenueDraftV1, image: SourceImage, *, venue_id: str,
     report = CompileReport()
     frame = _Frame(image, draft)
 
+    # Voids (open to below, atria, light wells, shafts) are drawn on the plan but are not floor. They still frame the
+    # building (the scale and the overlay use the full drawing) but never become zones; openings into them are not
+    # doors and an exit cannot be in one. A real evacuation map reads them this way, and without it they would be
+    # unreachable "rooms" that block Accept.
+    voids = {room.key for room in draft.rooms if room.kind == "void"}
+    if voids:
+        for key in sorted(voids):
+            report.edits.append(f"room {key}: open to below / void; kept out of the walkable floor")
+        for door in draft.doors:
+            if set(door.between) & voids:
+                report.dropped.append(f"door {door.key}: opens onto a void")
+        for exit_ in draft.exits:
+            if exit_.room in voids:
+                report.dropped.append(f"exit {exit_.key}: its room {exit_.room} is a void")
+        draft = draft.model_copy(update={
+            "rooms": [room for room in draft.rooms if room.kind != "void"],
+            "doors": [door for door in draft.doors if not set(door.between) & voids],
+            "exits": [exit_ for exit_ in draft.exits if exit_.room not in voids]})
+        if not draft.rooms:
+            return CompileResult(None, report, "no_room_survived")
+
     # -- scale: operator width > draft reference > declared default width ---------------------------------------
     bbox_w_px = frame.maxx_px - frame.minx_px
     bbox_h_px = frame.maxy_px - frame.miny_px
@@ -490,6 +511,15 @@ def compile_draft(draft: VenueDraftV1, image: SourceImage, *, venue_id: str,
             continue
         outside = _exterior(seg[ex.room], (seg[k] for k in rooms if k != ex.room))
         wall = _nearest_segment(frame.to_m(ex.point[0], ex.point[1]), outside, MIN_OPENING_M)
+        stair = ex.kind == "stair" or rooms[ex.room].kind == "stair"
+        stair_core = False
+        if wall is None and stair:
+            # On an upper floor the exit is a stair core inside the floor plate, with no outside wall: the stair is
+            # the way out, so the exit sits on the core's own wall nearest the drawn point.
+            wall = _nearest_segment(frame.to_m(ex.point[0], ex.point[1]), seg[ex.room], MIN_OPENING_M)
+            stair_core = wall is not None
+            if stair_core:
+                report.edits.append(f"exit {ex.key}: stair core inside the floor; exit placed on its own stair wall")
         if wall is None:
             report.dropped.append(f"exit {ex.key}: {ex.room} has no outside wall long enough for an exit; dropped")
             continue
@@ -509,7 +539,8 @@ def compile_draft(draft: VenueDraftV1, image: SourceImage, *, venue_id: str,
         per_m = WINDOW_SERVICE_PER_M if window else EXIT_SERVICE_PER_M
         label = ex.label.strip() or ("Escape window" if window else f"{rooms[ex.room].name} exit")
         venue_exits.append({"id": eid, "zone": zone_id[ex.room], "name": label, "position": [pos[0], pos[1]],
-                            "width": width, "service_rate_per_sec": round(width * per_m, 2)})
+                            "width": width, "service_rate_per_sec": round(width * per_m, 2),
+                            "kind": "stair" if stair else ("window" if window else "door")})
     if not venue_exits:
         return CompileResult(None, report, "no_exit_survived")
     for key in rooms:

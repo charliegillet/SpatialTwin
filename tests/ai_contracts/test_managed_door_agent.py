@@ -26,7 +26,7 @@ from backend.app.venues.agent import build_door_agent_router
 from backend.app.venues.model import VenueV2, load_building_v2
 from backend.app.venues.schemas import DoorPlanRequest
 from tests.agents.fakes import (
-    BEST, ENV_ID, FIRE, GAS, HttpError, Provider, call, claims_for, final, interaction_id, response, submit,
+    BEST, ENV_ID, FIRE, GAS, HttpError, Provider, claims_for, interaction_id, response, submit,
 )
 
 

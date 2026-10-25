@@ -41,6 +41,7 @@ from backend.app.venues.schemas import DoorPlanRequest
 MAX_DEADLINE_SECONDS = STRATEGIST_MAX_DEADLINE_SECONDS  # legacy import name
 TEAM_STARTED = "team_started"
 SUPERSEDE_WAIT_SECONDS = 5.0
+ACK_WAIT_SECONDS = 15.0  # bounded wait for a parent lane's acknowledgement before a live follow-up
 MAX_METAS = 256
 
 
@@ -315,11 +316,16 @@ def build_door_agent_router(adapter: ManagedAgentAdapter, slots: asyncio.Semapho
             raise HTTPException(422, detail={"code": str(error)}) from None
         plan_request = DoorPlanRequest.model_validate(meta["request"])
         parent: Dict[str, Any] = {}
-        robustness = await runner.get_saved_result(lane_id(investigation_id, "robustness"))
-        if robustness is not None and robustness.provenance == "live":
-            acks = await asyncio.to_thread(ledger.events, lane_id(investigation_id, "robustness"), 8,
-                                           phases=("ack_sent",), exclude_phases=())
-            parent = {"environment_id": robustness.provider_environment_id,
+        # Continue the sandbox lane of the parent: its robustness lane, or the follow-up a follow-up came from.
+        source = next((lane for lane in ("followup", "robustness") if lane in meta.get("lanes", [])), None)
+        sandbox_run = await runner.get_saved_result(lane_id(investigation_id, source)) if source else None
+        if sandbox_run is not None and sandbox_run.provenance == "live":
+            source_id = lane_id(investigation_id, source)
+            # The lane is published before its acknowledging continuation lands; chain only on that continuation.
+            if body.mode == "live" and not await runner.wait_acknowledged(source_id, ACK_WAIT_SECONDS):
+                raise HTTPException(409, detail={"code": "parent_finishing", "retry_after_seconds": 2})
+            acks = await asyncio.to_thread(ledger.events, source_id, 8, phases=("ack_sent",), exclude_phases=())
+            parent = {"environment_id": sandbox_run.provider_environment_id,
                       "interaction_id": acks[-1].get("interaction_id") if acks else None}
         seconds = {"followup": lane_deadline("followup", body.deadline_seconds)}
         return {**await start(venue, plan_request, body.mode, ["followup"], seconds, team=False,

@@ -1,7 +1,6 @@
 """Agent team: two lanes in parallel, per-lane deadlines, retries, labelled local fallback, terminal submission,
 stream drop -> resume -> polling, sandbox environment and environment reuse. Offline, recorded-shape fakes."""
 import asyncio
-import json
 
 import httpx
 import pytest
@@ -350,3 +349,111 @@ async def test_route_new_team_supersedes_the_running_one(service, evaluator):
     assert old["team_status"] == "cancelled" and old["status"] == "cancelled"
     new = await poll(client, second.json()["investigation_id"])
     assert new["status"] == "completed"
+
+
+# --- PR #1 review regressions ----------------------------------------------------------------------------------------
+
+async def test_cancel_during_the_first_streamed_turn_cancels_the_remote_run(service, venue):
+    """Review: the interaction id was only known after turn() returned, so cleanup skipped interactions.cancel."""
+    provider = LaneProvider({"strategist": strategist_script(
+        creates=[FakeStream(stream_events(SID, "requires_action"), silent_after=2)])})
+    runner = DoorAgentRunner(adapter_for(service, provider), retry_base=0.001)
+    task = asyncio.ensure_future(runner.run(venue, DoorPlanRequest(hazards=[FIRE]), "dinv-cancel", "live", 20.0))
+    for _ in range(300):
+        if provider.calls:
+            break
+        await asyncio.sleep(0.01)
+    await asyncio.sleep(0.05)  # the creation event has arrived; the stream is now silent
+    task.cancel()
+    result = await task
+    assert result.status.value == "cancelled" and result.provider_interaction_id == SID
+    assert [c["id"] for c in provider.cancel_calls] == [SID]
+
+
+async def test_deadline_during_the_first_streamed_turn_cancels_the_remote_run(service, venue):
+    provider = LaneProvider({"strategist": strategist_script(
+        creates=[FakeStream(stream_events(SID, "requires_action"), silent_after=2)])})
+    runner = DoorAgentRunner(adapter_for(service, provider), retry_base=0.001)
+    result = await runner.run(venue, DoorPlanRequest(hazards=[FIRE]), "dinv-late", "live", 1.0)
+    assert result.status.value == "timed_out" and [c["id"] for c in provider.cancel_calls] == [SID]
+
+
+async def test_a_silent_stream_falls_back_to_polling(service, venue):
+    provider = LaneProvider({"strategist": strategist_script(
+        creates=[FakeStream(stream_events(SID, "requires_action"), silent_after=2)],
+        gets=[response("in_progress", identifier=SID),
+              response("requires_action", [submit("call_1001")], identifier=SID)])})
+    runner = DoorAgentRunner(adapter_for(service, provider), retry_base=0.001, stream_idle_seconds=0.05)
+    result = await runner.run(venue, DoorPlanRequest(hazards=[FIRE]), "dinv-idle", "live", 10.0)
+    assert result.status.value == "completed", result.errors
+    assert result.stream["idle"] == 1 and result.stream["fell_back_to_polling"] and not result.stream["drops"]
+    assert not provider.lane_calls("strategist", "get")[0].get("stream")
+
+
+async def test_local_gas_followup_keeps_locked_doors_closed(service, venue):
+    """Review: gas removes D4 from the scenario's free set; the follow-up failed with invalid_door_states."""
+    runner = DoorAgentRunner(adapter_for(service, None))
+    result = await runner.run(venue, DoorPlanRequest(hazards=[FIRE]), "dinv-gas", "local", lane="followup",
+                              scenario="second_hazard:GAS@HALL")
+    assert result.status.value == "completed", result.errors
+    assert set(result.recommended_door_states) == {"D4", "D9"} and result.recommended_door_states["D4"] == "closed"
+    assert "Locked closed by the scenario: D4." in result.explanation
+    assert result.verification.verified == result.verification.total == 2
+    assert set(result.fallback_if_jammed) == {"D4", "D9"}
+
+
+async def test_route_live_gas_followup_falls_back_locally_and_completes(service):
+    client, _ = client_for(service, LaneProvider({}))
+    parent = (await client.post("/api/venues/building-v2/investigate", json={
+        "hazards": [FIRE], "mode": "local", "lanes": ["strategist", "robustness"]})).json()
+    await poll(client, parent["investigation_id"])
+    follow = (await client.post(f"/api/venues/building-v2/investigations/{parent['investigation_id']}/followup",
+                                json={"scenario": "second_hazard:GAS@HALL", "mode": "live"})).json()
+    lane = (await poll(client, follow["investigation_id"]))["investigation"]["lanes"]["followup"]
+    assert lane["effective"] == "local_fallback" and lane["fallback"]["status"] == "completed"
+    assert lane["fallback"]["recommended_door_states"]["D4"] == "closed"
+
+
+def parent_with_ack(evaluator, ack):
+    rob = robustness_script(evaluator, acks=[ack])
+    rob["gets"].append(response("completed", identifier=interaction_id(102)))
+    rob["creates"].append(response("requires_action", [submit("call_3003", ROBUST, FALLBACK, claims_for(
+        evaluator, ROBUST, ["stuck_closed:D3"]))], identifier=interaction_id(201)))
+    rob["acks"].append(response("in_progress", identifier=interaction_id(202)))
+    return LaneProvider({"strategist": strategist_script(), "robustness": rob})
+
+
+async def test_route_live_followup_waits_for_the_parent_acknowledgement(service, evaluator):
+    """Review: a follow-up right after the team finished read ack_sent too early and answered locally."""
+    async def slow_ack():
+        await asyncio.sleep(0.4)
+        return response("in_progress", identifier=interaction_id(102))
+    client, _ = client_for(service, parent_with_ack(evaluator, slow_ack))
+    parent = (await client.post("/api/venues/building-v2/investigate", json={
+        "hazards": [FIRE], "mode": "live", "lanes": ["strategist", "robustness"]})).json()
+    await poll(client, parent["investigation_id"])
+    follow = await client.post(f"/api/venues/building-v2/investigations/{parent['investigation_id']}/followup",
+                               json={"scenario": "stuck_closed:D3", "mode": "live"})  # no wait_background first
+    assert follow.status_code == 200, follow.text
+    lane = (await poll(client, follow.json()["investigation_id"]))["investigation"]["lanes"]["followup"]
+    assert lane["status"] == "completed" and lane["effective"] == "live", lane["errors"]
+
+
+async def test_route_live_followup_is_409_while_the_acknowledgement_is_still_pending(service, evaluator, monkeypatch):
+    from backend.app.venues import agent as agent_routes
+    release = asyncio.Event()
+
+    async def stuck_ack():
+        await release.wait()
+        return response("in_progress", identifier=interaction_id(102))
+    monkeypatch.setattr(agent_routes, "ACK_WAIT_SECONDS", 0.05)
+    client, runner = client_for(service, parent_with_ack(evaluator, stuck_ack))
+    parent = (await client.post("/api/venues/building-v2/investigate", json={
+        "hazards": [FIRE], "mode": "live", "lanes": ["strategist", "robustness"]})).json()
+    await poll(client, parent["investigation_id"])
+    follow = await client.post(f"/api/venues/building-v2/investigations/{parent['investigation_id']}/followup",
+                               json={"scenario": "stuck_closed:D3", "mode": "live"})
+    assert follow.status_code == 409
+    assert follow.json() == {"detail": {"code": "parent_finishing", "retry_after_seconds": 2}}
+    release.set()
+    await runner.wait_background()
