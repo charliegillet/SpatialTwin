@@ -7,9 +7,20 @@ import type {
   RunContext,
   InvestigationMode,
   InvestigationProgress,
+  ReserveBasis,
+  ScenarioLabResult,
 } from '../types.ts';
 
 const API_BASE = '';
+
+export async function fetchScenarioLab(context: RunContext, reserveBasis: ReserveBasis, signal?: AbortSignal): Promise<ScenarioLabResult> {
+  const response = await fetch(`${API_BASE}/api/scenarios/facility-demo/lab`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expected_context: context, reserve_basis: reserveBasis }),
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
+  });
+  return readJson(response, 'Scenario lab could not finish');
+}
 
 async function readJson(res: Response, fallback: string) {
   if (res.ok) return res.json();

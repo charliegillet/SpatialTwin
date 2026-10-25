@@ -4,7 +4,8 @@ Ensures every occupant is accounted for, capacities are respected,
 and no blocked paths or unachieved claims pass through to publication.
 """
 
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Set, Tuple, Optional, Any
+from backend.app.planner.schedule_checker import validate_schedule
 from backend.app.contracts import (
     ComputationStatus,
     EvaluationEnvelope,
@@ -37,6 +38,8 @@ class PlanChecker:
         status: ComputationStatus,
         horizon_seconds: int,
         time_step_seconds: int,
+        timeline: Optional[List[Dict[str, Any]]] = None,
+        flow_witness: Optional[Dict[Any, Dict[Any, int]]] = None,
     ) -> ValidatorReport:
         checks_run = []
         reasons = []
@@ -110,6 +113,15 @@ class PlanChecker:
             reasons.append(f"Partial completion ({completed_crossings}/{initial_population}) but status is {status}")
         elif completed_crossings == 0 and status != ComputationStatus.NO_FEASIBLE_EXIT:
             reasons.append(f"0 completed crossings but status is {status}; expected NO_FEASIBLE_EXIT")
+
+        if timeline is not None:
+            schedule_checks, schedule_reasons = validate_schedule(
+                self.venue, timeline, initial_population, completed_crossings,
+                zone_occupancy, boundary_breakdown, horizon_seconds, time_step_seconds,
+                blocked_portals | ({"P3"} if not p3_is_open else set()), blocked_boundaries, flow_witness,
+            )
+            checks_run.extend(schedule_checks)
+            reasons.extend(schedule_reasons)
 
         is_valid = (
             conservation_verified

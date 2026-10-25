@@ -1,12 +1,16 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowDownToLine, ArrowRight, Check, Cpu, FileJson, ShieldCheck, X } from 'lucide-react';
 import type { CaptureEvidence, GroundingResult, HealthStatus, InvestigationResult, ScenarioSnapshot } from '../types';
 import { groundingLabel, investigationLabel, sameContext } from '../ai/policy';
 import { ExecutionReceipt } from './ExecutionReceipt';
 import { InvestigationEvidence } from './InvestigationEvidence';
+import { buildScenarioBrief } from '../ai/scenarioBrief';
 interface Props { view: 'evidence' | 'devices' | 'guide' | null; onClose: () => void; snapshot: ScenarioSnapshot | null; health: HealthStatus | null; grounding: GroundingResult | null; capture: CaptureEvidence | null; investigation: InvestigationResult | null; planCurrent: boolean; }
 export function WorkspaceDetails({ view, onClose, snapshot, health, grounding, capture, investigation, planCurrent }: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const [brief, setBrief] = useState<{ html: string; url: string; filename: string } | null>(null);
+  useEffect(() => () => { if (brief) URL.revokeObjectURL(brief.url); }, [brief]);
+  useEffect(() => { if (view !== 'evidence') setBrief(null); }, [view]);
   useEffect(() => { if (view && !dialogRef.current?.open) dialogRef.current?.showModal(); if (!view && dialogRef.current?.open) dialogRef.current?.close(); }, [view]);
   const plan = snapshot?.current_plan;
   const proposal = grounding?.proposal;
@@ -15,8 +19,13 @@ export function WorkspaceDetails({ view, onClose, snapshot, health, grounding, c
     const url = URL.createObjectURL(new Blob([JSON.stringify(evidence, null, 2)], { type: 'application/json' }));
     const anchor = document.createElement('a'); anchor.href = url; anchor.download = `spatialtwin-evidence-r${snapshot?.context.scenario_revision ?? 'unknown'}.json`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
+  const prepareBrief = () => {
+    const html = buildScenarioBrief({ snapshot, health, grounding, capture, investigation, planCurrent });
+    const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+    setBrief({ html, url, filename: `spatialtwin-scenario-brief-r${snapshot?.context.scenario_revision ?? 'unknown'}.html` });
+  };
   return <dialog ref={dialogRef} className="workspace-dialog" onCancel={onClose} onClick={event => { if (event.target === dialogRef.current) onClose(); }} aria-labelledby="details-title"><div className="details-surface">
-    <header className="details-header"><div><span className="eyebrow">WORKSPACE / {view?.toUpperCase()}</span><h2 id="details-title">{view === 'devices' ? 'Physical connections' : view === 'guide' ? 'One change. A clearer picture.' : 'The evidence behind the result.'}</h2></div><button className="icon-button" onClick={onClose} aria-label="Close details"><X size={19} /></button></header>
+    <header className="details-header"><div><h2 id="details-title">{view === 'devices' ? 'Physical connections' : view === 'guide' ? 'One change. A clearer picture.' : 'The evidence behind the result.'}</h2></div><button className="icon-button" onClick={onClose} aria-label="Close details"><X size={19} /></button></header>
     <div className="details-body">
       {view === 'evidence' && <>
         <div className={`details-result${planCurrent ? ' is-current' : ''}`}><ShieldCheck size={21} /><div><strong>{planCurrent ? 'Current result accepted by the checker' : 'A current checked result is unavailable'}</strong><p>{planCurrent && plan ? `${plan.completed_crossings} crossings + ${plan.remaining_population} remaining = ${plan.initial_population} synthetic occupants.` : 'Review context and device state before using this result.'}</p></div></div>
@@ -28,9 +37,11 @@ export function WorkspaceDetails({ view, onClose, snapshot, health, grounding, c
         <section className="details-section"><h3>Investigation source</h3><p>{investigationLabel(investigation)}</p>{investigation && <p>{sameContext(investigation.base_context, snapshot?.context) ? 'Analysis matches the current context.' : 'Analysis context is stale.'}</p>}<ExecutionReceipt result={investigation} label={investigationLabel(investigation)} /><InvestigationEvidence investigation={investigation} /></section>
         <section className="details-section"><h3>Declared assumptions</h3>{plan?.assumptions.length ? <ul>{plan.assumptions.map(assumption => <li key={assumption}>{assumption}</li>)}</ul> : <p>No result assumptions are available.</p>}</section>
         <button className="button-primary details-export" disabled={!snapshot} onClick={exportEvidence}><ArrowDownToLine size={15} />Export evidence JSON<ArrowRight size={14} /></button>
+        <button className="button-secondary details-export" disabled={!snapshot} onClick={prepareBrief}><FileJson size={15} />{brief ? 'Refresh printable brief' : 'Prepare printable brief'}<ArrowRight size={14} /></button>
+        {brief && <div className="brief-preview"><p role="status">Snapshot prepared. Preview it below or download the self-contained HTML file. Refresh to include later changes.</p><a className="button-primary details-export" href={brief.url} download={brief.filename}><ArrowDownToLine size={15} />Download HTML<ArrowRight size={14} /></a><details><summary>Preview saved snapshot</summary><iframe title="Prepared scenario brief snapshot" srcDoc={brief.html} sandbox="" tabIndex={0} /></details></div>}
       </>}
       {view === 'devices' && <>
-        <div className="details-device-hero"><span><Cpu size={28} strokeWidth={1.2} /></span><div><p className="eyebrow">TABLETOP / RESERVE CONNECTOR</p><h3>P3 miniature gate</h3><p>{health?.hardware_mode === 'simulator' ? 'Simulator · no physical bench verification' : health?.hardware_mode === 'physical_serial' ? 'Physical serial bridge · reported state' : 'Connection unavailable'}</p></div></div>
+        <div className="details-device-hero"><span><Cpu size={28} strokeWidth={1.2} /></span><div><h3>P3 miniature gate</h3><p>{health?.hardware_mode === 'simulator' ? 'Simulator · no physical bench verification' : health?.hardware_mode === 'physical_serial' ? 'Physical serial bridge · reported state' : 'Connection unavailable'}</p></div></div>
         <section className="details-section"><h3>Reported state</h3><dl>{[['Gate', snapshot?.physical_gate_state], ['Boot receipt', snapshot?.last_hardware_boot_id], ['Gate epoch', snapshot?.last_gate_epoch], ['Physical revision', snapshot?.context.physical_revision]].map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value ?? 'Not received'}</dd></div>)}</dl><p>Command acceptance and endpoint observation are separate events. Unknown, transit and fault states keep the reserve result unavailable.</p></section>
         <section className="details-section"><h3>Route light preview<span>MODEL OUTPUT</span></h3><div className="details-light-bars">{['P1', 'P2', 'P3'].map((id, index) => {
           const isBlocked = snapshot?.blocked_portals.includes(id);

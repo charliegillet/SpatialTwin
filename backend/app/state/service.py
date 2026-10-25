@@ -117,6 +117,72 @@ class ScenarioService:
             return EvaluationEnvelope.model_validate(run_data)
         return None
 
+    def get_scenario_lab(self, context: RunContext, reserve_basis: str = "reported") -> Dict[str, Any]:
+        """Eight bounded local solves. No accepted edits, stored runs or device effects.
+
+        Each preset replaces blockages in its own numerical input. The original
+        context anchors geometry/parameters; it never makes a preview observed.
+        """
+        if reserve_basis not in {"reported", "closed_benchmark"}:
+            raise ValueError("Choose reported or closed_benchmark reserve basis")
+        with self._evaluation_lock:
+            with self.state_manager._state_lock:
+                if not context.is_current(self.state_manager.get_current_context()):
+                    raise ValueError("Scenario changed. Run the lab again on the current context")
+                state = self.state_manager.physical_gate_state.value
+                if reserve_basis == "reported" and state not in {"OPEN", "CLOSED"}:
+                    raise ValueError("P3 is unconfirmed. Wait for an endpoint or choose the explicit closed benchmark")
+                physical_open = state == "OPEN" if reserve_basis == "reported" else False
+            definitions = [
+                ("baseline", "All targets available", set(), set()),
+                ("p1_blocked", "P1 west passage blocked", {"P1"}, set()),
+                ("p2_blocked", "P2 east passage blocked", {"P2"}, set()),
+                ("b2_blocked", "B2 east boundary blocked", set(), {"B2"}),
+            ]
+            cases = []
+            all_errors = []
+            venue = self.state_manager.venue_graph
+            conditions = (venue.zones["EVENT"].initial_occupants, venue.default_horizon_seconds, venue.time_step_seconds)
+            for case_id, title, portals, boundaries in definitions:
+                pair = []
+                for alternative in (AlternativeId.KEEP_CURRENT, AlternativeId.OPEN_P3):
+                    if not context.is_current(self.state_manager.get_current_context()):
+                        raise ValueError("Scenario changed during lab calculation. Run the lab again")
+                    pair.append(self.planner.solve(
+                        base_context=context, alternative_id=alternative,
+                        blocked_portals=set(portals), blocked_boundaries=set(boundaries),
+                        p3_physical_open=physical_open,
+                    ))
+                reasons = []
+                for candidate, alternative in zip(pair, (AlternativeId.KEEP_CURRENT, AlternativeId.OPEN_P3)):
+                    if not candidate.validator_report.is_valid or candidate.status.value not in {"COMPLETE_WITHIN_MODEL", "PARTIAL_WITHIN_HORIZON", "NO_FEASIBLE_EXIT"}:
+                        reasons.append("A candidate failed independent validation")
+                    if not context.is_current(candidate.base_context) or candidate.alternative_id != alternative:
+                        reasons.append("A candidate does not match the requested context or alternative")
+                    if (candidate.initial_population, candidate.horizon_seconds, candidate.time_step_seconds) != conditions:
+                        reasons.append("Candidates must use the same fixed population, horizon and timestep")
+                    if candidate.completed_crossings < 0 or candidate.remaining_population < 0 or candidate.completed_crossings + candidate.remaining_population != candidate.initial_population:
+                        reasons.append("A candidate does not account for every occupant")
+                    if sum(candidate.boundary_breakdown.values()) != candidate.completed_crossings or any(candidate.boundary_breakdown.get(boundary, 0) for boundary in boundaries):
+                        reasons.append("A candidate has invalid boundary accounting")
+                reasons = list(dict.fromkeys(reasons))
+                cases.append({
+                    "id": case_id, "title": title, "blocked_portals": sorted(portals), "blocked_boundaries": sorted(boundaries),
+                    "keep_current": pair[0].model_dump(mode="json"), "open_p3": pair[1].model_dump(mode="json"),
+                    "net_gain": pair[1].completed_crossings - pair[0].completed_crossings if not reasons else None,
+                    "comparable": not reasons, "reasons": reasons,
+                })
+                all_errors.extend(f"{case_id}: {reason}" for reason in reasons)
+            with self.state_manager._state_lock:
+                if not context.is_current(self.state_manager.get_current_context()):
+                    raise ValueError("Scenario changed during lab calculation. Run the lab again")
+                return {
+                    "base_context": context.model_dump(mode="json"), "generated_at_iso": self.state_manager._now_iso(),
+                    "hypothetical": True, "provenance": "local_scenario_lab", "reserve_basis": reserve_basis,
+                    "p3_physical_open": physical_open, "cases": cases,
+                    "comparable": not all_errors, "errors": all_errors,
+                }
+
     def get_checked_comparison(
         self,
         context: RunContext,

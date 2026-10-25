@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>SpatialTwin · Local UI review</title>
+  <style>
+    :root { color-scheme:dark; font:14px/1.6 system-ui,sans-serif; color:#f1f3ef; background:#0c0f10; --line:#38423e; --muted:#b0b9b5; --accent:#d3ed9c; }
+    * { box-sizing:border-box; } body { margin:0; padding:24px; } button,input,textarea { font:inherit; } button,a,input,summary,textarea { -webkit-tap-highlight-color:#d3ed9c33; }
+    button { min-height:40px; padding:8px 13px; border:1px solid #59654e; border-radius:6px; color:#e4edd9; background:#253022; cursor:pointer; touch-action:manipulation; }
+    button:hover:not(:disabled) { background:#35432b; } button:disabled { color:#89958f; background:#202728; border-color:#394244; cursor:not-allowed; }
+    button[aria-pressed=true],button.primary { color:#1c2718; background:var(--accent); border-color:var(--accent); }
+    :is(button,input,summary,a,textarea):focus-visible { outline:2px solid var(--accent); outline-offset:3px; } a { color:#d3ed9c; }
+    h1,h2,h3,p { margin-top:0; } h1 { font-size:24px; font-weight:500; margin-bottom:6px; } h2 { font-size:19px; font-weight:500; } h3 { font-size:15px; font-weight:600; }
+    header { display:flex; justify-content:space-between; align-items:start; flex-wrap:wrap; gap:14px; margin-bottom:20px; } header p { margin-bottom:0; color:var(--muted); max-width:85ch; }
+    .badge { display:inline-block; margin-top:3px; padding:5px 9px; border:1px solid #63714e; border-radius:5px; color:#d8eac0; font-size:12px; }
+    .toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:10px; padding:14px; border:1px solid var(--line); border-radius:9px; background:#151a1b; }
+    .sizes { display:flex; gap:5px; flex-wrap:wrap; } label { display:flex; align-items:center; gap:7px; color:var(--muted); } input[type=number] { width:88px; min-height:40px; padding:6px 8px; border:1px solid #50604a; border-radius:5px; color:#f1f3ef; background:#101615; }
+    .actions { display:flex; flex-wrap:wrap; gap:8px; margin-left:auto; } #viewportLabel { margin:11px 0; font:12px/1.6 ui-monospace,monospace; color:#c2cfb9; }
+    #stage { width:100%; padding:12px; overflow:auto; border:1px solid var(--line); border-radius:8px; background:#1c2220; overscroll-behavior:contain; }
+    #frameViewport { position:relative; margin:0 auto; overflow:hidden; background:#0c0f10; } iframe { display:block; width:1440px; height:900px; transform-origin:top left; border:0; background:#0c0f10; }
+    .review-data { display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:24px; } .review-data section { min-width:0; border-top:1px solid var(--line); padding-top:18px; }
+    dl { margin:0; } dl>div { display:flex; justify-content:space-between; gap:15px; padding:7px 0; border-bottom:1px solid #26312b; } dt { color:var(--muted); } dd { margin:0; text-align:right; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+    .hint { color:var(--muted); font-size:12px; max-width:90ch; } .warning { color:#efd39a; } .error { color:#f0baa6; } #auditStatus { margin:15px 0; min-height:23px; }
+    details { margin:10px 0; border-top:1px solid #354139; padding-top:10px; } summary { min-height:36px; cursor:pointer; color:#dce8d2; overflow-wrap:anywhere; }
+    pre,code { font:12px/1.65 ui-monospace,monospace; white-space:pre-wrap; overflow-wrap:anywhere; } pre { padding:11px; border:1px solid #3c493a; border-radius:5px; background:#111714; max-height:300px; overflow:auto; }
+    ul { padding-left:22px; } li { margin:7px 0; overflow-wrap:anywhere; } .finding { border-top:1px solid var(--line); margin-top:15px; padding-top:12px; }
+    textarea { width:100%; min-height:88px; padding:11px; border:1px solid #50604a; border-radius:5px; background:#101615; color:#f1f3ef; resize:vertical; }
+    .notes-label { display:block; margin:18px 0 7px; } footer { margin-top:23px; color:var(--muted); font-size:12px; } #savedReport { overflow-wrap:anywhere; }
+    @media(max-width:850px) { body { padding:14px; } .review-data { grid-template-columns:1fr; } .actions { margin-left:0; width:100%; } .actions button { flex:1 1 180px; } }
+    @media(pointer:coarse) { button,summary,input { min-height:44px!important; } }
+  </style>
+</head>
+<body>
+  <header><div><h1>SpatialTwin UI review</h1><p>Built application, isolated state, real local numerical solver. Cloud inference, cameras and physical serial are disabled.</p></div><span class="badge">LOCAL REVIEW FIXTURE</span></header>
+  <div class="toolbar" aria-label="Review viewport controls">
+    <div class="sizes" role="group" aria-label="Iframe viewport width"><button data-width="320" aria-pressed="false">320px</button><button data-width="390" aria-pressed="false">390px</button><button data-width="768" aria-pressed="false">768px</button><button data-width="1440" aria-pressed="true">1440px</button></div>
+    <label>Height <input id="height" name="viewport_height" type="number" min="400" max="1600" step="1" value="900" aria-label="Iframe viewport height in pixels"></label>
+    <label><input id="fit" name="fit_preview" type="checkbox" checked>Fit display to window</label>
+    <div class="actions"><button id="refreshMetrics">Measure UI</button><button id="reloadFrame">Reload app</button><button id="runAudit" class="primary">Run accessibility audit</button><button id="exportReport" disabled>Export JSON</button></div>
+  </div>
+  <p id="viewportLabel" aria-live="polite"></p>
+  <div id="stage"><div id="frameViewport"><iframe id="preview" title="SpatialTwin isolated UI review fixture" src="/?__ui_review=1"></iframe></div></div>
+  <p id="auditStatus" role="status" aria-live="polite">Waiting for the built app to load.</p>
+  <div class="review-data">
+    <section><h2>Layout measurements</h2><dl id="metrics"></dl><p class="hint">Measurements describe the iframe's current visible viewport. Computed SVG font sizes and intentional ellipsis/clipping need visual review.</p><details><summary>Smallest visible text</summary><div id="smallestFonts"></div></details><details><summary id="clipSummary">Clipping warnings</summary><div id="clipping"></div></details></section>
+    <section><h2>Accessibility findings</h2><p id="auditSummary">No automated scan has run. Manual review is still required.</p><p class="hint">Rules: WCAG 2 A/AA, WCAG 2.1 A/AA, WCAG 2.2 AA and axe best practices. These checks cannot certify accessibility.</p><div id="violations"></div><div id="incomplete"></div></section>
+  </div>
+  <label class="notes-label" for="manualNotes">Manual review notes</label><textarea id="manualNotes" name="manual_review_notes" placeholder="Record keyboard flow, focus, zoom, screen-reader and real-device checks…"></textarea>
+  <p id="savedReport" role="status" aria-live="polite"></p>
+  <footer><p>Choose <strong>Fixture</strong> in Observe and <strong>Local solver</strong> in Compare. The simulator stays in memory. No live provider or physical validation is implied.</p><p>Only local assets are allowed. External font/CDN requests are blocked; system fonts can appear when a production font is CDN-hosted. Zero findings, or an incomplete/failed scan, still requires manual checks.</p><p id="buildInfo"></p></footer>
+  <script>
+    const frame=document.getElementById('preview');
+    const byId=id=>document.getElementById(id);
+    let width=1440, height=900, metrics=null, audit=null, review=null, auditRunning=false, saved=null;
+    const tags=['wcag2a','wcag2aa','wcag21a','wcag21aa','wcag22aa','best-practice'];
+    const timestamp=()=>new Date().toISOString();
+    const setStatus=(text,error=false)=>{byId('auditStatus').textContent=text;byId('auditStatus').className=error?'error':'';};
+    const node=(tag,text,className)=>{const element=document.createElement(tag);if(text!==undefined)element.textContent=text;if(className)element.className=className;return element;};
+    const text=value=>typeof value==='number'?new Intl.NumberFormat().format(value):String(value);
+    function frameBuild(){
+      const doc=frame.contentDocument;
+      return {index_sha256:doc?.querySelector('meta[name="spatialtwin-review-build"]')?.content??null,built_at_iso:doc?.querySelector('meta[name="spatialtwin-review-build-time"]')?.content??null};
+    }
+    function renderBuildInfo(){
+      const build=frameBuild();
+      byId('buildInfo').textContent=build.index_sha256&&build.built_at_iso?'Iframe build: '+new Intl.DateTimeFormat(undefined,{dateStyle:'medium',timeStyle:'short'}).format(new Date(build.built_at_iso))+' · index SHA-256 '+build.index_sha256+(review?' · isolated database '+review.database:''):'Iframe build identity unavailable. Reload the app after restarting this tool.';
+    }
+    function applyViewport(resetAudit=true){
+      const available=Math.max(200,byId('stage').clientWidth-26);
+      const scale=byId('fit').checked?Math.min(1,available/width):1;
+      frame.style.width=width+'px';frame.style.height=height+'px';frame.style.transform='scale('+scale+')';
+      byId('frameViewport').style.width=(width*scale)+'px';byId('frameViewport').style.height=(height*scale)+'px';
+      byId('viewportLabel').textContent=width+' × '+height+'px actual iframe viewport · '+Math.round(scale*100)+'% display scale';
+      document.querySelectorAll('[data-width]').forEach(button=>button.setAttribute('aria-pressed',String(Number(button.dataset.width)===width)));
+      if(resetAudit){audit=null;saved=null;renderAudit();byId('savedReport').textContent='Viewport changed. Run a fresh accessibility audit for this size.';}
+      requestAnimationFrame(()=>requestAnimationFrame(measure));
+    }
+    function visible(element,win){
+      const style=win.getComputedStyle(element),box=element.getBoundingClientRect();
+      const visuallyHidden=box.width<=1&&box.height<=1&&(style.clipPath==='inset(50%)'||style.clip.replace(/\s/g,'')==='rect(0px,0px,0px,0px)');
+      if(visuallyHidden)return false;
+      return style.display!=='none'&&style.visibility!=='hidden'&&style.opacity!=='0'&&box.width>0&&box.height>0&&box.bottom>0&&box.top<win.innerHeight&&box.right>0&&box.left<win.innerWidth;
+    }
+    function selector(element){
+      const parts=[];let current=element;
+      while(current&&current.nodeType===1&&parts.length<4){
+        if(current.id){parts.unshift('#'+CSS.escape(current.id));break;}
+        let name=current.tagName.toLowerCase();
+        if(current.parentElement){const siblings=[...current.parentElement.children].filter(item=>item.tagName===current.tagName);if(siblings.length>1)name+=':nth-of-type('+(siblings.indexOf(current)+1)+')';}
+        parts.unshift(name);current=current.parentElement;
+      }
+      return parts.join(' > ');
+    }
+    function measure(){
+      try{
+        const win=frame.contentWindow,doc=win.document;if(!doc.body||!doc.getElementById('root')?.children.length)return;
+        const fonts=[],clipping=[];
+        for(const element of [...doc.querySelectorAll('body *')].slice(0,6000)){
+          if(!visible(element,win))continue;
+          const direct=[...element.childNodes].filter(child=>child.nodeType===3).map(child=>child.textContent.trim()).join(' ').trim();
+          if(!direct)continue;
+          const style=win.getComputedStyle(element),size=parseFloat(style.fontSize),box=element.getBoundingClientRect();
+          const item={selector:selector(element),text:direct.slice(0,160),font_px:size,...(element.namespaceURI==='http://www.w3.org/2000/svg'?{font_note:'SVG computed size; rendered scale may differ'}:{})};
+          if(Number.isFinite(size))fonts.push(item);
+          if(box.left< -2||box.right>win.innerWidth+2)clipping.push({...item,kind:'Outside horizontal viewport',left:Math.round(box.left),right:Math.round(box.right)});
+          else if(element.namespaceURI==='http://www.w3.org/1999/xhtml'&&element.clientWidth>0&&element.scrollWidth>element.clientWidth+2)clipping.push({...item,kind:'Text overflows its box; ellipsis may be intentional',content_width:element.scrollWidth,box_width:element.clientWidth});
+        }
+        fonts.sort((a,b)=>a.font_px-b.font_px);
+        metrics={measured_at:timestamp(),viewport_width:win.innerWidth,viewport_height:win.innerHeight,content_width:Math.max(doc.documentElement.scrollWidth,doc.body.scrollWidth),content_height:Math.max(doc.documentElement.scrollHeight,doc.body.scrollHeight),scroll_y:Math.round(win.scrollY),smallest_visible_font_px:fonts[0]?.font_px??null,visible_text_below_11px:fonts.filter(item=>item.font_px<11).length,smallest_text:fonts.slice(0,12),clipping_warnings:clipping.slice(0,30),visible_text_samples:fonts.length};
+        const rows=[['Viewport',metrics.viewport_width+' × '+metrics.viewport_height+'px'],['Content width',metrics.content_width+'px'],['Horizontal overflow',metrics.content_width>metrics.viewport_width+1?'Yes · inspect manually':'None measured'],['Smallest visible font',metrics.smallest_visible_font_px===null?'No visible text measured':metrics.smallest_visible_font_px+'px'],['Visible text below 11px',metrics.visible_text_below_11px],['Clipping warnings',metrics.clipping_warnings.length]];
+        byId('metrics').replaceChildren(...rows.map(([label,value])=>{const row=node('div');row.append(node('dt',label),node('dd',text(value)));return row;}));
+        byId('smallestFonts').replaceChildren(...metrics.smallest_text.map(item=>node('p',item.font_px+'px · '+item.text+'\n'+item.selector+(item.font_note?'\n'+item.font_note:''),'hint')));
+        byId('clipSummary').textContent='Clipping warnings · '+metrics.clipping_warnings.length;
+        byId('clipping').replaceChildren(...(metrics.clipping_warnings.length?metrics.clipping_warnings.map(item=>node('p',item.kind+' · '+item.text+'\n'+item.selector,'warning')):[node('p','No clipping warning measured in the current visible viewport.','hint')]));
+        byId('exportReport').disabled=false;
+      }catch(error){setStatus('The iframe could not be measured. Reload it and check same-origin access.',true);}
+    }
+    function renderRules(target,heading,rules,incomplete=false){
+      target.replaceChildren();if(!rules.length)return;
+      target.append(node('h3',heading));
+      for(const rule of rules){
+        const block=node('details',undefined,'finding'),count=rule.nodes?.length??0;
+        block.append(node('summary',(rule.impact??(incomplete?'manual review':'unrated'))+' · '+rule.help+' · '+count+' affected nodes'));
+        block.append(node('p',rule.description),node('code','Rule: '+rule.id));
+        if(rule.helpUrl){const link=node('a','Rule documentation');link.href=rule.helpUrl;link.target='_blank';link.rel='noopener noreferrer';const paragraph=node('p');paragraph.append(link);block.append(paragraph);}
+        for(const affected of (rule.nodes??[]).slice(0,20))block.append(node('pre',(affected.target??[]).join(', ')+'\n'+(affected.failureSummary??'Needs manual review')+'\n'+(affected.html??'')));
+        if(count>20)block.append(node('p','Only the first 20 nodes are shown here. JSON contains every finding.','hint'));
+        target.append(block);
+      }
+    }
+    function renderAudit(){
+      if(!audit){byId('auditSummary').textContent='No automated scan has run for this viewport. Manual review is still required.';byId('violations').replaceChildren();byId('incomplete').replaceChildren();return;}
+      byId('auditSummary').textContent=(audit.violations?.length??0)+' automated violations · '+(audit.incomplete?.length??0)+' incomplete rules needing manual review · '+(audit.passes?.length??0)+' passed rules. This is not accessibility certification.';
+      renderRules(byId('violations'),'Violations',audit.violations??[]);
+      renderRules(byId('incomplete'),'Incomplete · manual checks required',audit.incomplete??[],true);
+    }
+    function report(){return{created_at:timestamp(),build:frameBuild(),viewport:{width,height},source:'UI review fixture + actual local solver',manual_review_required:true,manual_notes:byId('manualNotes').value,metrics,accessibility:audit?{status:'completed',tags,axe_version:frame.contentWindow.axe?.version,results:audit}:{status:'not_run',tags},audit_limits:'Automated checks assist manual review. Camera, physical devices and live providers were not tested.'};}
+    async function runAudit(){
+      if(auditRunning)return;
+      if(!frame.contentWindow.axe){setStatus('Local axe-core is unavailable. Run npm ci in frontend and reload the app. Manual review is still required.',true);return;}
+      auditRunning=true;byId('runAudit').disabled=true;byId('runAudit').textContent='Auditing…';setStatus('Running local axe rules against the iframe.');
+      const scannedWidth=width,scannedHeight=height,scannedBuild=frameBuild().index_sha256;
+      try{
+        const result=await frame.contentWindow.axe.run(frame.contentWindow.document,{runOnly:{type:'tag',values:tags},resultTypes:['violations','incomplete','passes','inapplicable']});
+        if(width!==scannedWidth||height!==scannedHeight||frameBuild().index_sha256!==scannedBuild){setStatus('Viewport or app build changed during the scan. Run it again.',true);return;}
+        audit=result;measure();renderAudit();setStatus('Audit finished. Review every violation and incomplete rule, then perform manual checks.');
+        const response=await fetch('/__review/report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(report())});
+        if(!response.ok)throw new Error('Report could not be saved');saved=await response.json();
+        const link=node('a',saved.path);link.href=saved.download_url;byId('savedReport').replaceChildren(node('span','Saved locally: '),link);
+      }catch(error){setStatus('Audit or report save failed: '+(error.message??'unknown error')+'. No accessibility conclusion can be drawn.',true);}
+      finally{auditRunning=false;byId('runAudit').disabled=false;byId('runAudit').textContent='Run accessibility audit';}
+    }
+    document.querySelectorAll('[data-width]').forEach(button=>button.addEventListener('click',()=>{width=Number(button.dataset.width);height=width<768?844:900;byId('height').value=height;applyViewport();}));
+    byId('height').addEventListener('change',()=>{const next=Number(byId('height').value);if(!Number.isInteger(next)||next<400||next>1600){byId('height').value=height;setStatus('Choose a height from 400 to 1600px.',true);return;}height=next;applyViewport();});
+    byId('fit').addEventListener('change',()=>applyViewport(false));
+    byId('refreshMetrics').addEventListener('click',measure);
+    byId('reloadFrame').addEventListener('click',()=>{audit=null;renderAudit();frame.contentWindow.location.reload();});
+    byId('runAudit').addEventListener('click',runAudit);
+    byId('exportReport').addEventListener('click',()=>{measure();const url=URL.createObjectURL(new Blob([JSON.stringify({review,...report()},null,2)],{type:'application/json'}));const anchor=node('a');anchor.href=url;anchor.download='spatialtwin-ui-review-'+width+'x'+height+'.json';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
+    frame.addEventListener('load',()=>{applyViewport();renderBuildInfo();setStatus('Built app loaded. Select Fixture / Local solver, then review layout and accessibility.');});
+    addEventListener('resize',()=>applyViewport(false));
+    fetch('/__review/meta').then(response=>response.json()).then(value=>{review=value;renderBuildInfo();}).catch(()=>setStatus('Review metadata could not be loaded.',true));
+    applyViewport(false);
+  </script>
+</body>
+</html>

@@ -77,13 +77,21 @@ Open **`http://localhost:8000`** in your browser.
 
 ### Demo without the physical board
 
-Keep `SERIAL_PORT` empty when starting the backend to use the hardware simulator. With server-side Gemini credentials configured, select **Demo board**, place the token at **P2**, and choose **Analyze board · Gemini**. This sends the displayed synthetic board image to the real provider; **Fixture** remains a separate option that uses no Gemini tokens.
+Keep `SERIAL_PORT` empty when starting the backend to use the hardware simulator. With server-side Gemini credentials configured, select **Demo board**, place the token at **P2**, and choose **Analyze board**. This sends the displayed synthetic board image to the real provider; **Fixture** remains a separate option that uses no Gemini tokens.
 
 Review the proposed `portal:P2`, then **Apply closure**. The checked illustrative model changes from 120 crossings to 60 out of 120 synthetic occupants. In Intervention analysis, select **Live Gemini** and run the analysis. A successful managed response compares the checked current layout with opening P3: 60 versus 117 crossings over the same 40-second horizon.
 
 After reviewing the comparison, open **Device** and approve P3 while the workspace explicitly says **Simulator**. A simulated open endpoint creates a new physical revision and checked result. Provider receipts, original image/hash and tool evidence are available through **Inspect evidence**. Old proposals and predictions become stale after their context changes. **Reset scenario** clears blockages but preserves the reported gate position; restart the simulator backend to rehearse from a closed gate again.
 
 This demonstrates live Gemini on a synthetic image and simulated hardware. It does not verify real-camera accuracy, a surveyed venue plan or physical gate behavior.
+
+### Explore and share a scenario
+
+- **Inspect plan** opens the computed schedule: scrub or play stored frames, inspect B1/B2 crossings, and account for every synthetic occupant in holding or transfer. This is aggregate numerical playback.
+- **Scenarios** opens a read-only lab. Optionally predict which closure benefits most, choose reported P3 or an explicitly closed-reserve benchmark, then **Run four cases**. Baseline/P1/P2/B2 each receive two independently checked local solves. The accepted scenario and hardware stay unchanged.
+- **Evidence → Prepare printable brief → Download HTML** prepares a self-contained HTML snapshot with an inline preview and an explicit download link with current/historical labels, sources, assumptions, checker findings and any recorded equal-condition comparison. Open it locally and use your browser's Print command. The existing JSON export remains available.
+
+See [feature research and verification](docs/research/feature-additions-2026-10-24.md) for comparable tools, verified winning-project references and implementation limits.
 
 ---
 
@@ -99,6 +107,9 @@ The offline harness blocks provider/network/device access and isolates SQLite. I
 ---
 
 ## Detailed Documentation Links
+
+- [Interface System](DESIGN.md) — Design tokens, responsive behavior, keyboard flow and UI research sources.
+- [UI Quality Toolkit](docs/ui-toolkit.md) — Installed design/testing skills and the isolated responsive + axe accessibility review (`cd frontend && npm run review:ui`).
 
 - [Production Operation & Release Gates](docs/ai/production-readiness.md) — Modes, retention, bounded execution and remaining real-camera/physical validation.
 - [Integration Assurance](docs/ai/integration-assurance-2026-10-24.md) — Offline, browser and actual provider evidence.

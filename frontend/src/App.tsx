@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Activity, ArrowRight, Box, Check, ChevronDown, CircleHelp, ClipboardCheck, Cpu, Expand, FileJson, Focus, Layers2, LayoutDashboard, LoaderCircle, Radio, RotateCcw, X } from 'lucide-react';
+import { Activity, ArrowRight, Box, Check, CircleHelp, ClipboardCheck, Cpu, Expand, FileJson, FlaskConical, Layers2, LayoutDashboard, LoaderCircle, Radio, RotateCcw, X } from 'lucide-react';
 import type { CaptureEvidence, CaptureRequest, GroundingResult, HealthStatus, InvestigationMode, InvestigationProgress, InvestigationResult, RunContext, ScenarioSnapshot } from './types';
 import { cancelInvestigation, clearBlockage, fetchHealth, fetchInvestigationProgress, fetchScenario, interpretGrounding, investigateScenario, operatorApproveGate, sendCommand } from './api/client';
 import { ObservationPanel } from './components/ObservationPanel';
@@ -8,6 +8,9 @@ import { InvestigationPanel } from './components/InvestigationPanel';
 import { WorkspaceDetails } from './components/WorkspaceDetails';
 import { EventConsole, type WorkspaceEvent } from './components/EventConsole';
 import { canApplyGrounding, canApproveInvestigation, groundingLabel, investigationLabel, sameContext } from './ai/policy';
+import { createRequestGate } from './ai/requestGate';
+import { ScheduleExplorer } from './features/schedule/ScheduleExplorer';
+import { ScenarioLab } from './features/scenario-lab/ScenarioLab';
 
 type Target = 'portal:P1' | 'portal:P2' | 'boundary:B2';
 type Details = 'evidence' | 'devices' | 'guide' | null;
@@ -33,6 +36,7 @@ export function App() {
   const [selectedTarget, setSelectedTarget] = useState<Target | null>(null);
   const [details, setDetails] = useState<Details>(null);
   const [presenting, setPresenting] = useState(false);
+  const [interventionView, setInterventionView] = useState<'analysis' | 'device'>('analysis');
   const [isEditing, setIsEditing] = useState(false);
   const [isMutating, setIsMutating] = useState(false);
   const [mutationError, setMutationError] = useState<string | null>(null);
@@ -53,11 +57,15 @@ export function App() {
   const [events, setEvents] = useState<WorkspaceEvent[]>([]);
   const eventId = useRef(0);
   const groundingRequest = useRef(0);
+  const groundingGate = useRef(createRequestGate());
+  const investigationGate = useRef(createRequestGate());
   const investigationRequest = useRef<string | null>(null);
   const healthRequest = useRef(0);
   const telemetryRef = useRef<string | null>(null);
   const spatialRef = useRef<HTMLDivElement>(null);
   const reviewRef = useRef<HTMLElement>(null);
+  const reviewTriggerRef = useRef<HTMLElement | null>(null);
+  const presenterTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const addEvent = useCallback((source: WorkspaceEvent['source'], message: string, level: WorkspaceEvent['level'] = 'info') => {
     setEvents(previous => [...previous.slice(-149), { id: ++eventId.current, at: new Date().toISOString(), source, message, level }]);
@@ -137,13 +145,25 @@ export function App() {
   }, [activeInvestigation]);
 
   useEffect(() => {
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { setPresenting(false); setIsEditing(false); setSelectedTarget(null); } };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || document.querySelector('dialog[open]')) return;
+      if (isEditing) {
+        setIsEditing(false); setSelectedTarget(null);
+        reviewTriggerRef.current?.focus({ preventScroll: true });
+      } else if (presenting) {
+        setPresenting(false);
+        presenterTriggerRef.current?.focus();
+      }
+    };
     window.addEventListener('keydown', escape);
     return () => window.removeEventListener('keydown', escape);
-  }, []);
+  }, [isEditing, presenting]);
 
   useEffect(() => {
-    if (isEditing) reviewRef.current?.scrollIntoView({ block: 'nearest', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+    if (isEditing) {
+      reviewRef.current?.scrollIntoView({ block: 'nearest', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+      reviewRef.current?.querySelector<HTMLSelectElement>('select')?.focus({ preventScroll: true });
+    }
   }, [isEditing, selectedTarget]);
 
   const physicalUncertain = Boolean(snapshot && ['UNKNOWN', 'TRANSIT', 'FAULT'].includes(snapshot.physical_gate_state));
@@ -170,7 +190,16 @@ export function App() {
       acceptSnapshot(response.snapshot);
       const sourceLabel = source === 'manual_override' ? 'Manual override' : groundingLabel(grounding);
       addEvent('scenario', reset ? 'Manual reset · scenario blockages cleared. Physical gate position is unchanged.' : `${sourceLabel} · ${id} ${alreadyBlocked && source === 'manual_override' ? 'restored' : 'marked unavailable'} after operator review.`, 'success');
-      if (reset) { setGrounding(null); setHeldCapture(null); setAppliedCaptureId(null); setInvestigation(null); }
+      if (reset) {
+        groundingRequest.current += 1;
+        groundingGate.current.invalidate();
+        investigationGate.current.invalidate();
+        investigationRequest.current = null;
+        setGrounding(null); setHeldCapture(null); setAppliedCaptureId(null); setInvestigation(null);
+        setGroundingError(null); setInvestigationError(null); setIsGrounding(false); setIsInvestigating(false);
+        setActiveInvestigation(null); setInvestigationProgress(null); setCancellationRequested(false); setIsCancelling(false);
+      }
+      reviewTriggerRef.current?.focus({ preventScroll: true });
       setSelectedTarget(null); setIsEditing(false);
       return true;
     } catch (error) { setMutationError(failureMessage(error)); addEvent('scenario', failureMessage(error), 'warning'); return false; }
@@ -179,6 +208,8 @@ export function App() {
 
   const capture = async (captureRequest: CaptureRequest) => {
     if (isGrounding || !snapshotRef.current || connection !== 'connected') return;
+    const token = groundingGate.current.start();
+    if (token === null) return;
     const request = ++groundingRequest.current;
     setIsGrounding(true); setGroundingError(null); setGrounding(null); setHeldCapture(captureRequest); setAppliedCaptureId(null);
     addEvent('vision', captureRequest.mode === 'fixture' ? `Reviewing ${captureRequest.fixture_target} fixture. No Gemini call requested.` : `${captureRequest.source_kind === 'annotated_plan' ? 'Synthetic demo board image' : 'Captured camera still'} sent to Gemini · ${captureRequest.thinking_level} thinking.`);
@@ -189,9 +220,9 @@ export function App() {
       if (response.status !== 'completed') setGroundingError(response.errors.join(' ') || `Gemini grounding ${response.status.replace(/_/g, ' ')}. No proposal was accepted.`);
       addEvent('vision', `${groundingLabel(response)} · ${response.proposal?.status ?? response.status} · ${response.proposal?.selected_entity_id ?? 'no target'}.`, response.status === 'completed' && response.proposal?.status === 'matched' ? 'success' : 'warning');
     } catch (error) { if (request === groundingRequest.current) { setGroundingError(failureMessage(error)); addEvent('vision', failureMessage(error), 'warning'); } }
-    finally { if (request === groundingRequest.current) setIsGrounding(false); }
+    finally { groundingGate.current.finish(token); if (request === groundingRequest.current) setIsGrounding(false); }
   };
-  const clearProposal = () => { groundingRequest.current++; setGrounding(null); setHeldCapture(null); setAppliedCaptureId(null); setGroundingError(null); setIsGrounding(false); };
+  const clearProposal = () => { groundingRequest.current++; groundingGate.current.invalidate(); setGrounding(null); setHeldCapture(null); setAppliedCaptureId(null); setGroundingError(null); setIsGrounding(false); };
   const applyProposal = async () => {
     const target = proposal && `${proposal.selected_entity_type}:${proposal.selected_entity_id}`;
     if (!proposal || !proposalCurrent || !canApplyGrounding(grounding, snapshotRef.current?.context) || !targets.some(item => item.id === target)) return;
@@ -199,6 +230,8 @@ export function App() {
   };
   const investigate = async (mode: InvestigationMode) => {
     if (isInvestigating || !snapshotRef.current || connection !== 'connected') return;
+    const token = investigationGate.current.start();
+    if (token === null) return;
     const expectedContext = { ...snapshotRef.current.context };
     const investigationId = crypto.randomUUID();
     investigationRequest.current = investigationId;
@@ -211,8 +244,8 @@ export function App() {
       const checkedCount = response.investigation.candidate_envelopes.filter(candidate => candidate.validator_report.is_valid).length;
       if (response.investigation.status !== 'completed') setInvestigationError(response.investigation.errors?.join(' ') || `Analysis ${response.investigation.status.replace(/_/g, ' ')}. No winning option is available.`);
       addEvent('analysis', `${investigationLabel(response.investigation)} · ${checkedCount} checked alternatives.`, response.investigation.status === 'completed' ? 'success' : 'warning');
-    } catch (error) { setInvestigationError(failureMessage(error)); addEvent('analysis', failureMessage(error), 'warning'); }
-    finally { if (investigationRequest.current === investigationId) { setIsInvestigating(false); setActiveInvestigation(null); setIsCancelling(false); } }
+    } catch (error) { if (investigationRequest.current === investigationId) { setInvestigationError(failureMessage(error)); addEvent('analysis', failureMessage(error), 'warning'); } }
+    finally { investigationGate.current.finish(token); if (investigationRequest.current === investigationId) { setIsInvestigating(false); setActiveInvestigation(null); setIsCancelling(false); } }
   };
   const cancelAnalysis = async () => {
     if (!activeInvestigation || isCancelling || cancellationRequested) return;
@@ -236,38 +269,78 @@ export function App() {
     catch (error) { addEvent('device', failureMessage(error), 'warning'); throw error; }
     finally { setIsApproving(false); }
   };
-  const selectTarget = (target: Target) => { setSelectedTarget(target); setIsEditing(true); setMutationError(null); };
+  const selectTarget = (target: Target) => { reviewTriggerRef.current = document.activeElement as HTMLElement | null; setSelectedTarget(target); setIsEditing(true); setMutationError(null); };
   const inspectModel = () => spatialRef.current?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'center' });
+
+  const availabilityMessage = connection !== 'connected'
+    ? 'Reconnect to the local backend before using this result.'
+    : physicalUncertain ? `P3 is ${snapshot?.physical_gate_state.toLowerCase()}. Wait for a confirmed endpoint.` : undefined;
+  const focusSection = (id: string) => requestAnimationFrame(() => {
+    const element = document.getElementById(id);
+    element?.scrollIntoView({ block: 'start', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+    element?.focus({ preventScroll: true });
+  });
+  const closeEditor = () => {
+    setIsEditing(false); setSelectedTarget(null);
+    reviewTriggerRef.current?.focus({ preventScroll: true });
+  };
 
   return <div className={`workspace-app${presenting ? ' workspace-presenting' : ''}`}>
     <a className="skip-link" href="#workspace-main">Skip to workspace</a>
     <aside className="workspace-rail" aria-label="Workspace navigation">
-      <a className="rail-brand" href="#workspace-main" aria-label="SpatialTwin workspace"><BrandMark small /></a><div className="rail-divider" />
+      <a className="rail-brand" href="#workspace-main" aria-label="SpatialTwin workspace"><BrandMark small /><span>SpatialTwin<span className="wordmark-dot" /></span></a>
+      <div className="rail-workspace-label">WORKSPACE</div>
       <nav>
-        <button className={!details ? 'is-active' : ''} onClick={() => { setDetails(null); window.scrollTo({ top: 0, behavior: 'smooth' }); }} aria-label="Overview" title="Overview"><LayoutDashboard size={19} strokeWidth={1.6} /><span>Overview</span></button>
-        <button onClick={inspectModel} aria-label="Spatial model" title="Spatial model"><Layers2 size={19} strokeWidth={1.6} /><span>Model</span></button>
-        <button className={details === 'evidence' ? 'is-active' : ''} onClick={() => setDetails('evidence')} aria-label="Evidence and run details" title="Evidence"><ClipboardCheck size={19} strokeWidth={1.6} /><span>Evidence</span></button>
-        <button className={details === 'devices' ? 'is-active' : ''} onClick={() => setDetails('devices')} aria-label="Device details" title="Devices"><Cpu size={19} strokeWidth={1.6} /><span>Devices</span></button>
+        <button className={!details ? 'is-active' : ''} onClick={() => { setDetails(null); window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }); }} aria-label="Overview"><LayoutDashboard size={18} strokeWidth={1.7} /><span>Overview</span></button>
+        <button onClick={inspectModel} aria-label="Spatial model"><Layers2 size={18} strokeWidth={1.7} /><span>Spatial model</span></button>
+        <button onClick={() => focusSection('scenario-lab')} aria-label="Scenarios in the scenario lab"><FlaskConical size={18} strokeWidth={1.7} /><span>Scenarios</span></button>
+        <button className={details === 'evidence' ? 'is-active' : ''} onClick={() => setDetails('evidence')} aria-label="Evidence and run details"><ClipboardCheck size={18} strokeWidth={1.7} /><span>Evidence</span></button>
+        <button className={details === 'devices' ? 'is-active' : ''} onClick={() => setDetails('devices')} aria-label="Devices and connection details"><Cpu size={18} strokeWidth={1.7} /><span>Devices</span></button>
       </nav>
-      <div className="rail-bottom"><button onClick={() => setDetails('guide')} aria-label="Workspace guide" title="Workspace guide"><CircleHelp size={19} strokeWidth={1.6} /></button><span className="operator-avatar" title="Local operator">OP</span></div>
+      <div className="rail-scope"><span className="status-dot" /><div>Tabletop 01<small>Illustrative model</small></div></div>
+      <div className="rail-bottom"><button onClick={() => setDetails('guide')} aria-label="Workspace guide"><CircleHelp size={18} /><span>Workspace guide</span></button><div className="operator-profile"><span className="operator-avatar">OP</span><span>Local operator<small>Review before applying</small></span></div></div>
     </aside>
     <div className="workspace-content">
-      <header className="workspace-topbar"><a className="workspace-wordmark" href="#workspace-main">SpatialTwin<span className="wordmark-dot" /></a><span className="topbar-divider" /><div className="workspace-breadcrumb">Workspace<ChevronDown size={12} /><span>/</span><strong>Tabletop 01</strong></div><div className="workspace-connection"><span className={connection === 'connected' ? 'status-dot' : 'status-dot status-dot-waiting'} />{connection === 'connected' ? 'Local backend connected' : connection === 'connecting' ? 'Connecting' : 'Reconnecting'}<span className="connection-short">SSE</span></div><button className="topbar-evidence" onClick={() => setDetails('evidence')}><FileJson size={14} /><span>Evidence</span><ArrowRight size={12} /></button></header>
-      <main id="workspace-main" className="workspace-main">
-        <div className="workspace-heading"><div><p className="eyebrow"><span />PHYSICAL + DIGITAL / ONE SHARED CONTEXT</p><h1>Spatial control room<span className="title-period">.</span></h1><p className="workspace-subtitle">See the change. Understand the consequence.</p></div><div className="workspace-heading-actions"><span className="session-chip"><Box size={13} />Illustrative tabletop</span><button className="button-secondary" onClick={() => void mutate(undefined, true)} disabled={!canChange}><RotateCcw size={13} /><span>{isMutating ? 'Updating…' : 'Reset scenario'}</span></button><button className={`button-presenter${presenting ? ' is-active' : ''}`} onClick={() => setPresenting(!presenting)} aria-pressed={presenting}><Expand size={14} /><span>{presenting ? 'Exit presenter' : 'Present'}</span></button></div></div>
-        {loadError && <div className="workspace-alert" role="alert"><Radio size={16} /><span>{loadError}</span><button onClick={() => void refresh()}>Reconnect<RotateCcw size={12} /></button></div>}
-        {mutationError && <div className="workspace-alert" role="alert"><span>{mutationError}</span><button onClick={() => setMutationError(null)} aria-label="Dismiss error"><X size={15} /></button></div>}
-        <section className="workspace-metrics" aria-label="Current modeled result">
-          <div className="metric-primary"><div className="metric-label"><span>Modeled crossings</span><span className={`result-tag${planCurrent ? ' is-valid' : ''}`}>{planCurrent ? <Check size={10} /> : <Activity size={10} />}{planCurrent ? 'Checked' : snapshot ? 'Pending' : 'Connecting'}</span></div><div className="metric-value">{planCurrent ? plan?.completed_crossings : '—'}<span>/ {plan?.initial_population ?? '—'}</span><small>within {plan?.horizon_seconds ?? '—'}s</small></div><div className="metric-track"><span style={{ width: planCurrent && plan && plan.initial_population > 0 ? `${plan.completed_crossings / plan.initial_population * 100}%` : '0%' }} /></div></div>
-          <div><div className="metric-label">Remaining population<Focus size={13} /></div><div className="metric-value">{planCurrent ? plan?.remaining_population : '—'}<small>synthetic occupants</small></div><span className="metric-caption">{planCurrent ? "All occupants remain accounted for" : "Awaiting a current checked result"}</span></div>
-          <div><div className="metric-label">Scenario state<Layers2 size={13} /></div><div className={`metric-state${blocked.length ? ' has-blockage' : ''}`}><span className={`status-dot${blocked.length ? ' status-dot-warning' : ''}`} />{!snapshot ? 'Awaiting scenario' : blocked.length ? `${blocked.length} ${blocked.length === 1 ? 'target' : 'targets'} blocked` : 'Baseline layout'}</div><button className="metric-link" onClick={() => { setIsEditing(!isEditing); if (!selectedTarget) setSelectedTarget('portal:P2'); }} disabled={!snapshot}>{isEditing ? 'Close scenario editor' : 'Edit scenario'}<ArrowRight size={11} /></button></div>
-          <div><div className="metric-label">Physical connection<Cpu size={13} /></div><div className="metric-state"><span className="simulator-dot" />{health?.hardware_mode === 'simulator' ? 'Simulator' : health?.hardware_mode === 'physical_serial' ? 'Serial bridge' : 'Not connected'}</div><button className="metric-link" onClick={() => setDetails('devices')}>P3 reported {snapshot?.physical_gate_state.toLowerCase() ?? 'unknown'}<ArrowRight size={11} /></button></div>
+      <header className="workspace-topbar">
+        <a className="workspace-wordmark" href="#workspace-main">SpatialTwin<span className="wordmark-dot" /></a>
+        <div className="workspace-breadcrumb"><span>Workspace</span><span>/</span><strong>Tabletop 01</strong></div>
+        <div className="workspace-connection" role="status"><span className={connection === 'connected' ? 'status-dot' : 'status-dot status-dot-waiting'} />{connection === 'connected' ? 'Backend connected' : connection === 'connecting' ? 'Connecting…' : 'Reconnecting…'}</div>
+        <button className="topbar-evidence" onClick={() => setDetails('evidence')}><FileJson size={15} /><span>Evidence</span></button>
+      </header>
+      <main id="workspace-main" className="workspace-main" tabIndex={-1}>
+        <div className="workspace-heading">
+          <div><h1>Spatial control room<span className="title-period">.</span></h1><p className="workspace-subtitle">Observe a change. Review its impact. Confirm the result.</p></div>
+          <div className="workspace-heading-actions"><button className="button-secondary" onClick={() => void mutate(undefined, true)} disabled={!canChange} aria-label={`${isMutating ? 'Updating…' : 'Clear blockages'}. P3 position stays unchanged.`} title="Clear model blockages. P3 position stays unchanged."><RotateCcw size={14} /><span>{isMutating ? 'Updating…' : 'Clear blockages'}</span></button><button ref={presenterTriggerRef} className={`button-presenter${presenting ? ' is-active' : ''}`} onClick={() => setPresenting(!presenting)} aria-pressed={presenting}><Expand size={15} /><span>{presenting ? 'Exit presenter' : 'Present'}</span></button></div>
+        </div>
+        <div className="workspace-scope"><span><Box size={13} />Illustrative tabletop · synthetic population</span><span>Clear blockages preserves P3’s reported position.</span></div>
+        {loadError && <div className="workspace-alert" role="alert"><Radio size={17} /><span>{loadError}</span><button onClick={() => void refresh()}>Reconnect<RotateCcw size={13} /></button></div>}
+        {mutationError && <div className="workspace-alert" role="alert"><span>{mutationError}</span><button onClick={() => setMutationError(null)} aria-label="Dismiss error"><X size={16} /></button></div>}
+        <section className="workspace-metrics" aria-label="Current modeled result" aria-busy={Boolean(snapshot && !planCurrent)}>
+          <div className="metric-primary"><div className="metric-label"><span>Modeled crossings</span><span className={`result-tag${planCurrent ? ' is-valid' : ''}`}>{planCurrent ? <Check size={12} /> : <Activity size={12} />}{planCurrent ? 'Checked' : snapshot ? 'Pending' : 'Connecting'}</span></div><div className="metric-value">{planCurrent ? plan?.completed_crossings : '—'}<span>/ {plan?.initial_population ?? '—'}</span><small>in {plan?.horizon_seconds ?? '—'}s</small></div></div>
+          <div><div className="metric-label">Remaining population</div><div className="metric-value">{planCurrent ? plan?.remaining_population : '—'}<small>synthetic occupants</small></div><span className="metric-caption">{planCurrent ? 'Every occupant accounted for' : 'Awaiting a current checked result'}</span></div>
+          <div><div className="metric-label">Scenario</div><div className={`metric-state${blocked.length ? ' has-blockage' : ''}`}><span className={`status-dot${blocked.length ? ' status-dot-warning' : ''}`} />{!snapshot ? 'Awaiting scenario' : blocked.length ? `${blocked.length} ${blocked.length === 1 ? 'target' : 'targets'} blocked` : 'Baseline layout'}</div><button className="metric-link" onClick={event => { reviewTriggerRef.current = event.currentTarget; if (isEditing) closeEditor(); else { setIsEditing(true); if (!selectedTarget) setSelectedTarget('portal:P2'); } }} disabled={!snapshot}>{isEditing ? 'Close editor' : 'Edit scenario'}<ArrowRight size={12} /></button></div>
+          <div><div className="metric-label">Hardware</div><div className="metric-state"><Cpu size={16} />{health?.hardware_mode === 'simulator' ? 'Simulator' : health?.hardware_mode === 'physical_serial' ? 'Serial bridge' : 'Not connected'}</div><button className="metric-link" onClick={() => setDetails('devices')}>P3 · {snapshot?.physical_gate_state.toLowerCase() ?? 'unknown'}<ArrowRight size={12} /></button></div>
         </section>
-        {isEditing && selectedTarget && <section ref={reviewRef} className="scenario-review" aria-label="Review scenario change"><div className="scenario-review-symbol"><Layers2 size={19} /></div><div className="scenario-review-copy"><span className="eyebrow">HYPOTHETICAL SCENARIO / REVIEW CHANGE</span><h2>{targetSpec?.title}</h2><p>{targetSpec?.description} {targetBlocked ? 'Restore its availability in the model.' : 'Mark it unavailable in the model.'}</p></div><select aria-label="Scenario target" value={selectedTarget} onChange={event => setSelectedTarget(event.target.value as Target)}>{targets.map(target => <option key={target.id} value={target.id}>{target.title}</option>)}</select><button className="button-primary" disabled={!canChange} onClick={() => void mutate(selectedTarget)}>{isMutating ? <LoaderCircle size={14} className="spin" /> : <Check size={14} />}{targetBlocked ? 'Restore target' : 'Apply blockage'}</button><button className="icon-button" aria-label="Cancel scenario change" onClick={() => { setIsEditing(false); setSelectedTarget(null); }}><X size={16} /></button></section>}
-        <div className="workspace-section-heading"><h2>Observe & understand</h2><span><span className="status-dot" />{connection === 'connected' ? 'Current scenario' : 'Waiting for connection'}<i />SCN {snapshot ? String(snapshot.context.scenario_revision).padStart(2, '0') : '—'}</span></div>
-        <div className="workspace-hero"><ObservationPanel proposal={proposal} result={grounding} currentContext={snapshot?.context} liveConfigured={health?.ai?.direct.configured ?? health?.live_api_configured ?? false} fixturesEnabled={health?.ai?.fixtures_enabled ?? false} appliedCaptureId={appliedCaptureId} isLoading={isGrounding} isApplying={isMutating} isProposalCurrent={proposalCurrent} error={groundingError} onCapture={capture} onApply={applyProposal} onClearProposal={clearProposal} isAvailable={connection === 'connected' && Boolean(snapshot)} /><div ref={spatialRef} className="workspace-spatial"><SpatialViewport snapshot={displaySnapshot} selectedTarget={selectedTarget} onSelectTarget={selectTarget} /></div></div>
-        <div className="workspace-analysis"><EventConsole events={events} connected={connection === 'connected'} onClear={() => setEvents([])} /><InvestigationPanel snapshot={connection === 'connected' ? displaySnapshot : null} investigation={investigation} progress={investigationProgress} isLoading={isInvestigating} error={investigationError} isCurrent={investigationCurrent} onInvestigate={investigate} onCancel={cancelAnalysis} isCancelling={isCancelling} cancellationRequested={cancellationRequested} onApprove={approve} isApproving={isApproving} hardwareMode={health?.hardware_mode === 'simulator' ? 'Simulator' : health?.hardware_mode === 'physical_serial' ? 'Serial' : ''} apiConfigured={health?.ai?.managed.configured ?? health?.live_api_configured ?? false} localEnabled={health?.ai?.fixtures_enabled ?? false} /></div>
-        <footer className="workspace-footer"><span><BrandMark small />A model of possibilities. Every result has a source.</span><div><span>{snapshot ? `SCENARIO R${snapshot.context.scenario_revision} / PHYSICAL R${snapshot.context.physical_revision}` : 'AWAITING CONTEXT'}</span><button onClick={() => setDetails('evidence')}>Inspect evidence<ArrowRight size={12} /></button></div></footer>
+        <nav className="workflow-guide" aria-label="Workflow">
+          <button onClick={() => focusSection('observation-workspace')}><span>01</span><div><strong>Observe</strong><small>Choose an input</small></div><ArrowRight size={14} /></button>
+          <button onClick={() => focusSection('observation-review')}><span>02</span><div><strong>Review</strong><small>Apply a proposed change</small></div><ArrowRight size={14} /></button>
+          <button onClick={() => { setInterventionView('analysis'); focusSection('intervention-workspace'); }}><span>03</span><div><strong>Compare</strong><small>Check the alternatives</small></div><ArrowRight size={14} /></button>
+          <button onClick={() => { setInterventionView('device'); focusSection('intervention-workspace'); }}><span>04</span><div><strong>Confirm</strong><small>Review endpoint evidence</small></div><ArrowRight size={14} /></button>
+        </nav>
+        {isEditing && selectedTarget && <section ref={reviewRef} className="scenario-review" aria-label="Review scenario change"><div className="scenario-review-symbol"><Layers2 size={20} /></div><div className="scenario-review-copy"><h2>{targetSpec?.title}</h2><p>{targetSpec?.description} {targetBlocked ? 'Restore its availability in the model.' : 'Mark it unavailable in the model.'}</p><span>Manual scenario change · review before applying</span></div><div className="scenario-review-actions"><label>Target<select aria-label="Scenario target" value={selectedTarget} onChange={event => setSelectedTarget(event.target.value as Target)}>{targets.map(target => <option key={target.id} value={target.id}>{target.title}</option>)}</select></label><button className="button-primary" disabled={!canChange} onClick={() => void mutate(selectedTarget)}>{isMutating ? <LoaderCircle size={15} className="spin" /> : <Check size={15} />}{targetBlocked ? 'Restore target' : 'Apply blockage'}</button></div><button className="icon-button" aria-label="Cancel scenario change" onClick={closeEditor}><X size={18} /></button></section>}
+        <div className="workspace-hero">
+          <ObservationPanel proposal={proposal} result={grounding} currentContext={snapshot?.context} liveConfigured={health?.ai?.direct.configured ?? health?.live_api_configured ?? false} fixturesEnabled={health?.ai?.fixtures_enabled ?? false} appliedCaptureId={appliedCaptureId} isLoading={isGrounding} isApplying={isMutating} isProposalCurrent={proposalCurrent} availabilityMessage={availabilityMessage} error={groundingError} onCapture={capture} onApply={applyProposal} onClearProposal={clearProposal} isAvailable={connection === 'connected' && Boolean(snapshot)} />
+          <div ref={spatialRef} className="workspace-spatial"><SpatialViewport snapshot={displaySnapshot} selectedTarget={selectedTarget} onSelectTarget={selectTarget} onInspectPlan={() => focusSection('schedule-explorer')} /></div>
+        </div>
+        <div className="workspace-analysis">
+          <InvestigationPanel view={interventionView} onViewChange={setInterventionView} snapshot={connection === 'connected' ? displaySnapshot : null} investigation={investigation} progress={investigationProgress} isLoading={isInvestigating} error={investigationError} isCurrent={investigationCurrent} availabilityMessage={availabilityMessage} onInvestigate={investigate} onCancel={cancelAnalysis} isCancelling={isCancelling} cancellationRequested={cancellationRequested} onApprove={approve} isApproving={isApproving} hardwareMode={health?.hardware_mode === 'simulator' ? 'Simulator' : health?.hardware_mode === 'physical_serial' ? 'Serial' : ''} apiConfigured={health?.ai?.managed.configured ?? health?.live_api_configured ?? false} localEnabled={health?.ai?.fixtures_enabled ?? false} />
+          <EventConsole events={events} connected={connection === 'connected'} onClear={() => setEvents([])} />
+        </div>
+        <div className="workspace-exploration">
+          <ScheduleExplorer snapshot={displaySnapshot} isCurrent={planCurrent} />
+          <ScenarioLab snapshot={snapshot} isCurrent={connection === 'connected'} />
+        </div>
+        <footer className="workspace-footer"><span>Illustrative geometry. Every result has a source.</span><button onClick={() => setDetails('guide')}>Workspace guide</button><div><span>{snapshot ? `Scenario ${snapshot.context.scenario_revision} · physical ${snapshot.context.physical_revision}` : 'Awaiting context'}</span><button onClick={() => setDetails('evidence')}>Inspect evidence<ArrowRight size={13} /></button></div></footer>
       </main>
     </div>
     <WorkspaceDetails view={details} onClose={() => setDetails(null)} snapshot={snapshot} health={health} grounding={grounding} capture={heldCapture} investigation={investigation} planCurrent={planCurrent} />

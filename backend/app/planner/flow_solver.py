@@ -7,6 +7,7 @@ every occupant without heuristic shortcuts or fabricated survival metrics.
 from __future__ import annotations
 import hashlib
 import time
+from uuid import uuid4
 from typing import Dict, List, Optional, Set, Tuple
 import networkx as nx
 
@@ -60,10 +61,10 @@ class FlowPlanner:
         # Candidate hash differs deterministically by scenario and alternative
         candidate_seed = (
             f"{base_context.compute_hash()}:{alternative_id.value}:"
-            f"portals={sorted(effective_blocked_portals)}:boundaries={sorted(effective_blocked_boundaries)}:H={H}"
+            f"portals={sorted(effective_blocked_portals)}:boundaries={sorted(effective_blocked_boundaries)}:H={H}:dt={dt}"
         )
         candidate_hash = hashlib.sha256(candidate_seed.encode("utf-8")).hexdigest()[:16]
-        run_id = f"run-{candidate_hash[:8]}-{int(time.time())}"
+        run_id = f"run-{uuid4().hex}"
 
         # Build Time-Expanded Flow Network
         G = nx.DiGraph()
@@ -184,19 +185,23 @@ class FlowPlanner:
             cum_b1 += step_b1
             cum_b2 += step_b2
 
-            # Estimate zone occupancies at step t
+            # Snapshot after arrivals and boundary service, before departures.
+            # Departing people remain in their origin at this sample; longer
+            # journeys have an explicit in-transit count between sample times.
             step_occ: Dict[str, int] = {}
             for z_id in self.venue.zones:
-                if t == T:
-                    step_occ[z_id] = zone_occupancy.get(z_id, 0)
-                else:
-                    # Ingress/Wait into (z_id, t)
-                    wait_flow = flow_dict.get((z_id, t), {}).get((z_id, t + 1), 0)
-                    step_occ[z_id] = wait_flow
-
-            # At t=0, initial population is in EVENT
-            if t == 0:
-                step_occ["EVENT"] = N
+                node = (z_id, t)
+                incoming = sum(edges.get(node, 0) for edges in flow_dict.values())
+                boundary_service = sum(amount for destination, amount in flow_dict.get(node, {}).items()
+                                       if isinstance(destination, str) and destination.startswith("B_"))
+                step_occ[z_id] = incoming - boundary_service
+            in_transit = 0
+            for source, destinations in flow_dict.items():
+                if not isinstance(source, tuple):
+                    continue
+                for destination, amount in destinations.items():
+                    if isinstance(destination, tuple) and source[0] != destination[0] and source[1] < t < destination[1]:
+                        in_transit += amount
 
             timeline.append({
                 "step": t,
@@ -205,6 +210,7 @@ class FlowPlanner:
                 "west_occupancy": step_occ.get("WEST", 0),
                 "east_occupancy": step_occ.get("EAST", 0),
                 "reserve_occupancy": step_occ.get("RESERVE", 0),
+                "in_transit_occupancy": in_transit,
                 "b1_cumulative": cum_b1,
                 "b2_cumulative": cum_b2,
                 "total_completed": cum_b1 + cum_b2,
@@ -233,7 +239,8 @@ class FlowPlanner:
         assumptions = [
             f"Horizon: {H}s, step: {dt}s, initial synthetic population: {N}",
             "Single-commodity all-population network flow with full occupant conservation",
-            "Finite-rate floor transfer boundaries B1 (2 pers/s) and B2 (2 pers/s)",
+            "Finite-rate floor transfer boundaries: " + ", ".join(
+                f"{key} ({spec.service_rate_per_sec:g} people/s)" for key, spec in self.venue.boundaries.items()),
             "P3 operates as miniature internal reserve connector feeding existing B2",
         ]
 
@@ -251,6 +258,8 @@ class FlowPlanner:
             status=status,
             horizon_seconds=H,
             time_step_seconds=dt,
+            timeline=timeline,
+            flow_witness=flow_dict,
         )
 
         timings_ms = (time.perf_counter() - start_time) * 1000.0

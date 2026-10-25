@@ -63,6 +63,7 @@ export interface TimelineStep {
   west_occupancy: number;
   east_occupancy: number;
   reserve_occupancy: number;
+  in_transit_occupancy?: number;
   b1_cumulative: number;
   b2_cumulative: number;
   total_completed: number;
@@ -173,4 +174,29 @@ export interface HealthStatus {
     managed: { configured: boolean; verified: boolean };
     fixtures_enabled: boolean;
   };
+}
+
+export type ReserveBasis = 'reported' | 'closed_benchmark';
+export type ScenarioCaseId = 'baseline' | 'p1_blocked' | 'p2_blocked' | 'b2_blocked';
+export interface ScenarioLabCase {
+  id: ScenarioCaseId;
+  title: string;
+  blocked_portals: string[];
+  blocked_boundaries: string[];
+  keep_current: EvaluationEnvelope;
+  open_p3: EvaluationEnvelope;
+  net_gain: number | null;
+  comparable: boolean;
+  reasons: string[];
+}
+export interface ScenarioLabResult {
+  base_context: RunContext;
+  generated_at_iso: string;
+  hypothetical: true;
+  provenance: 'local_scenario_lab';
+  reserve_basis: ReserveBasis;
+  p3_physical_open: boolean;
+  cases: ScenarioLabCase[];
+  comparable: boolean;
+  errors: string[];
 }

@@ -67,7 +67,7 @@ class RunContext(BaseModel):
     scenario_revision: int = Field(..., ge=1, description="Monotonically increasing scenario revision")
     physical_revision: int = Field(..., ge=1, description="Monotonically increasing physical revision")
     parameters_revision: str = Field(default="params-v1", description="Declared capacity and solver parameters revision")
-    solver_version: str = Field(default="spatialtwin-flow-v1.0", description="Numerical solver implementation version")
+    solver_version: str = Field(default="spatialtwin-flow-v1.1", description="Numerical solver implementation version")
     state_epoch: str = Field(default="legacy", min_length=1, max_length=128, description="Unique authoritative process session; old evidence cannot become current after restart")
     context_hash: Optional[str] = Field(default=None, description="Canonical SHA256 of context fields")
 
@@ -94,6 +94,12 @@ class RunContext(BaseModel):
             and self.state_epoch == other.state_epoch
             and self.context_hash == other.context_hash == self.compute_hash() == other.compute_hash()
         )
+
+
+class ScenarioLabRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_context: RunContext
+    reserve_basis: Literal["reported", "closed_benchmark"] = "reported"
 
 
 class Capture(BaseModel):

@@ -3,6 +3,7 @@ import { ArrowUpRight, Camera, Check, CircleAlert, Image, Layers2, LoaderCircle,
 import type { CaptureRequest, GroundingProposalV1, GroundingResult, RunContext, ThinkingLevel } from '../types';
 import { canApplyGrounding, groundingLabel } from '../ai/policy';
 import { captureEvidence } from '../ai/evidence';
+import { createRequestGate } from '../ai/requestGate';
 import { DEMO_BOARD_SIZE, demoBoardCapture, demoBoardSvg } from '../ai/demoBoard';
 import { ExecutionReceipt } from './ExecutionReceipt';
 import './ObservationPanel.css';
@@ -16,6 +17,7 @@ export interface ObservationPanelProps {
   isLoading: boolean;
   isApplying: boolean;
   isProposalCurrent: boolean;
+  availabilityMessage?: string;
   isAvailable?: boolean;
   appliedCaptureId?: string | null;
   error: string | null;
@@ -64,7 +66,7 @@ function TabletopPreview({ target }: { target: FixtureTarget }) {
       {[[30, 110], [105, 110], [230, 110], [30, 35], [230, 35]].map(([x, y]) => <g key={`${x}-${y}`}><polygon points={face(x, y + 3, 30, 20)} fill="#202d29" /><polygon points={face(x, y, 30, 20, 7)} fill="#75806a" stroke="#92977f" strokeWidth=".6" /></g>)}
       {walls.map(([x, y, w, d], index) => <g key={index}><polygon points={[point(x, y + d), point(x + w, y + d), point(x + w, y + d, 19), point(x, y + d, 19)].join(' ')} fill="#636c5c" /><polygon points={[point(x + w, y), point(x + w, y + d), point(x + w, y + d, 19), point(x + w, y, 19)].join(' ')} fill="#78816e" /><polygon points={face(x, y, w, d, 19)} fill="#a5ac94" /></g>)}
       <g className="observation-board-labels" fill="#cbd2ba" textAnchor="middle">
-        {[[150, 70, 'MAIN EVENT HALL'], [60, 285, 'WEST'], [240, 285, 'EAST'], [150, 286, 'RESERVE']].map(([x, y, label]) => <text key={label} x={Number(point(Number(x), Number(y)).split(',')[0])} y={Number(point(Number(x), Number(y)).split(',')[1])} fontSize={label === 'RESERVE' ? 5.5 : undefined}>{label}</text>)}
+        {[[150, 70, 'MAIN EVENT HALL'], [60, 285, 'WEST'], [240, 285, 'EAST'], [150, 286, 'RESERVE']].map(([x, y, label]) => <text key={label} x={Number(point(Number(x), Number(y)).split(',')[0])} y={Number(point(Number(x), Number(y)).split(',')[1])} fontSize={label === 'RESERVE' ? 10 : undefined}>{label}</text>)}
       </g>
       {[['P1', 60, 230], ['P2', 240, 230], ['B2', 240, 386]].map(([label, x, y]) => <g key={label}><ellipse cx={Number(point(Number(x), Number(y)).split(',')[0])} cy={Number(point(Number(x), Number(y)).split(',')[1])} rx="13" ry="8" fill={target === label ? '#633c32' : '#243e35'} stroke={target === label ? '#f68c7c' : '#83a28b'} strokeWidth=".8" /><text x={Number(point(Number(x), Number(y)).split(',')[0])} y={Number(point(Number(x), Number(y)).split(',')[1]) + 2.5} fill={target === label ? '#ffb8a8' : '#bdcfb2'} textAnchor="middle" className="observation-board-pad">{label}</text></g>)}
       <g>
@@ -76,7 +78,7 @@ function TabletopPreview({ target }: { target: FixtureTarget }) {
   );
 }
 
-export function ObservationPanel({ proposal, result, currentContext, liveConfigured, fixturesEnabled, isLoading, isApplying, isProposalCurrent, isAvailable = true, appliedCaptureId, error, onCapture, onApply, onClearProposal }: ObservationPanelProps) {
+export function ObservationPanel({ proposal, result, currentContext, liveConfigured, fixturesEnabled, isLoading, isApplying, isProposalCurrent, availabilityMessage, isAvailable = true, appliedCaptureId, error, onCapture, onApply, onClearProposal }: ObservationPanelProps) {
   const [source, setSource] = useState<'demo' | 'fixture' | 'camera'>('demo');
   const [demoTarget, setDemoTarget] = useState<FixtureTarget>('P2');
   const [fixtureTarget, setFixtureTarget] = useState<FixtureTarget>('P2');
@@ -84,8 +86,11 @@ export function ObservationPanel({ proposal, result, currentContext, liveConfigu
   const [cameraState, setCameraState] = useState<CameraState>('idle');
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [isPreparing, setIsPreparing] = useState(false);
+  const [preparationGate] = useState(createRequestGate);
   const [frameReady, setFrameReady] = useState(false);
   const [snapshot, setSnapshot] = useState<string | null>(null);
+  const [capturedDimensions, setCapturedDimensions] = useState<[number, number]>([1920, 1080]);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const requestRef = useRef(0);
@@ -93,6 +98,8 @@ export function ObservationPanel({ proposal, result, currentContext, liveConfigu
 
   function stopCamera() {
     requestRef.current += 1;
+    preparationGate.invalidate();
+    setIsPreparing(false);
     streamRef.current?.getTracks().forEach(track => track.stop());
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
@@ -102,8 +109,16 @@ export function ObservationPanel({ proposal, result, currentContext, liveConfigu
 
   useEffect(() => () => {
     requestRef.current += 1;
+    preparationGate.invalidate();
     streamRef.current?.getTracks().forEach(track => track.stop());
-  }, []);
+  }, [preparationGate]);
+
+  useEffect(() => {
+    // A context change can arrive while decode or hashing is pending, before
+    // the parent has received a capture request to invalidate.
+    preparationGate.invalidate();
+    setIsPreparing(false);
+  }, [currentContext?.context_hash, preparationGate]);
 
   async function connectCamera() {
     stopCamera();
@@ -150,6 +165,10 @@ export function ObservationPanel({ proposal, result, currentContext, liveConfigu
   }
 
   async function capture() {
+    if (isLoading || isApplying || !isAvailable || (source === 'fixture' ? !fixturesEnabled : !liveConfigured)) return;
+    const preparation = preparationGate.start();
+    if (preparation === null) return;
+    setIsPreparing(true);
     setActionError(null);
     try {
       if (!currentContext) throw new Error('Wait for a current scenario before capturing.');
@@ -161,7 +180,7 @@ export function ObservationPanel({ proposal, result, currentContext, liveConfigu
         const image = new window.Image();
         image.src = demoImage;
         await image.decode();
-        if (sourceRequest !== requestRef.current) return;
+        if (sourceRequest !== requestRef.current || !preparationGate.isCurrent(preparation)) return;
         const canvas = document.createElement('canvas');
         [canvas.width, canvas.height] = DEMO_BOARD_SIZE;
         const drawing = canvas.getContext('2d');
@@ -172,7 +191,7 @@ export function ObservationPanel({ proposal, result, currentContext, liveConfigu
           captureId: metadata.capture_id, timestampIso: metadata.timestamp_iso,
           context: metadata.source_context, thinkingLevel: metadata.thinking_level,
         }));
-        if (sourceRequest !== requestRef.current) return;
+        if (sourceRequest !== requestRef.current || !preparationGate.isCurrent(preparation)) return;
         setSnapshot(data);
         await onCapture(evidence);
         return;
@@ -186,50 +205,61 @@ export function ObservationPanel({ proposal, result, currentContext, liveConfigu
       if (!context) throw new Error('This browser could not capture a still.');
       context.drawImage(video, 0, 0);
       const data = canvas.toDataURL('image/jpeg', .9);
+      setCapturedDimensions([canvas.width, canvas.height]);
       setSnapshot(data);
       const evidence = await captureEvidence({ ...metadata, dimensions: [canvas.width, canvas.height], source_kind: 'tabletop_camera', mode: 'live', image_base64: data.slice(data.indexOf(',') + 1), deadline_seconds: 45 });
-      if (sourceRequest !== requestRef.current) return;
+      if (sourceRequest !== requestRef.current || !preparationGate.isCurrent(preparation)) return;
       await onCapture(evidence);
-    } catch (cause) { setActionError(cause instanceof Error ? cause.message : 'The capture could not be interpreted.'); }
+    } catch (cause) {
+      if (preparationGate.isCurrent(preparation)) setActionError(cause instanceof Error ? cause.message : 'The capture could not be interpreted.');
+    } finally {
+      if (preparationGate.isCurrent(preparation)) {
+        preparationGate.finish(preparation);
+        setIsPreparing(false);
+      }
+    }
   }
 
   const typedTarget = proposal?.selected_entity_type && proposal.selected_entity_id ? `${proposal.selected_entity_type}:${proposal.selected_entity_id}` : null;
   const validTarget = typedTarget !== null && ['portal:P1', 'portal:P2', 'boundary:B2'].includes(typedTarget) && !!proposal?.candidate_ids.includes(typedTarget);
   const isApplied = !!proposal && appliedCaptureId === proposal.capture_id && validTarget;
-  const canApply = canApplyGrounding(result, currentContext) && isProposalCurrent && isAvailable && !isApplied && !isLoading && !isApplying;
+  const busy = isLoading || isPreparing;
+  const canApply = canApplyGrounding(result, currentContext) && isProposalCurrent && isAvailable && !isApplied && !busy && !isApplying;
   const reviewState = !proposal ? 'idle' : isApplied ? 'applied' : !isProposalCurrent ? 'stale' : proposal.status;
-  const reviewTitle = reviewState === 'applied' ? `${typedTarget} · closure applied` : reviewState === 'stale' ? 'Scenario changed · capture again' : reviewState === 'matched' && validTarget ? `${typedTarget} · proposed closure` : reviewState === 'ambiguous' ? 'Needs your choice' : reviewState === 'no_match' ? 'No target matched' : proposal ? 'Invalid target · capture again' : 'Observe. Review. Apply.';
+  const reviewTitle = reviewState === 'applied' ? `${typedTarget} · closure applied` : reviewState === 'stale' ? availabilityMessage ?? 'Scenario changed · capture again' : reviewState === 'matched' && validTarget ? `${typedTarget} · proposed closure` : reviewState === 'ambiguous' ? 'Needs your choice' : reviewState === 'no_match' ? 'No target matched' : proposal ? 'Invalid target · capture again' : isLoading ? 'Reading the selected image…' : isPreparing ? 'Preparing the selected image…' : result ? 'No proposal accepted' : 'Your review comes next';
   const provenanceLabel = groundingLabel(result);
   const visibleError = actionError || error;
 
   return (
-    <section className="observation-panel" aria-labelledby="observation-title">
+    <section id="observation-workspace" tabIndex={-1} className="observation-panel" aria-labelledby="observation-title">
       <header className="observation-header">
-        <div className="observation-heading"><span className="observation-camera-icon">{source === 'camera' ? <Camera size={16} /> : <Layers2 size={16} />}</span><div><h2 id="observation-title">Observation 01 <span>/ {source === 'camera' ? 'Physical tabletop' : source === 'demo' ? 'Synthetic board' : 'Offline fixture'}</span></h2><p>Observe the board. Review the proposed change.</p></div></div>
-        <div className="observation-source-switch" aria-label="Observation source"><button type="button" aria-pressed={source === 'demo'} onClick={() => changeSource('demo')}><Layers2 size={12} />Demo board</button><button type="button" aria-pressed={source === 'camera'} onClick={() => changeSource('camera')}><Video size={12} />Camera</button><button type="button" aria-pressed={source === 'fixture'} onClick={() => changeSource('fixture')}><Image size={12} />Fixture</button></div>
+        <div className="observation-heading"><span className="observation-phase-number" aria-hidden="true">01</span><div><h2 id="observation-title">Observe</h2><p>Capture a change. Review its target.</p></div></div>
+        <ScanLine size={19} strokeWidth={1.5} aria-hidden="true" />
       </header>
+
+      <div className="observation-source-area"><div className="observation-source-switch" role="group" aria-label="Observation source"><button type="button" aria-pressed={source === 'demo'} onClick={() => changeSource('demo')}><Layers2 size={15}  aria-hidden="true" />Demo board</button><button type="button" aria-pressed={source === 'camera'} onClick={() => changeSource('camera')}><Video size={15}  aria-hidden="true" />Camera</button><button type="button" aria-pressed={source === 'fixture'} onClick={() => changeSource('fixture')}><Image size={15}  aria-hidden="true" />Fixture</button></div><p>{source === 'demo' ? 'Synthetic board image · live Gemini inference' : source === 'camera' ? 'Your camera · one selected still sent to Gemini' : 'Offline proposal fixture · no Gemini request'}</p></div>
 
       <div className={`observation-viewport observation-viewport-${source}`}>
         <div className="observation-viewport-top"><span className={`observation-source-badge ${source === 'camera' && cameraState === 'connected' ? 'observation-source-connected' : ''}`}><i />{source === 'demo' ? 'Synthetic board image' : source === 'fixture' ? 'Illustrative fixture preview' : snapshot ? 'Captured still' : cameraState === 'connected' ? 'Camera connected' : cameraState === 'connecting' ? 'Connecting camera' : 'Camera disconnected'}</span><span className="observation-view-label">{source === 'demo' ? 'LIVE INFERENCE INPUT' : source === 'fixture' ? 'OFFLINE FIXTURE' : 'LOCAL CAMERA'}</span></div>
-        {source === 'demo' ? <img className="observation-synthetic-board" src={snapshot ?? demoImage} alt={`Synthetic four-zone board with a red BLOCKED token on ${demoTarget}. This exact illustration is sent to Gemini; no physical hardware is present.`} /> : source === 'fixture' ? <><TabletopPreview target={fixtureTarget} /><div className="observation-demo-caption"><span className="observation-cube-key" />Fixture cube <span>at {fixtureTarget}</span></div></> : <>
-          <video ref={videoRef} autoPlay muted playsInline className={`observation-video ${cameraState !== 'connected' || snapshot ? 'observation-media-hidden' : ''}`} onLoadedData={() => setFrameReady(true)} />
-          {snapshot && <img className="observation-captured-image" src={snapshot} alt="Captured tabletop still submitted for review" />}
-          {!snapshot && cameraState !== 'connected' && <div className="observation-camera-empty"><span className="observation-empty-icon"><Video size={23} strokeWidth={1.4} /></span><strong>{cameraState === 'connecting' ? 'Connecting your camera' : cameraState === 'error' ? 'Camera unavailable' : 'Bring your tabletop into view'}</strong><p>{cameraError || 'Connect a camera to preview the board, then choose a still to interpret.'}</p><button className="observation-connect-button" type="button" onClick={connectCamera} disabled={cameraState === 'connecting'}>{cameraState === 'connecting' ? <LoaderCircle size={13} className="observation-spin" /> : <Camera size={13} />}{cameraState === 'connecting' ? 'Waiting for permission…' : 'Connect camera'}</button></div>}
-          {(cameraState === 'connected' || snapshot) && <div className="observation-camera-controls">{snapshot && <button type="button" onClick={() => { setSnapshot(null); onClearProposal?.(); }}>Return to preview</button>}{cameraState === 'connected' ? <button type="button" onClick={() => { stopCamera(); setSnapshot(null); onClearProposal?.(); }}><Unplug size={11} />Disconnect</button> : <button type="button" onClick={connectCamera}><Camera size={11} />Reconnect</button>}</div>}
+        {source === 'demo' ? <img className="observation-synthetic-board" src={snapshot ?? demoImage} width={1200} height={1000} alt={`Synthetic four-zone board with a red BLOCKED token on ${demoTarget}. This exact illustration is sent to Gemini; no physical hardware is present.`} /> : source === 'fixture' ? <><TabletopPreview target={fixtureTarget} /><div className="observation-demo-caption"><span className="observation-cube-key" />Fixture cube <span>at {fixtureTarget}</span></div></> : <>
+          <video ref={videoRef} autoPlay muted playsInline aria-label="Live tabletop camera preview" className={`observation-video ${cameraState !== 'connected' || snapshot ? 'observation-media-hidden' : ''}`} onLoadedData={() => setFrameReady(true)} />
+          {snapshot && <img className="observation-captured-image" src={snapshot} width={capturedDimensions[0]} height={capturedDimensions[1]} alt="Captured tabletop still submitted for review" />}
+          {!snapshot && cameraState !== 'connected' && <div className="observation-camera-empty"><span className="observation-empty-icon"><Video size={23} strokeWidth={1.4}  aria-hidden="true" /></span><strong>{cameraState === 'connecting' ? 'Connecting your camera' : cameraState === 'error' ? 'Camera unavailable' : 'Bring your tabletop into view'}</strong><p>{cameraError || 'Connect a camera to preview the board, then choose a still to interpret.'}</p><button className="observation-connect-button" type="button" onClick={connectCamera} disabled={cameraState === 'connecting'}>{cameraState === 'connecting' ? <LoaderCircle size={13} className="observation-spin"  aria-hidden="true" /> : <Camera size={13}  aria-hidden="true" />}{cameraState === 'connecting' ? 'Waiting for permission…' : 'Connect camera'}</button></div>}
+          {(cameraState === 'connected' || snapshot) && <div className="observation-camera-controls">{snapshot && <button type="button" onClick={() => { preparationGate.invalidate(); setIsPreparing(false); setSnapshot(null); onClearProposal?.(); }}>Return to preview</button>}{cameraState === 'connected' ? <button type="button" onClick={() => { stopCamera(); setSnapshot(null); onClearProposal?.(); }}><Unplug size={11}  aria-hidden="true" />Disconnect</button> : <button type="button" onClick={connectCamera}><Camera size={11}  aria-hidden="true" />Reconnect</button>}</div>}
         </>}
       </div>
 
       <div className="observation-capture-bar">
-        {source !== 'camera' ? <label className="observation-fixture-select"><span>{source === 'demo' ? 'SYNTHETIC BLOCKED TOKEN' : 'FIXTURE TARGET'}</span><select aria-label={source === 'demo' ? 'Synthetic blocked token' : 'Fixture target'} value={source === 'demo' ? demoTarget : fixtureTarget} onChange={event => { source === 'demo' ? setDemoTarget(event.target.value as FixtureTarget) : setFixtureTarget(event.target.value as FixtureTarget); requestRef.current++; setSnapshot(null); setActionError(null); onClearProposal?.(); }} disabled={isLoading}><option value="P1">P1 · {fixtureNames.P1}</option><option value="P2">P2 · {fixtureNames.P2}</option><option value="B2">B2 · {fixtureNames.B2}</option></select></label> : <p className="observation-capture-hint">{snapshot ? 'Captured image held for review' : 'Only the selected still is analyzed'}</p>}
-        <button className="observation-capture-button" type="button" onClick={capture} disabled={!isAvailable || isLoading || isApplying || (source === 'fixture' && !fixturesEnabled) || (source !== 'fixture' && !liveConfigured) || (source === 'camera' && (!frameReady || cameraState !== 'connected'))}>{isLoading ? <LoaderCircle size={14} className="observation-spin" /> : <ScanLine size={14} />}{!isAvailable ? 'Backend offline' : isLoading ? 'Interpreting…' : source === 'fixture' ? 'Load fixture proposal' : source === 'demo' ? 'Analyze board · Gemini' : 'Capture · Gemini'}{!isLoading && <ArrowUpRight size={13} />}</button>
+        {source !== 'camera' ? <label className="observation-fixture-select"><span>{source === 'demo' ? 'BLOCKAGE TARGET' : 'FIXTURE TARGET'}</span><select aria-label={source === 'demo' ? 'Synthetic blocked token' : 'Fixture target'} value={source === 'demo' ? demoTarget : fixtureTarget} onChange={event => { source === 'demo' ? setDemoTarget(event.target.value as FixtureTarget) : setFixtureTarget(event.target.value as FixtureTarget); requestRef.current++; preparationGate.invalidate(); setIsPreparing(false); setSnapshot(null); setActionError(null); onClearProposal?.(); }} disabled={busy}><option value="P1">P1 · {fixtureNames.P1}</option><option value="P2">P2 · {fixtureNames.P2}</option><option value="B2">B2 · {fixtureNames.B2}</option></select></label> : <p className="observation-capture-hint">{snapshot ? 'Captured image held for review' : 'Only the selected still is analyzed'}</p>}
+        <button className={`observation-capture-button${canApply ? ' observation-capture-secondary' : ''}`} type="button" onClick={capture} disabled={!isAvailable || busy || isApplying || (source === 'fixture' && !fixturesEnabled) || (source !== 'fixture' && !liveConfigured) || (source === 'camera' && (!frameReady || cameraState !== 'connected'))}>{busy ? <LoaderCircle size={16} className="observation-spin"  aria-hidden="true" /> : <ScanLine size={16}  aria-hidden="true" />}{!isAvailable ? 'Backend offline' : isLoading ? 'Interpreting…' : isPreparing ? 'Preparing image…' : source === 'fixture' ? 'Load fixture' : source === 'demo' ? 'Analyze board' : 'Analyze still'}{!busy && <ArrowUpRight size={15}  aria-hidden="true" />}</button>
       </div>
-      <div className="observation-execution-options">{source !== 'fixture' ? <><label>Thinking<select aria-label="Gemini thinking level" value={thinkingLevel} onChange={event => setThinkingLevel(event.target.value as ThinkingLevel)} disabled={isLoading}><option value="low">Low · quick review</option><option value="medium">Medium</option><option value="high">High</option></select></label><span>{!liveConfigured ? 'Gemini unavailable · configure server credentials' : source === 'demo' ? 'Synthetic image · real Gemini request · up to 45s · no hardware' : 'Gemini configured · up to 45s · completed response required'}</span></> : <span>{fixturesEnabled ? 'Explicit fixture · no camera inference or Gemini tokens' : 'Fixtures disabled by the server'}</span>}</div>
+      <div className="observation-execution-options">{source !== 'fixture' ? <><p role="status">{isPreparing && !isLoading ? 'Preparing the selected image…' : !liveConfigured ? 'Gemini unavailable. Configure server credentials to continue.' : source === 'demo' ? 'Real model request · up to 45s · no physical hardware' : 'One still · up to 45s · completed response required'}</p><details className="observation-advanced"><summary>Model settings <span>Thinking: {thinkingLevel}</span></summary><label>Thinking level<select aria-label="Gemini thinking level" value={thinkingLevel} onChange={event => setThinkingLevel(event.target.value as ThinkingLevel)} disabled={busy}><option value="low">Low · quick review</option><option value="medium">Medium</option><option value="high">High</option></select></label></details></> : <p>{fixturesEnabled ? 'Explicit fixture. Camera inference and Gemini tokens are not used.' : 'Fixtures are disabled by the server.'}</p>}</div>
 
-      {visibleError && <div className="observation-error" role="alert"><CircleAlert size={13} /><span>{visibleError}</span></div>}
-      <div className={`observation-review observation-review-${reviewState}`} aria-live="polite" aria-busy={isLoading || isApplying}>
-        <span className="observation-review-icon">{canApply || isApplied ? <Check size={14} /> : reviewState === 'idle' ? <ScanLine size={14} /> : <CircleAlert size={14} />}</span>
-        <div className="observation-review-content"><div className="observation-review-title">{reviewTitle}{result && <span className="observation-provenance">{provenanceLabel}</span>}</div><p>{proposal ? proposal.evidence : result && result.status !== 'completed' ? 'No proposal was accepted. Retry a fresh capture, or explicitly select a fixture.' : 'A proposal changes the scenario only after your approval.'}</p></div>
-        <button className="observation-apply-button" type="button" onClick={async () => { setActionError(null); try { await onApply(); } catch (cause) { setActionError(cause instanceof Error ? cause.message : 'The proposal could not be applied.'); } }} disabled={!canApply}>{isApplying ? <LoaderCircle size={12} className="observation-spin" /> : <Check size={12} />}{isApplied ? 'Applied' : isApplying ? 'Applying…' : 'Apply closure'}</button>
+      {visibleError && <div className="observation-error" role="alert"><CircleAlert size={13}  aria-hidden="true" /><span>{visibleError}</span></div>}
+      <div id="observation-review" tabIndex={-1} className={`observation-review observation-review-${reviewState}`} aria-live="polite" aria-busy={busy || isApplying}>
+        <span className="observation-review-icon">{canApply || isApplied ? <Check size={14}  aria-hidden="true" /> : reviewState === 'idle' ? <ScanLine size={14}  aria-hidden="true" /> : <CircleAlert size={14}  aria-hidden="true" />}</span>
+        <div className="observation-review-content"><div className="observation-review-title">{reviewTitle}{result && <span className="observation-provenance">{provenanceLabel}</span>}</div><p>{proposal ? proposal.evidence : result && result.status !== 'completed' ? 'Capture a fresh image to retry. You can also choose an explicit fixture.' : 'The model proposes a target. Only your approval changes the scenario.'}</p>{proposal?.status === 'ambiguous' && <p>Select a target in the spatial model for a manual override, or recapture.</p>}</div>
+        {proposal && <button className="observation-apply-button" type="button" onClick={async () => { setActionError(null); try { await onApply(); } catch (cause) { setActionError(cause instanceof Error ? cause.message : 'The proposal could not be applied.'); } }} disabled={!canApply}>{isApplying ? <LoaderCircle size={15} className="observation-spin"  aria-hidden="true" /> : <Check size={15}  aria-hidden="true" />}{isApplied ? 'Applied' : isApplying ? 'Applying…' : 'Apply closure'}</button>}
       </div>
       <ExecutionReceipt result={result} label={provenanceLabel} />
     </section>

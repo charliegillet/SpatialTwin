@@ -51,7 +51,7 @@ class StateManager:
             scenario_revision=1,
             physical_revision=1,
             parameters_revision="params-v1",
-            solver_version="spatialtwin-flow-v1.0",
+            solver_version="spatialtwin-flow-v1.1",
             state_epoch=uuid4().hex,
         )
 

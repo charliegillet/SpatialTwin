@@ -1,5 +1,5 @@
 import React, { useId, useState } from 'react';
-import { ArrowUpRight, Box, Check, ChevronDown, Layers2, Minus, Plus, RotateCcw, Scan } from 'lucide-react';
+import { ArrowUpRight, Box, Check, Layers2, Minus, Plus, RotateCcw, Scan } from 'lucide-react';
 import type { ScenarioSnapshot } from '../types';
 import './SpatialViewport.css';
 
@@ -108,17 +108,17 @@ export const SpatialViewport: React.FC<SpatialViewportProps> = ({ snapshot, sele
   return <section className="spatial-panel" aria-label="Interactive spatial model">
     <header className="spatial-panel-header">
       <div className="spatial-panel-heading"><Box size={16} strokeWidth={1.5} /><h2>Spatial model</h2><span className="spatial-panel-slash">/</span><span>Tabletop 01</span></div>
-      <div className="spatial-view-switch" aria-label="Model view">
+      <div className="spatial-view-switch" role="group" aria-label="Model view">
         <button type="button" className={!flat ? 'is-active' : ''} onClick={() => setFlat(false)} aria-pressed={!flat}><Box size={13} />Cutaway</button>
         <button type="button" className={flat ? 'is-active' : ''} onClick={() => setFlat(true)} aria-pressed={flat}><Layers2 size={13} />Plan</button>
       </div>
     </header>
 
     <div className="spatial-canvas">
-      <div className="spatial-scene-caption"><span className="spatial-eyebrow">MODEL VIEW / {flat ? '02' : '01'}</span><div>Illustrative floor plan <ChevronDown size={12} aria-hidden="true" /></div><span>4 modeled zones · synthetic population</span></div>
+      <div className="spatial-scene-caption"><div>Illustrative floor plan</div><span>4 modeled zones · synthetic population</span></div>
       <div className={`spatial-result-indicator ${checked ? 'is-checked' : ''}`}><span />{checked ? 'Checked result' : snapshot ? 'Result unverified' : 'Awaiting model'}</div>
 
-      <svg className="spatial-model-svg" viewBox={flat ? '100 0 850 640' : '0 72 1060 520'} aria-label="Illustrative event hall with west, east and reserve corridors. Select P1, P2 or B2 to review a scenario change.">
+      <svg className="spatial-model-svg" role="group" viewBox={flat ? '100 0 850 640' : '0 72 1060 520'} aria-label="Illustrative event hall with west, east and reserve corridors. Select P1, P2 or B2 to review a scenario change.">
         <defs>
           <linearGradient id={`${uid}-floor`} x1="0" y1="0" x2="1" y2="1"><stop stopColor="#303e3b" /><stop offset="1" stopColor="#1c2928" /></linearGradient>
           <linearGradient id={`${uid}-event`} x1="0" y1="0" x2="1" y2="1"><stop stopColor="#34433e" /><stop offset="1" stopColor="#293934" /></linearGradient>
@@ -199,7 +199,7 @@ export const SpatialViewport: React.FC<SpatialViewportProps> = ({ snapshot, sele
         </g>
       </svg>
 
-      <div className="spatial-zoom-controls" aria-label="View controls">
+      <div className="spatial-zoom-controls" role="group" aria-label="View controls">
         <button type="button" onClick={() => changeZoom(.15)} disabled={zoom >= 1.65} aria-label="Zoom in"><Plus size={16} /></button>
         <span>{Math.round(zoom * 100)}%</span>
         <button type="button" onClick={() => changeZoom(-.15)} disabled={zoom <= .75} aria-label="Zoom out"><Minus size={16} /></button>
@@ -211,8 +211,11 @@ export const SpatialViewport: React.FC<SpatialViewportProps> = ({ snapshot, sele
 
     <div className="spatial-selection-bar">
       <span className="spatial-selection-hint"><Scan size={15} /><span>Select a target <small>Review before applying</small></span></span>
-      <div className="spatial-target-buttons" aria-label="Select a scenario target">{TARGETS.map(target => <button type="button" key={target.id} onClick={() => onSelectTarget(target.id)} className={`${selectedTarget === target.id ? 'is-selected' : ''} ${isBlocked(target.id) ? 'is-blocked' : ''}`} aria-pressed={selectedTarget === target.id}><span>{target.short}</span><span>{target.title}</span>{selectedTarget === target.id ? <Check size={12} /> : <ArrowUpRight size={12} />}</button>)}</div>
+      <div className="spatial-target-buttons" role="group" aria-label="Select a scenario target">{TARGETS.map(target => <React.Fragment key={target.id}>
+        <button type="button" onClick={() => onSelectTarget(target.id)} className={`${selectedTarget === target.id ? 'is-selected' : ''} ${isBlocked(target.id) ? 'is-blocked' : ''}`} aria-describedby={`${uid}-${target.short}-state`} aria-pressed={selectedTarget === target.id}><span>{target.short}</span>{' '}<span>{target.title}</span>{selectedTarget === target.id ? <Check size={12} aria-hidden="true" /> : <ArrowUpRight size={12} aria-hidden="true" />}</button>
+        <span id={`${uid}-${target.short}-state`} hidden>{target.title}, {isBlocked(target.id) ? 'blocked' : 'available'}. Select for review.</span>
+      </React.Fragment>)}</div>
     </div>
-    <footer className="spatial-panel-footer"><span><i />{snapshot ? `Geometry ${snapshot.context.geometry_revision}` : 'Geometry awaiting connection'}</span><span>Illustrative schematic · not a venue survey</span>{onInspectPlan && <button type="button" onClick={onInspectPlan}>Inspect plan<ArrowUpRight size={12} /></button>}</footer>
+    <footer className="spatial-panel-footer"><span><i />{snapshot ? 'Canonical targets · P1 / P2 / B2' : 'Awaiting connection'}</span><span>Illustrative schematic · not a venue survey</span>{onInspectPlan && <button type="button" onClick={onInspectPlan}>Inspect plan<ArrowUpRight size={12} /></button>}</footer>
   </section>;
 };
