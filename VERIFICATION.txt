@@ -154,3 +154,16 @@ Small screens retain the two-column layout with horizontal scrolling rather than
 stacking columns. Production build and git diff --check passed. Browser verified
 sidebar overflow menu, orbit/plan controls, and no captured console errors.
 Screenshot: runtime/roomlab/roomlab-two-columns.png.
+
+INDEPENDENT HERMES PROPOSAL AUDIT — 2026-10-25
+Read full Hermes public proposals and checked primary papers/repos. Reproduced
+optimizer searches with and without unrelated fixed-object overlaps: both FOUND
+[0,-0.4] after 10 candidates. Unrelated overlaps are warnings, not global blockers.
+Found and fixed a separate receipt bug: candidate provenance changed after solve,
+so after.geometry_hash did not match the returned candidate. Candidate metadata
+is now finalized before solve. Two regression cases check exact receipt hashes,
+unchanged original scene, fixed objects and independent candidate reachability.
+Full backend suite: 35 passed in 2.85s. New proposed meshes/gizmos/visual critic,
+overlap repair and anisotropic calibration were evaluated, not implemented.
+Detailed local report:
+/Users/alhinai/argon/research/roomlab-hermes-proposal-audit-2026-10-25.txt

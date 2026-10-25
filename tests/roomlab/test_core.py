@@ -169,3 +169,25 @@ def test_unresolved_topology_cannot_claim_reachability(tmp_path):
     req=SolveRequest(expected_revision=2,start=[1.,1.],goal=[5.,1.])
     assert solve(s,req).status=='INVALID_SCENE'
     assert any(i.code=='topology_review_required' for i in validate_scene(s).issues)
+
+
+@pytest.mark.parametrize('unrelated_overlap',[False,True])
+def test_optimizer_returns_receipt_for_exact_candidate(tmp_path,unrelated_overlap):
+    from backend.app.roomlab.optimizer import optimize
+    from backend.app.roomlab.contracts import geometry_hash
+    store=SceneStore(tmp_path)
+    s=store.create(RoomDraft(name='Optimizer audit',floor=[[0.,0.],[6.,0.],[6.,2.1],[0.,2.1]],
+        objects=[RoomObject(id='blocker',label='Blocker',center=[3.,1.05],width_m=.6,depth_m=1.,height_m=1.)]))
+    s=store.calibrate(s.scene_id,CalibrateRequest(expected_revision=1,anchor_id='wall-1',dimension='wall_length',measured_m=6.))
+    if unrelated_overlap:
+        s.objects += [RoomObject(id='fixed-a',label='A',center=[1.,1.7],width_m=.2,depth_m=.2,height_m=.2,movable=False),
+                      RoomObject(id='fixed-b',label='B',center=[1.05,1.7],width_m=.2,depth_m=.2,height_m=.2,movable=False)]
+    original=s.model_dump()
+    req=SolveRequest(expected_revision=2,start=[.7,1.05],goal=[5.3,1.05],agent_diameter_m=.6)
+    result=optimize(s,req)
+    assert result.status=='FOUND' and result.object_id=='blocker'
+    assert s.model_dump()==original
+    assert result.before.geometry_hash==geometry_hash(s)
+    assert result.after.geometry_hash==geometry_hash(result.scene)
+    assert solve(result.scene,req).status=='ROBUST_PASS'
+    assert [(o.id,o.center) for o in result.scene.objects if not o.movable]==[(o.id,o.center) for o in s.objects if not o.movable]
