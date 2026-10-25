@@ -53,7 +53,9 @@ export function parseDoorPlan(raw: unknown, expectedVenueId: string = BUILTIN_VE
 export function parseVenue(raw: unknown, expectedVenueId?: string): VenueV2 {
   if (!isRecord(raw) || typeof raw.venue_id !== 'string' || !VENUE_ID_PATTERN.test(raw.venue_id)) return bad('venue');
   if (expectedVenueId !== undefined && raw.venue_id !== expectedVenueId) bad('venue');
-  for (const key of ['zones', 'doors', 'exits'] as const) if (!Array.isArray(raw[key]) || raw[key].length === 0) bad(key);
+  // A single-room venue has no interior door, so `doors` may be empty; rooms and exits may not.
+  if (!Array.isArray(raw.doors)) bad('doors');
+  for (const key of ['zones', 'exits'] as const) if (!Array.isArray(raw[key]) || raw[key].length === 0) bad(key);
   if (!isRecord(raw.led_map) || !Array.isArray(raw.extent)) bad('venue');
   return raw as unknown as VenueV2;
 }

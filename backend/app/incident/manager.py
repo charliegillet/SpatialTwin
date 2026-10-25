@@ -85,9 +85,9 @@ class IncidentManager:
         self.approvals.clear()
         self.plan_revision += 1
 
-    def _ensure_bound(self) -> VenueV2:
+    def _ensure_bound(self, allow_rebind: bool = True) -> VenueV2:
         untouched = self.plan is None and not self.hazards and not self.approvals
-        if self.venue is None or untouched:
+        if self.venue is None or (untouched and allow_rebind):
             from backend.app.venues.registry import venue_registry
             active = venue_model.get_venue(venue_registry().active()["venue_id"]) or venue_model.load_building_v2()
             if self.venue is None or (active.venue_id, active.geometry_revision) != (self.venue.venue_id, self.venue.geometry_revision):
@@ -124,7 +124,9 @@ class IncidentManager:
         return self.plan.model_copy(update={"doors": doors})
 
     def state(self) -> IncidentState:
-        venue = self._ensure_bound()
+        # A read never rebinds while a mutation holds the lock: set_hazards binds a venue, then awaits the planner
+        # with the incident still "untouched", and a poll in that window must not swap the venue and controller.
+        venue = self._ensure_bound(allow_rebind=not self._lock.locked())
         assert self.controller is not None
         return IncidentState(
             venue_id=venue.venue_id, geometry_revision=venue.geometry_revision, plan_revision=self.plan_revision,
@@ -255,7 +257,10 @@ class IncidentManager:
         return approval
 
     async def _actuate(self, approval: ApprovalRecord, commands: Dict[str, str], epoch: int) -> None:
-        assert self.controller is not None
+        # A reset or venue change between the approval and this task's first turn must stop the movement before it
+        # starts: checking only afterwards would drop the result but leave a gate moving after Reset.
+        if epoch != self._epoch or self.controller is None:
+            return
         controller = self.controller
         outcomes = await controller.command_many(commands)  # type: ignore[arg-type]
         if epoch != self._epoch:

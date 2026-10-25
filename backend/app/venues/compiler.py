@@ -385,10 +385,18 @@ def compile_draft(draft: VenueDraftV1, image: SourceImage, *, venue_id: str,
     # -- ids -----------------------------------------------------------------------------------------------------
     reserved = {f"D{i}" for i in range(1, len(draft.doors) + 1)} | {f"E{i}" for i in range(1, len(draft.exits) + 1)}
     zone_id: Dict[str, str] = {}
+    # A replacement must avoid generated ids and every other room's key too (rooms "D1" and "Z_D1" can coexist).
+    taken = set(reserved) | set(rooms)
     for key in rooms:
-        zone_id[key] = f"Z_{key}" if key in reserved else key
-        if zone_id[key] != key:
-            report.edits.append(f"room {key} renamed {zone_id[key]} (key collides with a door or exit id)")
+        if key not in reserved:
+            zone_id[key] = key
+            continue
+        candidate, n = f"Z_{key}", 2
+        while candidate in taken:
+            candidate, n = f"Z{n}_{key}", n + 1
+        taken.add(candidate)
+        zone_id[key] = candidate
+        report.edits.append(f"room {key} renamed {candidate} (key collides with a door or exit id)")
 
     # -- doors ---------------------------------------------------------------------------------------------------
     wanted = list(dict.fromkeys(controllable_doors))
@@ -524,7 +532,8 @@ def compile_draft(draft: VenueDraftV1, image: SourceImage, *, venue_id: str,
         report.edits.append(f"headcount {total} distributed by floor area over {len(living)} rooms")
         if placed < total:
             report.edits.append(f"headcount capped: only {placed} of {total} fit under the room capacities")
-    elif any(r.occupants_hint for r in rooms.values()):
+    elif any(r.occupants_hint is not None for r in rooms.values()):
+        # An explicit 0 is a reading ("this room is empty"), not a missing value.
         for k, room in rooms.items():
             hint = room.occupants_hint or 0
             occupants[k] = min(hint, cap[k])

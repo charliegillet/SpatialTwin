@@ -29,6 +29,13 @@ test('a plan solved on other geometry for the same venue id is refused as venue_
     error => error instanceof ApiError && error.status === 409 && error.detail === VENUE_CHANGED);
 });
 
+test('a single-room venue with no interior door opens', () => {
+  const single = { ...venue, venue_id: 'studio', zones: venue.zones.slice(0, 1), doors: [], exits: venue.exits.slice(0, 1) };
+  assert.equal(parseVenue(single, 'studio'), single);
+  assert.throws(() => parseVenue({ ...single, doors: null }), ApiError);
+  assert.throws(() => parseVenue({ ...single, exits: [] }), ApiError);
+});
+
 test('the active pointer is validated', () => {
   assert.deepEqual(parseActiveVenue({ venue_id: 'home-flat', revision: 3, extra: true }), { venue_id: 'home-flat', revision: 3 });
   for (const broken of [null, { venue_id: 'home-flat' }, { venue_id: 'x', revision: 1 }, { venue_id: 'home-flat', revision: 1.5 }]) {

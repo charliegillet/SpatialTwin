@@ -20,7 +20,7 @@ The test harness blocks outbound sockets, blanks provider/serial configuration, 
 
 ## Configuration and execution modes
 
-Export `GEMINI_API_KEY` into the backend environment using your normal secret manager or shell setup. Do not put it in frontend variables, tracked files, commands committed to scripts, or evidence. `.env` is ignored but is **not loaded automatically** by this application.
+Export `GEMINI_API_KEY` into the backend environment using your normal secret manager or shell setup. Do not put it in frontend variables, tracked files, commands committed to scripts, or evidence. `.env` is gitignored and **is loaded at startup** (`backend/app/env_file.py`): only this app's keys are read (`GEMINI_API_KEY`, `SERIAL_PORT`, `SERIAL_BAUD`, `HOST`, `PORT`, `SPATIALTWIN_*`), values already in the process environment win, and `SPATIALTWIN_ENV_FILE=` (empty) disables loading. For production, prefer the process environment from your secret manager over a file.
 
 ```sh
 export SPATIALTWIN_MODE=production

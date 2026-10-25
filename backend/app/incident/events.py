@@ -75,7 +75,9 @@ class EventHub:
         gap = False
         if last_event_id is not None:
             oldest = self._replay[0][0] if self._replay else self._seq + 1
-            gap = last_event_id < oldest - 1
+            # Too old for the buffer, or newer than anything this process sent (the server restarted and the
+            # browser still holds an id from before): either way only a fresh snapshot is correct.
+            gap = last_event_id < oldest - 1 or last_event_id > self._seq
             if not gap:
                 backlog = [frame for _, frame in self.events_since(last_event_id)]
         try:
