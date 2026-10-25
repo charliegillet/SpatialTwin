@@ -72,7 +72,7 @@ export const RoomEvidencePanel: React.FC<RoomEvidencePanelProps> = ({
         </div>
       ) : (
         <div className="rl-empty-card">
-          <p>Upload an MP4, WebM, or QuickTime room walkthrough clip (≤15s), or import a saved RoomSceneV1 JSON.</p>
+          <p>Upload an MP4, WebM, or QuickTime room walkthrough clip (≤120s, 256 MiB), or import a saved RoomSceneV1 JSON.</p>
           <p className="rl-muted-note">
             Tip: Walk/translate smoothly across the room with overlapping views rather than rotating in place.
           </p>

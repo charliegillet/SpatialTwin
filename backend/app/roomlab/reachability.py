@@ -3,7 +3,7 @@ from __future__ import annotations
 import heapq,math
 from shapely.geometry import Point,LineString,Polygon
 from .contracts import RoomSceneV1,SolveRequest,SolveResult,geometry_hash
-from .geometry import free_space,obstacle_polygons,EPS
+from .geometry import free_space,obstacle_polygons,floor_polygon,EPS
 from .validation import validate_scene
 
 def components(geometry):
@@ -75,7 +75,7 @@ def solve(scene:RoomSceneV1,request:SolveRequest)->SolveResult:
     report=validate_scene(scene)
     if not report.valid:return SolveResult(**base,status='INVALID_SCENE',message='Correct the geometry issues before solving.')
     if scene.calibration is None:return SolveResult(**base,status='UNSCALED',message='Add a measured reference before a metre-based clearance experiment.')
-    if not Polygon(scene.floor).contains(Point(request.start)) or not Polygon(scene.floor).contains(Point(request.goal)):
+    if not floor_polygon(scene).contains(Point(request.start)) or not floor_polygon(scene).contains(Point(request.goal)):
         return SolveResult(**base,status='INVALID_SCENE',message='Start and goal centres must be inside the modeled floor.')
     if math.dist(request.start,request.goal)<EPS:return SolveResult(**base,status='INVALID_SCENE',message='Choose distinct start and goal points.')
     radius=request.agent_diameter_m/2+request.margin_m
@@ -87,7 +87,7 @@ def solve(scene:RoomSceneV1,request:SolveRequest)->SolveResult:
     path=find_path(pess,request.start,request.goal)
     if path:
         line=LineString(path);obstacles=obstacle_polygons(scene)
-        clearance=min([line.distance(p) for p in obstacles]+[line.distance(Polygon(scene.floor).boundary)])
+        clearance=min([line.distance(p) for p in obstacles]+[line.distance(floor_polygon(scene).boundary)])
         return SolveResult(**base,status='ROBUST_PASS',message='A continuously checked common path exists within the stated model bounds.',
             path=[list(p) for p in path],path_length_m=line.length,minimum_clearance_m=max(0.,clearance),obstacles=shapes)
     if same_component(opt,request.start,request.goal) is None:

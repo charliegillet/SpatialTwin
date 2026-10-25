@@ -35,7 +35,13 @@ class MediaRecord(Contract):
     video_url: str
     frames: list[EvidenceFrame]
 
+class FloorVoid(Contract):
+    id: str = Field(min_length=1,max_length=80)
+    polygon: Annotated[list[Point2],Field(min_length=3,max_length=100)]
+    provenance: Provenance = Field(default_factory=Provenance)
+
 class Wall(Contract):
+    role: Literal['shell','partition','railing'] = 'shell'
     id: str = Field(min_length=1,max_length=80)
     start: Point2
     end: Point2
@@ -80,8 +86,10 @@ class Calibration(Contract):
     holdout_residual_m: Finite | None = None
 
 class RoomDraft(Contract):
+    topology_review_required: bool = False
     name: str = Field(default='Estimated room',min_length=1,max_length=160)
     floor: Annotated[list[Point2],Field(min_length=3,max_length=100)]
+    floor_voids: list[FloorVoid] = Field(default_factory=list,max_length=30)
     walls: list[Wall] = Field(default_factory=list,max_length=100)
     openings: list[Opening] = Field(default_factory=list,max_length=100)
     objects: list[RoomObject] = Field(default_factory=list,max_length=200)

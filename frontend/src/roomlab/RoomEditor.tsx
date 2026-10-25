@@ -49,11 +49,15 @@ export const RoomEditor: React.FC<RoomEditorProps> = ({
   const editCorner = (end: boolean, axis: number, value: string) => {
     if (!selectedWall) return;
     const next = cloneScene(scene);
-    const index = walls.findIndex(w => w.id === selectedWall.id);
-    const vertex = (index + (end ? 1 : 0)) % next.floor.length;
-    next.floor[vertex][axis] = num(value, next.floor[vertex][axis]);
-    next.walls = walls.map((w, i) => ({...w,start:[...next.floor[i]],end:[...next.floor[(i+1)%next.floor.length]],
-      provenance:{...w.provenance,source:'user_edit' as const}}));
+    const shell=walls.filter(w=>(w.role??'shell')==='shell');
+    if((selectedWall.role??'shell')==='shell'){
+      const index=shell.findIndex(w=>w.id===selectedWall.id),vertex=(index+(end?1:0))%next.floor.length;
+      next.floor[vertex][axis]=num(value,next.floor[vertex][axis]);
+      next.walls=walls.map(w=>{const i=shell.findIndex(v=>v.id===w.id);return i<0?w:{...w,start:[...next.floor[i]],end:[...next.floor[(i+1)%next.floor.length]],provenance:{...w.provenance,source:'user_edit' as const}};});
+    }else{
+      const wall=next.walls?.find(w=>w.id===selectedWall.id);
+      if(wall){wall[end?'end':'start'][axis]=num(value,wall[end?'end':'start'][axis]);wall.provenance={...wall.provenance,source:'user_edit'};}
+    }
     onUpdateScene(next);
   };
   const editWall = (field:'height_m'|'thickness_m', value:string) => {
@@ -85,11 +89,12 @@ export const RoomEditor: React.FC<RoomEditorProps> = ({
         </button>
       </div>
 
+      <label className="rl-muted-note"><input type="checkbox" checked={scene.topology_review_required??false} onChange={e=>{const next=cloneScene(scene);next.topology_review_required=e.target.checked;onUpdateScene(next);}}/> Architecture needs review (blocks clearance). Clear only after checking voids and boundaries against evidence.</label>
       {validation && (
         <div className={`rl-validation-box ${validation.valid ? 'rl-validation-box--ok' : 'rl-validation-box--err'}`}>
           <div className="rl-validation-title">
             <ShieldAlert size={14} />
-            <strong>{validation.valid ? 'Geometry Valid' : `${validation.issues.length} Geometry Issue(s)`}</strong>
+            <strong>{validation.valid ? 'Model consistency passed · visual accuracy unverified' : `${validation.issues.length} Geometry Issue(s)`}</strong>
           </div>
           {validation.issues.length > 0 && (
             <ul className="rl-validation-list">
@@ -281,7 +286,7 @@ export const RoomEditor: React.FC<RoomEditorProps> = ({
 
       {selectedWall && (
         <div className="rl-inspector-card">
-          <span className="rl-kicker">Selected Wall · {selectedWall.id}</span>
+          <span className="rl-kicker">Selected Boundary · {selectedWall.id} · {selectedWall.role??'shell'}</span>
           <h4>
             Length: {wallLengthMeters(selectedWall).toFixed(2)}m · Height: {(selectedWall.height_m ?? 2.7).toFixed(2)}m
           </h4>
@@ -304,10 +309,15 @@ export const RoomEditor: React.FC<RoomEditorProps> = ({
             <label className="rl-field"><span>Wall height (m)</span><input type="number" step="0.05" min="0.1" value={selectedWall.height_m??2.7} onChange={e=>editWall('height_m',e.target.value)}/></label>
             <label className="rl-field"><span>Wall thickness (m)</span><input type="number" step="0.01" min="0.01" value={selectedWall.thickness_m??.12} onChange={e=>editWall('thickness_m',e.target.value)}/></label>
           </div>
-          <p className="rl-muted-note">Corners stay connected. Boundary edits may invalidate your scale reference or opening positions; save and check geometry.</p>
+          <p className="rl-muted-note">Outer corners stay connected; partition and railing endpoints move independently. Boundary edits may invalidate your scale reference or opening positions; save and check geometry.</p>
         </div>
       )}
 
+      {selectedTarget?.kind==='void' && (scene.floor_voids??[]).filter(v=>v.id===selectedTarget.id).map(v=><div className="rl-inspector-card" key={v.id}>
+        <h4>Floor void · {v.id}</h4><p>No floor or traversal inside this polygon. Compare every corner against video evidence.</p>
+        {v.polygon.map((point,i)=><div className="rl-field-row" key={i}>{point.map((n,axis)=><label className="rl-field" key={axis}><span>Void vertex {i+1} {axis===0?'X':'Z'} (m)</span><input type="number" step=".1" value={n} onChange={e=>{const next=cloneScene(scene);const hole=next.floor_voids?.find(h=>h.id===v.id);if(hole){hole.polygon[i][axis]=num(e.target.value,n);hole.provenance={...hole.provenance,source:'user_edit'};onUpdateScene(next);}}}/></label>)}</div>)}
+      </div>)}
+      <div className="rl-pill-list">{(scene.floor_voids??[]).map(v=><button className="rl-pill" key={v.id} onClick={()=>onSelectTarget({kind:'void',id:v.id})}>⚠ {v.id} · no floor</button>)}</div>
       {selectedOpening && (
         <div className="rl-inspector-card">
           <span className="rl-kicker">

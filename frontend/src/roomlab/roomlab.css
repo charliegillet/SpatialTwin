@@ -780,3 +780,9 @@ body {
   border-radius: 8px;
   background: #0b0f17;
 }
+
+/* Keep architecture visible while retaining accessible model assumptions. */
+.rl-legend { display: block; max-width: calc(100% - 120px); }
+.rl-legend summary { cursor: pointer; padding: 4px 0; }
+.rl-legend[open] .rl-legend-item { display: flex; margin: 6px 0; }
+.rl-canvas-hud-top { align-items: flex-start; gap: 8px; }

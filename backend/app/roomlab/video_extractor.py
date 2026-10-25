@@ -33,6 +33,8 @@ from backend.app.roomlab.provider_schema import (
 
 MODEL_ID = "gemini-4-argon"
 MAX_OUTPUT_CHARS = 65_536
+MAX_INLINE_VIDEO_BYTES = 20 * 1024 * 1024
+SDK_TIMEOUT_MS = 450_000  # 450s, fitting inside the 480s root job timeout
 
 
 def _resolve_api_key(explicit_key: str | None = None) -> str:
@@ -145,20 +147,22 @@ async def propose_room(
         rel_video = media.video_url.removeprefix("/media/").lstrip("/")
         try:
             video_file = _safe_media_child(root, rel_video)
-            video_bytes = video_file.read_bytes()
-            if 0 < len(video_bytes) <= 20 * 1024 * 1024:
+            video_size = video_file.stat().st_size
+            if 0 < video_size <= MAX_INLINE_VIDEO_BYTES:
+                video_bytes = video_file.read_bytes()
+                static_fps = 1.0 if media.duration_s <= 30.0 else 0.5
                 inputs.append(
                     {
                         "type": "video",
                         "data": base64.b64encode(video_bytes).decode("ascii"),
                         "mime_type": media.mime_type,
-                        "processing": {"type": "static", "fps": 1.0},
+                        "processing": {"type": "static", "fps": static_fps},
                     }
                 )
-        except ValueError:
+        except (ValueError, OSError):
             pass
 
-    for frame in media.frames[:12]:
+    for frame in media.frames[:48]:
         frame_path = _safe_media_child(root, frame.relative_path)
         frame_bytes = frame_path.read_bytes()
         if not frame_bytes:
@@ -178,7 +182,10 @@ async def propose_room(
         )
 
     owns_client = client is None
-    active_client = client or genai.Client(api_key=resolved_key)
+    active_client = client or genai.Client(
+        api_key=resolved_key,
+        http_options={"timeout": SDK_TIMEOUT_MS},
+    )
     try:
         interaction = await active_client.aio.interactions.create(
             model=MODEL_ID,
@@ -226,11 +233,12 @@ async def propose_room(
     try:
         payload = ProviderRoomPayload.model_validate(parsed_json)
         valid_ids = {f.frame_id for f in media.frames}
-        default_ids = [f.frame_id for f in media.frames]
-        draft, warnings = normalize_provider_payload(payload, valid_ids, default_ids)
+        draft, warnings = normalize_provider_payload(payload, valid_ids)
     except (ValidationError, ValueError) as exc:
         raise RuntimeError("Gemini room draft failed local schema or geometric validation.") from exc
 
+    if not any(item.get('type')=='video' for item in inputs):
+        warnings.append(f'Analyzed {min(48,len(media.frames))} timestamped frames across {media.duration_s:.2f}s; native video omitted (disabled, unavailable, or over the 20 MiB inline limit). Brief events between sampled frames may be missed.')
     latency_ms = round((time.monotonic() - started) * 1000.0, 2)
     return RoomDraftResult(
         draft=draft,

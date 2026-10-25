@@ -4,6 +4,7 @@ export type SelectionTarget =
   | { kind: 'object'; id: string }
   | { kind: 'wall'; id: string }
   | { kind: 'opening'; id: string }
+  | { kind: 'void'; id: string }
   | null;
 
 export type ViewMode = 'orbit' | 'top';

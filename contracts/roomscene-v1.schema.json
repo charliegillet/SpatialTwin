@@ -126,9 +126,53 @@
     "title": "MediaRecord",
     "type": "object"
   },
+  "FloorVoid": {
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "maxLength": 80,
+        "minLength": 1,
+        "title": "Id",
+        "type": "string"
+      },
+      "polygon": {
+        "items": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "maxItems": 100,
+        "minItems": 3,
+        "title": "Polygon",
+        "type": "array"
+      },
+      "provenance": {
+        "$ref": "#/$defs/Provenance"
+      }
+    },
+    "required": [
+      "id",
+      "polygon"
+    ],
+    "title": "FloorVoid",
+    "type": "object"
+  },
   "Wall": {
     "additionalProperties": false,
     "properties": {
+      "role": {
+        "default": "shell",
+        "enum": [
+          "shell",
+          "partition",
+          "railing"
+        ],
+        "title": "Role",
+        "type": "string"
+      },
       "id": {
         "maxLength": 80,
         "minLength": 1,
@@ -438,6 +482,11 @@
   "RoomDraft": {
     "additionalProperties": false,
     "properties": {
+      "topology_review_required": {
+        "default": false,
+        "title": "Topology Review Required",
+        "type": "boolean"
+      },
       "name": {
         "default": "Estimated room",
         "maxLength": 160,
@@ -457,6 +506,14 @@
         "maxItems": 100,
         "minItems": 3,
         "title": "Floor",
+        "type": "array"
+      },
+      "floor_voids": {
+        "items": {
+          "$ref": "#/$defs/FloorVoid"
+        },
+        "maxItems": 30,
+        "title": "Floor Voids",
         "type": "array"
       },
       "walls": {
@@ -501,6 +558,11 @@
   "RoomSceneV1": {
     "additionalProperties": false,
     "properties": {
+      "topology_review_required": {
+        "default": false,
+        "title": "Topology Review Required",
+        "type": "boolean"
+      },
       "name": {
         "default": "Estimated room",
         "maxLength": 160,
@@ -520,6 +582,14 @@
         "maxItems": 100,
         "minItems": 3,
         "title": "Floor",
+        "type": "array"
+      },
+      "floor_voids": {
+        "items": {
+          "$ref": "#/$defs/FloorVoid"
+        },
+        "maxItems": 30,
+        "title": "Floor Voids",
         "type": "array"
       },
       "walls": {

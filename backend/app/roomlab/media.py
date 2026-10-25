@@ -20,10 +20,10 @@ from PIL import Image
 
 from backend.app.roomlab.contracts import EvidenceFrame, MediaRecord
 
-MAX_MEDIA_BYTES = 40 * 1024 * 1024
-MAX_DURATION_S = 15.0
+MAX_MEDIA_BYTES = 256 * 1024 * 1024
+MAX_DURATION_S = 120.0
 MIN_DURATION_S = 0.05
-MAX_FRAMES = 12
+MAX_FRAMES = 48
 TARGET_FRAME_WIDTH = 960
 
 AllowedMime = Literal["video/mp4", "video/webm", "video/quicktime"]
@@ -55,7 +55,11 @@ def _detect_container_mime(data: bytes, declared_mime: str, filename: str) -> Al
     # EBML / WebM / Matroska magic: 0x1A 0x45 0xDF 0xA3
     if data[:4] == b"\x1a\x45\xdf\xa3":
         header_window = data[:4096].lower()
-        if b"webm" in header_window or (declared_mime or "").lower() == "video/webm" or (filename or "").lower().endswith(".webm"):
+        if (
+            b"webm" in header_window
+            or (declared_mime or "").lower() == "video/webm"
+            or (filename or "").lower().endswith(".webm")
+        ):
             return "video/webm"
         raise ValueError("Unsupported Matroska container; upload MP4, WebM, or QuickTime MOV.")
 
@@ -115,7 +119,7 @@ def _probe_and_measure_duration(ffmpeg_exe: str, video_path: pathlib.Path) -> fl
             cmd,
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=60,
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
@@ -127,7 +131,6 @@ def _probe_and_measure_duration(ffmpeg_exe: str, video_path: pathlib.Path) -> fl
 
     duration = _parse_ffmpeg_duration(stderr)
     if duration is None or duration <= 0:
-        # Fallback for single-frame or ultra-short valid streams where time=00:00:00.00
         frame_matches = re.findall(r"frame=\s*(\d+)", stderr)
         fps_match = re.search(r"(\d+(?:\.\d+)?)\s*fps", stderr)
         if frame_matches and int(frame_matches[-1]) > 0:
@@ -147,7 +150,10 @@ def _probe_and_measure_duration(ffmpeg_exe: str, video_path: pathlib.Path) -> fl
 def _select_timestamps(duration_s: float, max_frames: int = MAX_FRAMES) -> list[float]:
     if duration_s <= 0.4:
         return [0.0]
-    count = min(max_frames, max(2, int(round(duration_s * 1.5)) + 1))
+    if duration_s <= 16.0:
+        count = min(max_frames, max(2, int(round(duration_s * 1.25)) + 1))
+    else:
+        count = min(max_frames, max(16, int(round(duration_s * 0.6)) + 1))
     span = max(0.0, duration_s - 0.08)
     if count == 1 or span <= 0:
         return [0.0]
@@ -194,7 +200,7 @@ def _extract_frame_jpeg(
                     (max(1, int(round(w * scale))), max(1, int(round(h * scale)))),
                     Image.Resampling.LANCZOS,
                 )
-                resized.save(output_path, format="JPEG", quality=86)
+                resized.save(output_path, format="JPEG", quality=85)
     except Exception:
         return False
     return True
@@ -206,12 +212,12 @@ def process_media(
     mime_type: str,
     media_root: pathlib.Path,
 ) -> MediaRecord:
-    """Validate uploaded video bytes, persist under media_root/media_id, and extract <=12 JPEG frames."""
+    """Validate uploaded video bytes, persist under media_root/media_id, and extract <=48 JPEG frames."""
     if not isinstance(data, (bytes, bytearray)) or len(data) == 0:
         raise ValueError("Uploaded video file is empty.")
     if len(data) > MAX_MEDIA_BYTES:
         raise ValueError(
-            f"Uploaded video ({len(data) / (1024 * 1024):.1f} MiB) exceeds the 40 MiB limit."
+            f"Uploaded video ({len(data) / (1024 * 1024):.1f} MiB) exceeds the 256 MiB limit."
         )
 
     detected_mime = _detect_container_mime(bytes(data), mime_type or "", filename or "")
@@ -219,7 +225,6 @@ def process_media(
     if declared and declared not in ("application/octet-stream", "video/*", ""):
         if declared not in EXT_FOR_MIME:
             raise ValueError(f"Unsupported MIME type '{declared}'. Allowed: video/mp4, video/webm, video/quicktime.")
-        # Detect blatant container/MIME mismatch (e.g. WebM bytes declared as video/mp4)
         if (declared == "video/webm") != (detected_mime == "video/webm"):
             raise ValueError(f"Container format ({detected_mime}) does not match declared MIME type ({declared}).")
 

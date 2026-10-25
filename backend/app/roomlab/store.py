@@ -68,6 +68,8 @@ class SceneStore:
                 original_holdout=dimension(scene,request.holdout_anchor_id,request.holdout_dimension)
             scaled=scene.model_copy(deep=True)
             scaled.floor=[[v*factor for v in p] for p in scaled.floor]
+            for void in scaled.floor_voids:
+                void.polygon=[[v*factor for v in p] for p in void.polygon]
             for wall in scaled.walls:
                 wall.start=[v*factor for v in wall.start];wall.end=[v*factor for v in wall.end];wall.height_m*=factor;wall.thickness_m*=factor
             for opening in scaled.openings:

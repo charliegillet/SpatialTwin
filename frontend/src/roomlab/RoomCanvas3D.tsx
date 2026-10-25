@@ -40,7 +40,7 @@ function detectWebGLAvailable(): boolean {
   }
 }
 
-function FloorMesh({ floor }: { floor: number[][] }) {
+function FloorMesh({ floor, voids=[] }: { floor: number[][]; voids?: Array<{polygon:number[][]}> }) {
   const geometry = useMemo(() => {
     if (!floor || floor.length < 3) return null;
     // Shape is in 2D (x, y); after rotation.x = +PI/2, shape (x, y, 0) maps to world (x, 0, y) = (x, 0, z)!
@@ -50,8 +50,9 @@ function FloorMesh({ floor }: { floor: number[][] }) {
       else shape.lineTo(x, z);
     });
     shape.closePath();
+    for(const v of voids){const hole=new THREE.Path();v.polygon.forEach(([x,z],i)=>i===0?hole.moveTo(x,z):hole.lineTo(x,z));hole.closePath();shape.holes.push(hole);}
     return new THREE.ShapeGeometry(shape);
-  }, [floor]);
+  }, [floor, voids]);
   useEffect(() => () => geometry?.dispose(), [geometry]);
 
   if (!geometry) return null;
@@ -109,6 +110,7 @@ function CameraController({
 function categoryColor(category: string, source?: string): string {
   if (source === 'user_measurement') return '#10b981';
   const c = (category || '').toLowerCase();
+  if(c.includes('stair'))return '#f59e0b';
   if (c.includes('table') || c.includes('desk')) return '#38bdf8';
   if (c.includes('chair') || c.includes('seat')) return '#a78bfa';
   if (c.includes('sofa') || c.includes('couch')) return '#f472b6';
@@ -130,7 +132,8 @@ function RoomSceneContent({
   onSelectTarget,
   onMoveObject,
   onPickEndpoint,
-}: RoomCanvas3DProps & { scene: RoomSceneV1 }) {
+  showLabels,
+}: RoomCanvas3DProps & { scene: RoomSceneV1; showLabels: boolean }) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const dragOffsetRef = useRef<[number, number]>([0, 0]);
   const floorPlane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), []);
@@ -191,13 +194,18 @@ function RoomSceneContent({
 
       <gridHelper args={[24, 24, '#243247', '#182232']} position={[0, 0.001, 0]} />
 
-      <FloorMesh floor={scene.floor} />
+      <FloorMesh floor={scene.floor} voids={scene.floor_voids} />
+      {(scene.floor_voids??[]).map(v=><group key={v.id}>
+        <Line points={[...v.polygon,v.polygon[0]].map(p=>[p[0],.04,p[1]] as [number,number,number])} color="#f97316" lineWidth={3}/>
+        <Html position={[v.polygon.reduce((a,p)=>a+p[0],0)/v.polygon.length,.1,v.polygon.reduce((a,p)=>a+p[1],0)/v.polygon.length]} center><button className="rl-3d-tag" onClick={()=>onSelectTarget({kind:'void',id:v.id})}>⚠ {v.id} · NO FLOOR</button></Html>
+      </group>)}
 
       {/* Segmented Architectural Walls */}
       {wallPieces.map((piece) => {
         const isSelected = selectedTarget?.kind === 'wall' && selectedTarget.id === piece.wallId;
         const isAnchor = scene.calibration?.anchor_id === piece.wallId;
-        const wallColor = isSelected ? '#38bdf8' : isAnchor ? '#10b981' : '#64748b';
+        const boundary=walls.find(w=>w.id===piece.wallId);
+        const wallColor = boundary?.role==='railing' ? '#f59e0b' : boundary?.role==='partition' ? '#67e8f9' : isSelected ? '#38bdf8' : isAnchor ? '#10b981' : '#64748b';
         return (
           <mesh
             key={piece.key}
@@ -214,7 +222,7 @@ function RoomSceneContent({
               roughness={0.85}
               metalness={0.1}
               transparent
-              opacity={0.65}
+              opacity={boundary?.role==='partition'?.35:.65}
             />
           </mesh>
         );
@@ -227,7 +235,7 @@ function RoomSceneContent({
         const len = wallLengthMeters(w);
         const isSelected = selectedTarget?.kind === 'wall' && selectedTarget.id === w.id;
         return (
-          <Html key={`lbl-${w.id}`} position={[mx, (w.height_m ?? 2.7) + 0.16, mz]} center>
+          <Html style={{display:showLabels||isSelected?'block':'none'}} key={`lbl-${w.id}`} position={[mx, (w.height_m ?? 2.7) + 0.16, mz]} center>
             <button
               type="button"
               className={`rl-3d-tag ${isSelected ? 'rl-3d-tag--active' : ''}`}
@@ -322,7 +330,7 @@ function RoomSceneContent({
               </mesh>
             )}
 
-            <Html position={[0, obj.height_m + 0.22, 0]} center>
+            <Html style={{display:showLabels||isSelected?'block':'none'}} position={[0, obj.height_m + 0.22, 0]} center>
               <button
                 type="button"
                 className={`rl-3d-tag ${isSelected ? 'rl-3d-tag--active' : ''}`}
@@ -396,18 +404,22 @@ function FallbackPlan2D({
   solveResult: SolveResult | null;
   onSelectTarget: (target: SelectionTarget) => void;
 }) {
-  const scale = 55;
-  const toSvg = ([x, z]: number[]) => `${250 + x * scale},${220 + z * scale}`;
+  const xs=scene.floor.map(p=>p[0]),zs=scene.floor.map(p=>p[1]);
+  const midX=(Math.min(...xs)+Math.max(...xs))/2,midZ=(Math.min(...zs)+Math.max(...zs))/2;
+  const scale=Math.min(440/Math.max(1,Math.max(...xs)-Math.min(...xs)),380/Math.max(1,Math.max(...zs)-Math.min(...zs)));
+  const toSvg = ([x, z]: number[]) => `${250 + (x-midX) * scale},${220 + (z-midZ) * scale}`;
   const floorPts = (scene.floor ?? []).map(toSvg).join(' ');
 
   return (
     <div className="rl-fallback-2d" role="region" aria-label="2D Room Plan Fallback">
       <div className="rl-fallback-banner">2D Top-Down Plan View (WebGL-Independent Mode)</div>
       <svg viewBox="0 0 500 440" className="rl-fallback-svg">
-        <polygon points={floorPts} fill="#161f2c" stroke="#64748b" strokeWidth="3" />
+        <path d={[scene.floor,...(scene.floor_voids??[]).map(v=>v.polygon)].map(poly=>'M'+poly.map(toSvg).join(' L')+' Z').join(' ')} fillRule="evenodd" fill="#161f2c" stroke="#64748b" strokeWidth="3"/>
+        {(scene.floor_voids??[]).map(v=><polygon key={v.id} points={v.polygon.map(toSvg).join(' ')} fill="none" stroke="#f97316" strokeWidth="2" onClick={()=>onSelectTarget({kind:'void',id:v.id})}/>)}
+        {buildSegmentedWallPieces(scene).filter(p=>p.center[1]-p.height/2<.01).map(p=><line key={p.key} x1={250+(p.center[0]-midX-Math.cos(p.yawRad)*p.length/2)*scale} y1={220+(p.center[2]-midZ+Math.sin(p.yawRad)*p.length/2)*scale} x2={250+(p.center[0]-midX+Math.cos(p.yawRad)*p.length/2)*scale} y2={220+(p.center[2]-midZ-Math.sin(p.yawRad)*p.length/2)*scale} stroke="#67e8f9" strokeWidth={Math.max(2,p.thickness*scale)} onClick={()=>onSelectTarget({kind:'wall',id:p.wallId})}/>)}
         {(scene.objects ?? []).map((o) => {
-          const cx = 250 + o.center[0] * scale;
-          const cz = 220 + o.center[1] * scale;
+          const cx = 250 + (o.center[0]-midX) * scale;
+          const cz = 220 + (o.center[1]-midZ) * scale;
           const w = o.width_m * scale;
           const d = o.depth_m * scale;
           const selected = selectedTarget?.kind === 'object' && selectedTarget.id === o.id;
@@ -442,8 +454,8 @@ function FallbackPlan2D({
             points={solveResult.path.map(toSvg).join(' ')}
           />
         )}
-        <circle cx={250 + startPoint[0] * scale} cy={220 + startPoint[1] * scale} r="6" fill="#22c55e" />
-        <circle cx={250 + goalPoint[0] * scale} cy={220 + goalPoint[1] * scale} r="6" fill="#38bdf8" />
+        <circle cx={250 + (startPoint[0]-midX) * scale} cy={220 + (startPoint[1]-midZ) * scale} r="6" fill="#22c55e" />
+        <circle cx={250 + (goalPoint[0]-midX) * scale} cy={220 + (goalPoint[1]-midZ) * scale} r="6" fill="#38bdf8" />
       </svg>
     </div>
   );
@@ -452,6 +464,7 @@ function FallbackPlan2D({
 export const RoomCanvas3D: React.FC<RoomCanvas3DProps> = (props) => {
   const [webglSupported] = useState<boolean>(() => detectWebGLAvailable());
   const [force2D, setForce2D] = useState<boolean>(false);
+  const [showLabels,setShowLabels]=useState(false);
 
   if (!props.scene) {
     return (
@@ -471,7 +484,7 @@ export const RoomCanvas3D: React.FC<RoomCanvas3DProps> = (props) => {
   return (
     <div className="rl-canvas-wrap">
       <div className="rl-canvas-hud-top">
-        <div className="rl-legend">
+        <details className="rl-legend"><summary>Estimated geometry · legend & limits</summary>
           <span className="rl-legend-item">
             <i className="rl-dot rl-dot--solid" /> Scale reference highlighted · other geometry estimated
           </span>
@@ -481,14 +494,16 @@ export const RoomCanvas3D: React.FC<RoomCanvas3DProps> = (props) => {
           <span className="rl-legend-item">
             <i className="rl-dot rl-dot--unc" /> Uncertainty Halo (±r)
           </span>
+          <span className="rl-legend-item">Orange: railing/void edge · cyan: interior partition. Stair boxes are placeholders; no stair travel.</span>
           <span className="rl-legend-item">Filled clearance boxes are conservative editor previews; checked outlines come from the solver.</span>
-        </div>
+        </details>
+        <button type="button" className="rl-btn rl-btn--xs" onClick={()=>setShowLabels(v=>!v)}>{showLabels?'Hide Labels':'Show Labels'}</button>
         <button type="button" className="rl-btn rl-btn--xs" onClick={() => setForce2D((v) => !v)}>
           {force2D || !webglSupported ? 'Switch to 3D WebGL' : '2D SVG Plan Fallback'}
         </button>
       </div>
 
-      {!webglSupported || force2D ? (
+      {(!webglSupported || force2D) && (
         <FallbackPlan2D
           scene={props.scene}
           selectedTarget={props.selectedTarget}
@@ -497,15 +512,18 @@ export const RoomCanvas3D: React.FC<RoomCanvas3DProps> = (props) => {
           solveResult={props.solveResult}
           onSelectTarget={props.onSelectTarget}
         />
-      ) : (
+      )}
+      {webglSupported && (
+        <div style={{display:force2D?'none':'block',width:'100%',height:'100%'}}>
         <Canvas
           camera={{ position: [5.5, 6.2, 6.5], fov: 48, near: 0.1, far: 120 }}
           dpr={[1, 1.5]}
           gl={{ antialias: true }}
           frameloop="demand"
         >
-          <RoomSceneContent {...props} scene={props.scene} />
+          <RoomSceneContent {...props} scene={props.scene} showLabels={showLabels} />
         </Canvas>
+        </div>
       )}
     </div>
   );

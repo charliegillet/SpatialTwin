@@ -60,3 +60,60 @@ Layout search is bounded and tests final furniture poses, not globally minimal
 solutions or swept physical movement. No kinematic wheelchair or safety
 certification is claimed. Jobs are in memory; saved scenes and media survive
 restarts, while in-flight jobs do not resume after a process restart.
+
+REAL VIDEO REVIEW AND 120-SECOND SUPPORT — 2026-10-25
+
+Input: /Users/alhinai/Downloads/demo.mp4, 14.22 s, 3,113,943 bytes.
+Original extraction: scene-6c90deb98bab4b3dbeac0f2d57a5986e.
+Revised live Gemini extraction: 57.21 s, 19 decoded evidence frames,
+scene-1a585a9a46b34dcc9c366dad286f5e7d (reviewed revision 2).
+Direct network link:
+http://100.75.54.79:8001/?scene=scene-1a585a9a46b34dcc9c366dad286f5e7d
+
+Observed improvement against the source frames:
+- Original had no floor void, independent partition, or railing elements.
+- Revised draft contains one non-walkable atrium cutout, three 1.05 m railing
+  segments, and an independent glass storefront partition at estimated x=1.6 m,
+  distinct from the far outer wall at estimated x=6.5 m.
+- Storefront glass panels and double doors now attach to the partition ID.
+- Staircase is fixed and explicitly labelled an unsupported obstruction placeholder.
+- Rendering removes the void from floor triangles; planar solver excludes it.
+- New warnings distinguish model consistency from visual/measurement accuracy.
+- Floor-void vertices and independent partition/railing endpoints are editable.
+- A topology-review flag blocks clearance when normalization repairs or drops
+  structural boundaries or floor voids. It can only be cleared after review.
+
+One semantic review correction was made without changing extracted geometry:
+A plant labelled 'Potted Plant (Near Stairs)' was accidentally classified as fixed
+stairs by a substring rule. The rule and regression coverage were fixed; the
+saved scene plant is movable again with explicit user_edit provenance. Revision 2
+retains all model-extracted coordinates and dimensions.
+
+Remaining uncertainty:
+No measured dimension was supplied, so the scene is uncalibrated. The new estimated
+outer footprint is 13.3 x 11 m, which differs from the previous guessed 9.5 x
+21.5 m. This change is not evidence of metric accuracy. Atrium extent and unseen
+boundaries remain inferred. Two approximate box-overlap warnings remain (counter/
+bicycles and sofa/plant). Object counts, dimensions and placements need comparison
+and measurement; the qualitative topology is improved, not a survey reconstruction.
+No stair geometry or travel between levels is claimed.
+
+Long-video checks:
+- API config now advertises 120 s and 256 MiB.
+- Actual 120.0 s synthetic MP4 uploaded through API and decoded successfully;
+  47 available JPEG samples covered 0 to 117.369 s (final seek had no frame).
+- Actual 121.0 s MP4 rejected with HTTP 422 and the 120 s limit message.
+- Up to 48 keyframes span the clip; native video is bounded to 20 MiB. Larger
+  uploads use sampled frames and disclose that brief intervening events may be missed.
+- Provider timeout 450 s; application job timeout 480 s.
+
+Verification:
+- Full backend suite: 33 passed in 2.59 s.
+- Frontend unit tests: 3 passed; TypeScript/Vite production build passed.
+- Additional provider tests after sampling-disclosure change: 6 passed in 1.36 s.
+- Browser verified Tailscale direct scene link, source video/frame restoration,
+  editable void coordinates, undo, top plan, 3D view, labels, and model validation.
+- Browser caught a DOM cleanup error during 3D/fallback switching. Keeping the
+  canvas and HTML labels mounted fixed it; repeat transitions and label toggles
+  produced no new console errors after the rebuilt asset was loaded.
+- Final screenshot: runtime/roomlab/demo-final-reviewed.png (ignored local artifact).

@@ -12,7 +12,7 @@ from .reachability import solve
 from .optimizer import optimize
 
 ROOT=Path(__file__).resolve().parents[3]
-MAX_BYTES=40*1024*1024
+MAX_BYTES=256*1024*1024
 log=logging.getLogger('roomlab')
 
 def create_app(runtime:Path|None=None)->FastAPI:
@@ -54,7 +54,7 @@ def create_app(runtime:Path|None=None)->FastAPI:
 
     @app.get('/api/roomlab/config')
     def config():return {'gemini_configured':bool(os.environ.get('GEMINI_API_KEY')),'model':'gemini-4-argon',
-        'max_video_seconds':15,'max_upload_bytes':MAX_BYTES,
+        'max_video_seconds':120,'max_upload_bytes':MAX_BYTES,
         'sample_video_url':'/api/roomlab/examples/room-walkthrough.mp4' if (runtime/'sample-room.mp4').exists() else None}
 
     @app.get('/api/roomlab/examples/room-walkthrough.mp4')
@@ -67,7 +67,7 @@ def create_app(runtime:Path|None=None)->FastAPI:
     async def upload(file:UploadFile=File(...)):
         from .media import process_media
         data=await file.read(MAX_BYTES+1)
-        if len(data)>MAX_BYTES:raise HTTPException(413,'Video must be at most 40 MiB.')
+        if len(data)>MAX_BYTES:raise HTTPException(413,'Video must be at most 256 MiB.')
         processor=app.state.media_processor or process_media
         try:record=await asyncio.to_thread(processor,data,file.filename or 'video.mp4',file.content_type or '',media_root)
         except ValueError as exc:raise HTTPException(422,str(exc))
@@ -86,7 +86,7 @@ def create_app(runtime:Path|None=None)->FastAPI:
                 job.status='running'
                 from .video_extractor import propose_room
                 extractor=app.state.extractor or propose_room
-                result=await asyncio.wait_for(extractor(media,media_root,api_key=os.environ.get('GEMINI_API_KEY')),timeout=180)
+                result=await asyncio.wait_for(extractor(media,media_root,api_key=os.environ.get('GEMINI_API_KEY')),timeout=480)
                 scene=store.create(result.draft,media.frames)
                 job.scene_id=scene.scene_id;job.model=result.model;job.latency_ms=result.latency_ms;job.warnings=result.warnings
                 report=validate_scene(scene)

@@ -6,6 +6,9 @@ from shapely.ops import unary_union
 from .contracts import RoomSceneV1, RoomObject, Wall
 
 EPS=1e-7
+def floor_polygon(scene:RoomSceneV1)->Polygon:
+    return Polygon(scene.floor, [v.polygon for v in scene.floor_voids])
+
 def footprint(obj:RoomObject)->Polygon:
     angle=math.radians(obj.yaw_deg);c,s=math.cos(angle),math.sin(angle)
     return Polygon([(obj.center[0]+c*x+s*z,obj.center[1]-s*x+c*z)
@@ -43,7 +46,7 @@ def free_space(scene:RoomSceneV1,radius:float,pessimistic:bool=True):
     Shell/walls are fixed *modeled* geometry. Only object translation disks are
     bounded. Unobserved topology cannot support a real-world guarantee.
     """
-    room=Polygon(scene.floor)
+    room=floor_polygon(scene)
     q=16; padding=radius/math.cos(math.pi/(4*q))
     if pessimistic:
         domain=room.buffer(-padding,quad_segs=q)

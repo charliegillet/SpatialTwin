@@ -121,3 +121,51 @@ def test_loopback_default_rejects_remote_client(tmp_path,monkeypatch):
     monkeypatch.delenv('ROOMLAB_HOST',raising=False)
     c=TestClient(create_app(tmp_path),client=('100.100.100.1',40000))
     assert c.get('/health').status_code==403
+
+
+def test_atrium_void_excluded_from_paths_and_calibration(tmp_path):
+    from backend.app.roomlab.contracts import FloorVoid
+    from shapely.geometry import Polygon,LineString
+    s=calibrated(tmp_path);s.objects=[]
+    s.floor_voids=[FloorVoid(id='atrium',polygon=[[2.,1.],[4.,1.],[4.,4.],[2.,4.]])]
+    req=SolveRequest(expected_revision=2,start=[1.,2.5],goal=[5.,2.5],agent_diameter_m=.4)
+    r=solve(s,req)
+    assert r.status=='ROBUST_PASS'
+    assert not Polygon(s.floor_voids[0].polygon).intersects(LineString(r.path))
+    req.goal=[3.,2.];assert solve(s,req).status=='INVALID_SCENE'
+    store=SceneStore(tmp_path);s=store.save(s.scene_id,s,2)
+    scaled=store.calibrate(s.scene_id,CalibrateRequest(expected_revision=3,anchor_id='w0',dimension='wall_length',measured_m=12.))
+    assert scaled.floor_voids[0].polygon[0]==[4.,2.]
+
+
+def test_interior_partition_door_controls_reachability(tmp_path):
+    s=calibrated(tmp_path);s.objects=[]
+    s.walls.append(Wall(id='glass-partition',role='partition',start=[3.,0.],end=[3.,5.]))
+    req=SolveRequest(expected_revision=2,start=[1.,2.5],goal=[5.,2.5],agent_diameter_m=.4)
+    assert validate_scene(s).valid
+    assert solve(s,req).status=='ROBUST_BLOCKED'
+    s.openings=[Opening(id='partition-door',wall_id='glass-partition',kind='door',offset_m=2.,width_m=1.)]
+    assert solve(s,req).status=='ROBUST_PASS'
+    s.openings[0].wall_id='missing'
+    assert not validate_scene(s).valid
+
+
+def test_void_objects_and_stair_warnings(tmp_path):
+    from backend.app.roomlab.contracts import FloorVoid
+    s=scene(tmp_path)
+    s.floor_voids=[FloorVoid(id='atrium',polygon=[[2.,1.],[4.,1.],[4.,4.],[2.,4.]])]
+    assert any(i.code=='object_outside' for i in validate_scene(s).issues)
+    s.objects[0].center=[1.,1.];s.objects[0].category='stairs';s.objects[0].movable=False
+    report=validate_scene(s)
+    assert report.valid and any(i.code=='unsupported_stairs' for i in report.issues)
+    s.objects[0].label='Potted Plant (Near Stairs)';s.objects[0].category='plant';s.objects[0].movable=True
+    assert not any(i.code=='unsupported_stairs' for i in validate_scene(s).issues)
+    s.floor_voids[0].polygon=[[7.,1.],[8.,1.],[8.,2.],[7.,2.]]
+    assert any(i.code=='invalid_void' for i in validate_scene(s).issues)
+
+
+def test_unresolved_topology_cannot_claim_reachability(tmp_path):
+    s=calibrated(tmp_path);s.topology_review_required=True
+    req=SolveRequest(expected_revision=2,start=[1.,1.],goal=[5.,1.])
+    assert solve(s,req).status=='INVALID_SCENE'
+    assert any(i.code=='topology_review_required' for i in validate_scene(s).issues)

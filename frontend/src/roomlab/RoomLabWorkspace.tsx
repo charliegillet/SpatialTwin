@@ -108,6 +108,7 @@ export default function RoomLabWorkspace() {
 
   const applyNewAuthoritativeScene = useCallback(
     (loaded: RoomSceneV1, infoMsg?: string) => {
+      const sceneUrl=new URL(window.location.href);sceneUrl.searchParams.set('scene',loaded.scene_id);window.history.replaceState(null,'',sceneUrl);
       try { localStorage.setItem('roomlab:last-scene', loaded.scene_id); } catch { /* Storage can be unavailable. */ }
       setHistory((prev) => loadAuthoritativeScene(prev, loaded));
       clearAnalysisOverlays();
@@ -118,8 +119,8 @@ export default function RoomLabWorkspace() {
 
   useEffect(() => {
     let cancelled = false;
-    let id: string | null = null;
-    try { id = localStorage.getItem('roomlab:last-scene'); } catch { /* Server persistence still works. */ }
+    let id: string | null = new URLSearchParams(window.location.search).get('scene');
+    try { id = id || localStorage.getItem('roomlab:last-scene'); } catch { /* Server persistence still works. */ }
     if (id) {
       getScene(id).then(async (loaded) => {
         if (cancelled) return;
@@ -416,6 +417,7 @@ export default function RoomLabWorkspace() {
 
   const selectedEvidenceFrameIds = useMemo(() => {
     if (!scene || !selectedTarget) return [];
+    if(selectedTarget.kind==='void')return scene.floor_voids?.find(v=>v.id===selectedTarget.id)?.provenance?.evidence_frame_ids??[];
     if (selectedTarget.kind === 'object') {
       const obj = (scene.objects ?? []).find((o) => o.id === selectedTarget.id);
       return obj?.provenance?.evidence_frame_ids ?? [];
