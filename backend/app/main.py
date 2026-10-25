@@ -10,6 +10,7 @@ import asyncio
 import base64
 import binascii
 import hashlib
+import hmac
 import importlib.metadata
 from uuid import uuid4
 from contextlib import asynccontextmanager
@@ -18,7 +19,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Any, Dict, Optional
-from fastapi import Body, FastAPI, HTTPException, Request
+from fastapi import Body, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -66,6 +67,10 @@ hardware_bridge = HardwareBridge(state_manager)
 grounding_adapter = GroundingAdapter()
 managed_agent_adapter = ManagedAgentAdapter(scenario_service)
 active_investigations: Dict[str, tuple[asyncio.Task, RunContext]] = {}
+# Physical approvals are serialised so one idempotency key can never send two movements.
+_approval_lock = asyncio.Lock()
+# Bounds concurrent provider investigations so one burst cannot exhaust the process.
+_investigation_slots = asyncio.Semaphore(2)
 
 
 @asynccontextmanager
@@ -111,6 +116,20 @@ app.add_middleware(
 async def validation_error(request: Request, exc: RequestValidationError):
     # Do not echo image bytes or arbitrary request values.
     return JSONResponse(status_code=422, content={"detail": "Invalid request", "fields": [list(e["loc"]) for e in exc.errors()]})
+
+
+OPERATOR_TOKEN_ENV = "SPATIALTWIN_OPERATOR_TOKEN"
+
+
+def _authorize_physical_operator(token: Optional[str]) -> str:
+    """Physical hardware requires the shared operator token. This is one shared secret, not per-person
+    authentication: the recorded operator id is a hash of that token, so it proves a token was used."""
+    expected = os.environ.get(OPERATOR_TOKEN_ENV, "").strip()
+    if not expected:
+        raise HTTPException(403, "operator_token_not_configured")
+    if not token or not hmac.compare_digest(token.encode("utf-8"), expected.encode("utf-8")):
+        raise HTTPException(403, "operator_token_rejected")
+    return "operator-" + hashlib.sha256(expected.encode("utf-8")).hexdigest()[:8]
 
 
 def fixtures_enabled() -> bool:
@@ -418,15 +437,18 @@ async def run_investigation(scenario_id: str, payload: InvestigationRequest) -> 
     inv_id = payload.investigation_id
     if inv_id in active_investigations:
         raise HTTPException(409, "Investigation already running; inspect progress or cancel it")
-    task = asyncio.create_task(managed_agent_adapter.investigate_scenario(
-        context=ctx, investigation_id=inv_id, deadline_seconds=payload.deadline_seconds, mode=payload.mode,
-    ))
-    active_investigations[inv_id] = (task, ctx)
-    try:
-        result = await task
-    finally:
-        if active_investigations.get(inv_id, (None,))[0] is task:
-            active_investigations.pop(inv_id, None)
+    if _investigation_slots.locked():
+        raise HTTPException(429, "Too many investigations are running; try again shortly")
+    async with _investigation_slots:
+        task = asyncio.create_task(managed_agent_adapter.investigate_scenario(
+            context=ctx, investigation_id=inv_id, deadline_seconds=payload.deadline_seconds, mode=payload.mode,
+        ))
+        active_investigations[inv_id] = (task, ctx)
+        try:
+            result = await task
+        finally:
+            if active_investigations.get(inv_id, (None,))[0] is task:
+                active_investigations.pop(inv_id, None)
 
     # A concurrent nonowner/conflicting request may return a transient failure.
     # Only the durable owning run may create the approval/evidence index.
@@ -492,11 +514,15 @@ def get_capture_evidence(scenario_id: str, capture_id: str):
 
 
 @app.post("/api/hardware/operator-approve")
-async def operator_approve_gate(payload: GateApprovalRequest) -> Dict[str, Any]:
+async def operator_approve_gate(payload: GateApprovalRequest,
+                                x_operator_token: Optional[str] = Header(default=None)) -> Dict[str, Any]:
     """
     Operator physical approval flow:
     Requires human confirmation before motor movement begins.
     """
+    # Authorize before anything else, so an unauthenticated caller learns nothing about investigations.
+    physical = not hardware_bridge.is_simulator
+    operator = _authorize_physical_operator(x_operator_token) if physical else "simulator-local"
     payload = payload.model_dump(mode="json")
     candidate = payload.get("candidate_alternative", "OPEN_P3")
     ctx = require_context(payload.get("expected_context"))
@@ -523,27 +549,48 @@ async def operator_approve_gate(payload: GateApprovalRequest) -> Dict[str, Any]:
         or opened.completed_crossings <= keep.completed_crossings):
         raise HTTPException(409, "Candidate must have a checked improvement under equal conditions")
     target_enum = GateTarget.OPEN
+    if investigation.provenance != "live" and not hardware_bridge.is_simulator:
+        raise HTTPException(409, "physical_approval_requires_live_evidence")
 
     approval_id = payload.get("idempotency_key")
     if not isinstance(approval_id, str) or not 1 <= len(approval_id) <= 128:
         raise HTTPException(422, "An approval idempotency_key is required")
-    if not state_manager.store.save_event("facility-demo", ctx.scenario_revision, "PHYSICAL_APPROVAL",
-        {"context": ctx.model_dump(), "investigation_id": investigation.investigation_id,
-         "candidate_run_id": opened.run_id, "candidate_hash": opened.candidate_hash},
-        approval_id, state_manager._now_iso()):
-        raise HTTPException(409, "Approval already submitted; inspect observed state before a new request")
 
-    # Send hardware command
-    success, cmd_id = await hardware_bridge.request_gate_target(target_enum)
-    if not success:
-        raise HTTPException(status_code=500, detail=cmd_id)
+    async with _approval_lock:
+        if await asyncio.to_thread(state_manager.store.has_event_key, approval_id):
+            raise HTTPException(409, "Approval already submitted; inspect observed state before a new request")
+        success, cmd_id = await hardware_bridge.request_gate_target(target_enum)
+        if not success:
+            # Nothing was acknowledged, so nothing is recorded and the key stays reusable.
+            raise HTTPException(status_code=502, detail=f"device_not_acknowledged:{cmd_id}")
+        recorded = await asyncio.to_thread(
+            state_manager.store.save_event, "facility-demo", ctx.scenario_revision, "PHYSICAL_APPROVAL",
+            {"context": ctx.model_dump(), "investigation_id": investigation.investigation_id,
+             "candidate_run_id": opened.run_id, "candidate_hash": opened.candidate_hash,
+             "operator": operator, "command_id": cmd_id},
+            approval_id, state_manager._now_iso())
+        if not recorded:
+            raise HTTPException(409, "Approval already submitted; inspect observed state before a new request")
 
     return {
         "status": "APPROVED_AND_COMMANDED",
+        "acknowledged": True,
         "command_id": cmd_id,
         "target": target_enum.value,
-        "notice": "Movement initiated. Awaiting debounced endpoint switch confirmation.",
+        "operator": operator,
+        "notice": "Device acknowledged the command. Movement is not confirmed until the endpoint switches report it.",
     }
+
+
+@app.post("/api/hardware/stop")
+async def emergency_stop(x_operator_token: Optional[str] = Header(default=None)) -> Dict[str, Any]:
+    """Emergency stop: asks the device to stop outputs. Requires the operator token on physical hardware."""
+    if not hardware_bridge.is_simulator:
+        _authorize_physical_operator(x_operator_token)
+    ok, detail = await hardware_bridge.request_stop()
+    if not ok:
+        raise HTTPException(status_code=502, detail=f"stop_not_acknowledged:{detail}")
+    return {"status": "STOP_ACKNOWLEDGED", "command_id": detail}
 
 
 @app.get("/api/scenarios/{scenario_id}/events")

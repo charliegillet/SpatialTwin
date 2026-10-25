@@ -90,3 +90,13 @@ def parse_device_line(line: str) -> Optional[Dict[str, Any]]:
     except json.JSONDecodeError:
         pass
     return None
+
+
+def make_stop_command(session_id: str, command_id: str) -> str:
+    cmd = HostCommandEnvelope(
+        v=1,
+        type=SerialCommandType.STOP_OUTPUTS,
+        session_id=session_id,
+        command_id=command_id,
+    )
+    return cmd.model_dump_json() + "\n"

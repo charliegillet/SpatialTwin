@@ -98,6 +98,14 @@ class SQLiteStore:
                 );
             """)
 
+    def has_event_key(self, idempotency_key: str) -> bool:
+        """Read-only check so a physical approval can be recorded only after the device acknowledges it."""
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM events WHERE idempotency_key = ? LIMIT 1", (idempotency_key,)
+            ).fetchone()
+        return row is not None
+
     def save_event(
         self,
         scenario_id: str,

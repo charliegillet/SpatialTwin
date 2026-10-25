@@ -177,6 +177,8 @@ def test_physical_approval_requires_saved_current_evidence_and_single_submission
         return True, 'mock-command'
 
     monkeypatch.setattr(main.hardware_bridge, 'request_gate_target', device_stub)
+    # The device is stubbed here, so this test runs as the simulator; physical hardware has its own tests.
+    monkeypatch.setattr(main.hardware_bridge, 'is_simulator', True)
     base = {'expected_context': ctx.model_dump(), 'candidate_alternative': 'OPEN_P3', 'idempotency_key': 'approval-one'}
     assert client.post('/api/hardware/operator-approve', json=base).status_code == 422
     result = client.post('/api/scenarios/facility-demo/investigate', json={
