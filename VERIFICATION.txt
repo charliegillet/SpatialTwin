@@ -259,3 +259,76 @@ merge or replace the renderer with the older reference branch.
 - Color estimates remain subject to lighting/white balance, patterns are procedural,
   and one floor material cannot encode mixed zones. No new door-operation, stair
   travel, accessibility certification, sweep planning or anisotropic-scale claims.
+
+SOURCE COMPARISON WITH HERMES — 2026-10-25
+
+Compared demo source frames 001,004,005..013,016,019 against the new scene and
+renderer. Hermes independently viewed frames 005..013 using Gemini 4 Argon and
+reviewed object-local yaw semantics. A separate direct multimodal Argon diagnostic
+corroborated the reversed stairs and observed door states; its inconsistent sofa
+coordinate advice was rejected after inspecting the actual negative-Z backrest.
+The initial high-thinking diagnostic request failed safely; the supported low-
+thinking retry returned the diagnostic. No canned provider result was substituted.
+
+Corrections saved to scene-851a54ec06f54b2b8705160cbead4da9, now revision 3:
+- Stair ascent yaw -90 -> +90, directing it away from the storefront into +X.
+  Estimated run depth 2.8 -> 3.8, center [4.3,4.2] -> [3.9,4.2], with increased
+  uncertainty radius .35 and explicit user_edit/partial/source-frame provenance.
+  This longer run is a visual fit from relative placement, not a measured length.
+- Renderer replaces six separated blocks and horizontal rail with 14 contiguous
+  illustrative treads and a rotated, bounded sloped handrail. Unselected internal
+  riser-box outlines are suppressed. Actual vertex bounds cover the rail at tall,
+  steep and tiny dimensions, plus parent yaw, in both proxy and bounds modes.
+- Sofa moved toward north wall [3.5,-5.0], retaining correct yaw 0. Flanking
+  plants moved to [2.04,-5.0]/[5.0,-5.0]. Bin now [3.65,2.55] at south counter end;
+  adjacent plant [4.25,3.0] sits behind it toward the stair foot. These are uncertain
+  manual visual fits, not metre-accurate recovered positions; affected poses use
+  radius .25. Counter, stools and bicycle geometry were retained.
+- Source-supported north propped/outward and south closed glass leaves are fixed
+  thin OBB objects, with .10 pose uncertainty, so both rendering and the planar
+  solver include the observed obstacles. Width/angle/thickness remain estimates.
+  Added the small sanitizer stand visible in frames 009..011 at the stair foot
+  as an uncertain slim floor obstacle (.15 radius), rather than omitting it.
+- Glass infill uses a restrained clear tint while window/door/partition frames
+  share the extracted bronze color. Removed always-visible green threshold strips;
+  aperture highlights appear on selection/bounds and click selection now covers
+  the visible opening geometry. Thin dimensions no longer display as 0.0m.
+- Future extraction guidance explains uphill and sofa backrest conventions and
+  preserves relative furniture ordering. Source-supported door_leaf depth .035
+  survives normalization and is forced fixed; an uncited leaf is skipped and sets
+  topology_review_required instead of silently claiming a clear aperture.
+
+Verification:
+- Full backend suite: 58 passed in 3.36s. Frontend: 13 passed. Production build passed.
+- Static-leaf regression proves a 1.2m circular agent passes a 2m modeled aperture
+  before adding the leaf but is ROBUST_BLOCKED afterward; a .6m agent still passes.
+  This fixture is calibrated; it is not a claim about the actual demo doorway.
+- Persisted corrected scene passes model validation with no nominal object overlaps;
+  warnings still state visual_unverified, unsupported_stairs and UNSCALED. A metric
+  solve on the actual scene remains UNSCALED.
+- Source frames, appearance estimates, room shell, openings, atrium and calibration
+  remain intact. Original pre-review scene backup: runtime/roomlab/demo-before-visual-review.json.
+  Corrected export: runtime/roomlab/demo-after-visual-review.json. These remain local
+  ignored artifacts alongside the user's source footage, not repository fixtures.
+- Browser reload restored the corrected scene and source-linked object metadata.
+  Inspected the stairs from the storefront side and both static door leaves.
+  Revision-2 live Argon review completed in 18.4s and corroborated the stair ascent,
+  new furniture ordering and restricted door aperture; it identified the omitted
+  sanitizer stand, which was then added in revision 3.
+- Renderer/source matching remains approximate: the sofa curvature, full stair
+  architecture, wall artwork, screens and temporary people are not reconstructed.
+  A tape measurement plus an interior walkthrough would constrain remaining depth
+  ambiguity. No physical stair travel or dynamic door mechanics are claimed.
+- Revision-3 live gemini-4-argon review completed in 18.9s. It corroborated the
+  observed half-open entrance, north furniture grouping and counter/stair-foot
+  cluster, including the sanitizer stand. It still requests physical doorway and
+  interior setback measurements. It also flags that the distant atrium is longer
+  than the modeled local cutout: the model is a local landing/lobby approximation,
+  not a full reconstruction of the market hall. This unresolved exterior extent
+  was not replaced with another invented metric length.
+- Final screenshot: runtime/roomlab/demo-corrected-final.png. Browser console and
+  final corrected export are checked separately; older original reviewed scene
+  scene-1a585a9a46b34dcc9c366dad286f5e7d remains revision 2.
+- Bicycle proxy now uses bounded round wheel hoops and a slender frame instead
+  of solid rectangular wheel blocks, retaining its original canonical footprint.
+  These parts also pass the actual-geometry vertex containment tests.

@@ -150,7 +150,11 @@ export const RoomEditor: React.FC<RoomEditorProps> = ({
         </button>
       </div>
 
-      <AppearancePanel scene={scene} selected={selectedTarget} onChange={onUpdateScene} />
+      <AppearancePanel
+        scene={scene}
+        selected={selectedTarget}
+        onChange={onUpdateScene}
+      />
       <details
         className="rl-scene-checks"
         open={Boolean(validation) || scene.topology_review_required}
@@ -624,7 +628,8 @@ export const RoomEditor: React.FC<RoomEditorProps> = ({
               >
                 <span>{o.label}</span>
                 <small>
-                  {o.width_m.toFixed(1)}×{o.depth_m.toFixed(1)}m
+                  {o.width_m.toFixed(o.width_m < 0.1 ? 3 : 1)}×
+                  {o.depth_m.toFixed(o.depth_m < 0.1 ? 3 : 1)}m
                 </small>
               </button>
             );

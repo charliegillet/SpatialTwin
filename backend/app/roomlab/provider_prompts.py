@@ -33,6 +33,11 @@ CRITICAL ARCHITECTURAL DISTINCTIONS (VOID CUTOUTS, PARTITIONS, RAILINGS, STAIRS)
      - Place objects that sit on the landing outside the partition on the landing side, and objects inside the room (e.g., stools against the inside of the glass, reception counter, lounge sofa, plants, stairs) on the interior side between the partition wall and the far back shell wall, ensuring NO object footprints intersect the partition wall or shell walls.
 3. Staircases (`category = "stairs"`):
    - Model any visible staircase as a fixed obstruction (`category = "stairs"`, `movable = false`) at its non-overlapping floor footprint and include an explicit note in `notes` that staircases are fixed single-level placeholders (multi-level travel and step geometry are not reconstructed).
+   - CANONICAL STAIRCASE UPHILL ORIENTATION (`yaw_deg`):
+     - In Three.js (`rotation.y = yaw_deg * pi / 180`), the procedural staircase proxy ascends (climbs uphill from lowest step to highest step) along the **positive longer local axis**:
+       - If `depth_m > width_m` (uphill along local `+Z`), world uphill direction is `[+sin(yaw), +cos(yaw)]` (`yaw_deg = 0` ascends south `+Z`; `yaw_deg = +90` ascends east `+X`; `yaw_deg = 180` ascends north `-Z`; `yaw_deg = -90` ascends west `-X`).
+       - If `width_m >= depth_m` (uphill along local `+X`), world uphill direction is `[+cos(yaw), -sin(yaw)]` (`yaw_deg = 0` ascends east `+X`; `yaw_deg = +90` ascends north `-Z`; `yaw_deg = -90` ascends south `+Z`; `yaw_deg = 180` ascends west `-X`).
+     - Set `yaw_deg` so the lowest step sits at the visible foot of the stairs and the uphill vector points in the true ascending direction observed in the video (never reversed toward the bottom landing!).
 4. `openings`:
    - Doors, windows, or passages attached to `wall_id` (either a shell wall `wall-1`..`wall-N` or an `interior_walls` ID).
    - `offset_m` is measured along that wall from its `start` vertex toward its `end` vertex.
@@ -40,6 +45,15 @@ CRITICAL ARCHITECTURAL DISTINCTIONS (VOID CUTOUTS, PARTITIONS, RAILINGS, STAIRS)
 5. `objects`:
    - Upright floor-supported furniture or obstacles strictly inside the walkable floor (outside `floor_voids` and not intersecting any shell or interior walls).
    - Set `movable = false` for reception counters, pillars, columns, built-ins, and staircases; set `movable = true` for freestanding tables, chairs, stools, sofas, plants, bins, and bikes/carts.
+   - CANONICAL SOFA & FURNITURE ORIENTATION (`yaw_deg`):
+     - For `category = "chair"`, or `category = "sofa"` when `width_m >= depth_m`, the backrest is located on local `-Z` and the seat faces local `+Z`. With Three.js `rotation.y = yaw_deg * pi / 180`:
+       - `yaw_deg = 0` puts the backrest on the north (`-Z`) side facing south (`+Z`);
+       - `yaw_deg = +90` puts the backrest on the west (`-X`) side facing east (`+X`);
+       - `yaw_deg = -90` puts the backrest on the east (`+X`) side facing west (`-X`);
+       - `yaw_deg = 180` puts the backrest on the south (`+Z`) side facing north (`-Z`).
+   - For a sofa with `depth_m > width_m`, the long-axis proxy has its backrest on local `-X` and faces local `+X`; its world-facing direction is `[cos(yaw), -sin(yaw)]`. Do not apply the width-long sofa rule to a depth-long sofa.
+   - Only when a door leaf and its actual pose are clearly visible in cited frames, you may add `category="door_leaf"`, `movable=false` thin upright object boxes representing that static snapshot, alongside the architectural opening. Width is leaf length and depth is panel thickness. Include exact frame citations and pose uncertainty. These objects participate in collision; do not depict a closed leaf as a fully clear doorway. Never invent hinges, opening fractions, unknown leaf poses or door mechanics; leave unsupported states unresolved in notes.
+   - Preserve true relative spatial ordering observed across frames (e.g., if a sofa sits against a wall flanked between two corner/side plants, place the sofa's center between those two plants along the wall axis; if a waste bin sits flush against the end of a counter with a plant beside it toward the stairs, preserve that exact counter -> bin -> plant -> stairs ordering along the wall).
 
 EPISTEMIC HONESTY & EVIDENCE LINKING:
 - Every interior wall, floor void, opening, and object MUST reference one or more exact `evidence_frame_ids` from the provided frame catalog where it is visible.

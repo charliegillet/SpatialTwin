@@ -135,6 +135,22 @@ export function objectRoleAppearance(obj: RoomObject, role: string) {
     defaults[kind] ?? "#b6b8ab",
     hint,
   );
+  if (kind === "bicycle" && role === "frame")
+    return { ...base, material: "metal" as Material };
+  if (kind === "stand")
+    return {
+      ...base,
+      color: role === "frame" ? base.color : "#d6d7cf",
+      material:
+        role === "frame" ? ("metal" as Material) : ("paint" as Material),
+    };
+  if (kind === "door_leaf")
+    return {
+      ...base,
+      color: role === "glass" ? glassPalette(base).pane : base.color,
+      material:
+        role === "glass" ? ("glass" as Material) : ("metal" as Material),
+    };
   if (role === "foliage")
     return { ...base, color: "#7c956d", material: "foliage" as Material };
   if (role === "frame")
@@ -157,5 +173,13 @@ export function setAppearanceChoice(
       },
     }),
     user_override: choice,
+  };
+}
+
+/** Glass metadata's dominant color describes the frame, not an opaque pane tint. */
+export function glassPalette(appearance: ResolvedAppearance) {
+  return {
+    pane: "#d4dfdc",
+    frame: appearance.material === "glass" ? appearance.color : "#847e72",
   };
 }

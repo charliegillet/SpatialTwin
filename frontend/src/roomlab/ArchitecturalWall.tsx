@@ -4,6 +4,7 @@ import { Mesh } from "three";
 import { Edges } from "@react-three/drei";
 import { shellOutwardNormal, setPiecePicking } from "./visualGeometry";
 import { wallFrameParts } from "./wallVisualParts";
+import { glassPalette } from "./appearance";
 import type { ResolvedAppearance } from "./appearance";
 import type { Wall } from "./contracts.generated";
 import type { WallSegmentPiece } from "./editorState";
@@ -48,7 +49,13 @@ export function ArchitecturalWall({
   );
   useFrame(({ camera }) => {
     if (!mesh.current) return;
-    if (followsFloor && cutaway && !selected && (wall?.role ?? "shell") === "shell" && wall) {
+    if (
+      followsFloor &&
+      cutaway &&
+      !selected &&
+      (wall?.role ?? "shell") === "shell" &&
+      wall
+    ) {
       const [nx, nz] = shellOutwardNormal(floor, wall.start, wall.end);
       const dot =
         nx * (camera.position.x - (wall.start[0] + wall.end[0]) / 2) +
@@ -86,18 +93,27 @@ export function ArchitecturalWall({
     >
       <boxGeometry args={[piece.length, piece.height, piece.thickness]} />
       <meshStandardMaterial
-        color={appearance.color}
+        color={
+          appearance.material === "glass"
+            ? glassPalette(appearance).pane
+            : appearance.color
+        }
         roughness={0.85}
         metalness={0.1}
         transparent
-        opacity={appearance.material === "glass" ? 0.22 : 0.9}
+        depthWrite={appearance.material !== "glass"}
+        opacity={appearance.material === "glass" ? 0.12 : 0.9}
       />
       {appearance.material === "glass" &&
         frames.map((p) => (
           <mesh key={p.id} position={p.position}>
             <boxGeometry args={p.size} />
             <meshStandardMaterial
-              color="#8e9183"
+              color={
+                wall?.role === "railing" && p.id.startsWith("post")
+                  ? "#736d63"
+                  : glassPalette(appearance).frame
+              }
               roughness={0.5}
               metalness={0.35}
             />

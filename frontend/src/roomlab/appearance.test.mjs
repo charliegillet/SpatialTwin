@@ -7,8 +7,8 @@ import { wallFrameParts } from './wallVisualParts.ts';
 import { resolveFloorAppearance, resolveAppearance, resolveWallAppearance, materialHint } from './appearance.ts';
 
 test('actual proxy vertices stay inside canonical OBB with unequal tiny dimensions and parent yaw',()=>{
-  for(const category of ['plant','stool','sofa','counter','table','chair','bicycle','stairs','pillar','bin','custom'])
-  for(const [w,h,d] of [[.011,.007,.003],[.003,.007,.011],[1.2,.8,2.4],[2.4,.8,1.2],[.8,.8,.8]])
+  for(const category of ['plant','stool','sofa','counter','table','chair','bicycle','stairs','door_leaf','stand','pillar','bin','custom'])
+  for(const [w,h,d] of [[.011,.007,.003],[.003,.007,.011],[1.2,.8,2.4],[2.4,.8,1.2],[1.6,3.2,2.8],[3.2,3.2,1.6],[.4,3.2,.8],[.8,.8,.8]])
   for(const mode of ['proxy','bounds'])
   for(const yaw of [0,Math.PI/6,Math.PI/2]) {
     const group=new THREE.Group();group.position.set(2,0,-3);group.rotation.y=yaw;
@@ -60,4 +60,15 @@ test('appearance priority preserves individual user choices above default shell 
  assert.equal(resolveWallAppearance({role:'partition',appearance:{...base,material:'glass'}},global).material,'glass');
  assert.equal(resolveFloorAppearance({notes:['Floor is wood in the kitchen.']}).material,'unknown');
  assert.equal(resolveFloorAppearance({notes:['Floor is not wood.','Floor is terrazzo.']}).material,'unknown');
+});
+
+test('stair proxy ascends away from frontage for depth-axis yaw +90 and handrail is sloped',()=>{
+ const parts=buildObjectVisualParts(1.6,3.2,2.8,'stairs','Interior Staircase');
+ const steps=parts.filter(p=>p.id.startsWith('stair-step-'));
+ const first=new THREE.Vector3(...steps[0].position).applyAxisAngle(new THREE.Vector3(0,1,0),Math.PI/2);
+ const last=new THREE.Vector3(...steps.at(-1).position).applyAxisAngle(new THREE.Vector3(0,1,0),Math.PI/2);
+ assert.ok(last.x>first.x && last.y>first.y);
+ const rail=parts.find(p=>p.id==='stair-sloped-rail');assert.ok(rail.rotation[0]<0);
+ const g=createPartGeometry(rail);g.computeBoundingBox();assert.ok(g.boundingBox.max.y-g.boundingBox.min.y>1);g.dispose();
+ const sofa=buildObjectVisualParts(2.2,.8,.95,'sofa','Lounge Sofa');assert.ok(sofa.find(p=>p.id==='sofa-back').position[2]<0);
 });

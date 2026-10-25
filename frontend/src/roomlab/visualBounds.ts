@@ -26,11 +26,15 @@ export type CanonicalVisualCategory =
   | "stairs"
   | "bin"
   | "pillar"
-  | "box";
+  | "box"
+  | "door_leaf"
+  | "stand";
 
 export interface LocalVisualPart {
   id: string;
-  shape: "box" | "cylinder";
+  shape: "box" | "cylinder" | "wheel";
+  /** Optional local XYZ Euler rotation; sizes are pre-rotation geometry extents. */
+  rotation?: [number, number, number];
   /** Local center [x, y, z] in meters relative to object floor-origin (0, 0, 0). */
   position: [number, number, number];
   /** Full extents [sizeX, sizeY, sizeZ] in meters. For cylinders, sizeX and sizeZ are diameter. */
@@ -54,6 +58,8 @@ export function classifyVisualCategory(
   const cat = (category || "").trim().toLowerCase();
   const lbl = (label || "").trim().toLowerCase();
 
+  if (cat === "door_leaf") return "door_leaf";
+  if (cat === "stand" || cat === "sanitizer_stand") return "stand";
   if (
     cat === "stairs" ||
     cat === "staircase" ||
@@ -73,12 +79,19 @@ export function classifyVisualCategory(
   ) {
     return "counter";
   }
-  if (cat.includes("sofa") || cat.includes("couch") || cat.includes("bench") || lbl.includes("sofa") || lbl.includes("couch")) {
+  if (
+    cat.includes("sofa") ||
+    cat.includes("couch") ||
+    cat.includes("bench") ||
+    lbl.includes("sofa") ||
+    lbl.includes("couch")
+  ) {
     return "sofa";
   }
   if (cat.includes("chair") || cat.includes("seat")) return "chair";
   if (cat.includes("table") || cat.includes("desk")) return "table";
-  if (cat.includes("plant") || cat.includes("tree") || cat.includes("planter")) return "plant";
+  if (cat.includes("plant") || cat.includes("tree") || cat.includes("planter"))
+    return "plant";
   if (
     cat.includes("bicycle") ||
     cat.includes("bike") ||
@@ -88,7 +101,12 @@ export function classifyVisualCategory(
   ) {
     return "bicycle";
   }
-  if (cat.includes("bin") || cat.includes("trash") || lbl.includes("bin") || lbl.includes("trash")) {
+  if (
+    cat.includes("bin") ||
+    cat.includes("trash") ||
+    lbl.includes("bin") ||
+    lbl.includes("trash")
+  ) {
     return "bin";
   }
   if (cat.includes("pillar") || cat.includes("column")) return "pillar";
@@ -265,7 +283,11 @@ function buildRawObjectVisualParts(
       {
         id: "chair-back",
         shape: "box",
-        position: [0, seatY + seatThick * 0.5 + backH * 0.5, -d * 0.5 + backThick * 0.5],
+        position: [
+          0,
+          seatY + seatThick * 0.5 + backH * 0.5,
+          -d * 0.5 + backThick * 0.5,
+        ],
         size: [w * 0.92, backH, backThick],
         role: "secondary",
       },
@@ -294,7 +316,11 @@ function buildRawObjectVisualParts(
         id: "sofa-seat",
         shape: "box",
         position: [0, baseH * 0.5, backThick * 0.2],
-        size: [Math.max(0.05, w - armW * 2), baseH, Math.max(0.05, d - backThick * 0.4)],
+        size: [
+          Math.max(0.05, w - armW * 2),
+          baseH,
+          Math.max(0.05, d - backThick * 0.4),
+        ],
         role: "primary",
       },
       {
@@ -364,14 +390,14 @@ function buildRawObjectVisualParts(
     rawParts.push(
       {
         id: "bike-wheel-1",
-        shape: "box",
+        shape: "wheel",
         position: longX ? [-offset, wheelR, 0] : [0, wheelR, -offset],
         size: longX ? [wheelD, wheelD, thick] : [thick, wheelD, wheelD],
         role: "frame",
       },
       {
         id: "bike-wheel-2",
-        shape: "box",
+        shape: "wheel",
         position: longX ? [offset, wheelR, 0] : [0, wheelR, offset],
         size: longX ? [wheelD, wheelD, thick] : [thick, wheelD, wheelD],
         role: "frame",
@@ -380,44 +406,139 @@ function buildRawObjectVisualParts(
         id: "bike-frame",
         shape: "box",
         position: [0, h * 0.58, 0],
-        size: longX ? [span * 0.65, h * 0.36, thick * 0.85] : [thick * 0.85, h * 0.36, span * 0.65],
+        size: longX
+          ? [span * 0.65, h * 0.07, thick * 0.65]
+          : [thick * 0.65, h * 0.07, span * 0.65],
         role: "primary",
       },
       {
         id: "bike-handlebar",
         shape: "box",
-        position: longX ? [offset * 0.7, h * 0.88, 0] : [0, h * 0.88, offset * 0.7],
-        size: longX ? [Math.min(0.12, span * 0.12), h * 0.18, d * 0.85] : [w * 0.85, h * 0.18, Math.min(0.12, span * 0.12)],
+        position: longX
+          ? [offset * 0.7, h * 0.88, 0]
+          : [0, h * 0.88, offset * 0.7],
+        size: longX
+          ? [Math.min(0.12, span * 0.12), h * 0.18, d * 0.85]
+          : [w * 0.85, h * 0.18, Math.min(0.12, span * 0.12)],
         role: "secondary",
       },
     );
+    for (const sign of [-1, 1])
+      rawParts.push({
+        id: "bike-fork-" + sign,
+        shape: "box",
+        position: longX
+          ? [sign * offset * 0.8, h * 0.52, 0]
+          : [0, h * 0.52, sign * offset * 0.8],
+        size: longX
+          ? [Math.min(0.05, w * 0.08), h * 0.4, thick * 0.65]
+          : [thick * 0.65, h * 0.4, Math.min(0.05, d * 0.08)],
+        role: "frame",
+      });
   } else if (kind === "stairs") {
     // Illustrative stepped treads inside the fixed single-level bounding box
-    const numSteps = 6;
+    // Illustrative treads, not a recovered step count. Uphill follows the positive long axis.
+    const numSteps = 14;
     const alongX = w >= d;
     const runSpan = alongX ? w : d;
     const stepRun = runSpan / numSteps;
     for (let i = 0; i < numSteps; i++) {
-      const stepH = ((i + 1) / numSteps) * (h * 0.88);
+      const stepH = ((i + 1) / numSteps) * (h * 0.8);
       const coord = -runSpan * 0.5 + stepRun * (i + 0.5);
       rawParts.push({
         id: `stair-step-${i + 1}`,
         shape: "box",
         position: alongX ? [coord, stepH * 0.5, 0] : [0, stepH * 0.5, coord],
-        size: alongX ? [stepRun * 0.98, stepH, d * 0.94] : [w * 0.94, stepH, stepRun * 0.98],
+        size: alongX ? [stepRun, stepH, d * 0.94] : [w * 0.94, stepH, stepRun],
         role: i % 2 === 0 ? "primary" : "secondary",
       });
     }
-    const railThick = Math.min(0.05, (alongX ? d : w) * 0.08);
+    const railThick = Math.min(
+      0.035,
+      h * 0.025,
+      runSpan * 0.025,
+      (alongX ? d : w) * 0.08,
+    );
+    const rise = h * 0.74,
+      run = runSpan * 0.88;
+    const railLength = Math.hypot(run, rise),
+      angle = Math.atan2(rise, run);
     rawParts.push({
-      id: "stair-rail",
+      id: "stair-sloped-rail",
       shape: "box",
-      position: alongX
-        ? [0, h - 0.04, -d * 0.5 + railThick * 0.6]
-        : [-w * 0.5 + railThick * 0.6, h - 0.04, 0],
-      size: alongX ? [w * 0.94, 0.06, railThick] : [railThick, 0.06, d * 0.94],
+      position: alongX ? [0, h * 0.59, -d * 0.45] : [-w * 0.45, h * 0.59, 0],
+      size: alongX
+        ? [railLength, railThick, railThick]
+        : [railThick, railThick, railLength],
+      rotation: alongX ? [0, 0, angle] : [-angle, 0, 0],
       role: "frame",
     });
+  } else if (kind === "stand") {
+    rawParts.push(
+      {
+        id: "stand-base",
+        shape: "box",
+        position: [0, h * 0.025, 0],
+        size: [w, h * 0.05, d],
+        role: "frame",
+      },
+      {
+        id: "stand-stem",
+        shape: "box",
+        position: [0, h * 0.47, 0],
+        size: [w * 0.14, h * 0.88, d * 0.14],
+        role: "frame",
+      },
+      {
+        id: "stand-dispenser",
+        shape: "box",
+        position: [0, h * 0.92, 0],
+        size: [w * 0.7, h * 0.16, d * 0.6],
+        role: "secondary",
+      },
+    );
+  } else if (kind === "door_leaf") {
+    // Explicit, source-supported static snapshot only. Not a generic inferred door state.
+    const jamb = Math.min(0.045, w * 0.08),
+      head = Math.min(0.055, h * 0.06),
+      kick = Math.min(0.2, h * 0.1);
+    rawParts.push(
+      {
+        id: "leaf-glass",
+        shape: "box",
+        position: [0, kick + (h - head - kick) / 2, 0],
+        size: [w - jamb * 2, h - head - kick, d * 0.25],
+        role: "glass",
+      },
+      {
+        id: "leaf-left",
+        shape: "box",
+        position: [-w / 2 + jamb / 2, h / 2, 0],
+        size: [jamb, h, d * 0.95],
+        role: "frame",
+      },
+      {
+        id: "leaf-right",
+        shape: "box",
+        position: [w / 2 - jamb / 2, h / 2, 0],
+        size: [jamb, h, d * 0.95],
+        role: "frame",
+      },
+      {
+        id: "leaf-head",
+        shape: "box",
+        position: [0, h - head / 2, 0],
+        size: [w, head, d * 0.95],
+        role: "frame",
+      },
+      {
+        id: "leaf-kick",
+        shape: "box",
+        position: [0, kick / 2, 0],
+        size: [w, kick, d * 0.95],
+        role: "frame",
+      },
+    );
   } else if (kind === "bin") {
     rawParts.push(
       {
@@ -453,22 +574,39 @@ function buildRawObjectVisualParts(
     });
   }
 
-  return rawParts.map((part) => clampPartToBounds(part, w, h, d));
+  return rawParts.map((part) =>
+    part.rotation ? part : clampPartToBounds(part, w, h, d),
+  );
 }
 
 /** Long-axis proxy layout only; canonical pose/dimensions remain unchanged. */
-export function buildObjectVisualParts(w:number,h:number,d:number,category?:string|null,label?:string|null,mode:VisualDisplayMode='proxy'):LocalVisualPart[] {
-  const kind=classifyVisualCategory(category,label);
-  if (mode==='proxy' && d>w && (kind==='sofa' || kind==='counter')) {
-    return buildRawObjectVisualParts(d,h,w,category,label,mode).map(p=>({...p,position:[p.position[2],p.position[1],-p.position[0]],size:[p.size[2],p.size[1],p.size[0]]}));
+export function buildObjectVisualParts(
+  w: number,
+  h: number,
+  d: number,
+  category?: string | null,
+  label?: string | null,
+  mode: VisualDisplayMode = "proxy",
+): LocalVisualPart[] {
+  const kind = classifyVisualCategory(category, label);
+  if (mode === "proxy" && d > w && (kind === "sofa" || kind === "counter")) {
+    return buildRawObjectVisualParts(d, h, w, category, label, mode).map(
+      (p) => ({
+        ...p,
+        position: [p.position[2], p.position[1], -p.position[0]],
+        size: [p.size[2], p.size[1], p.size[0]],
+      }),
+    );
   }
-  return buildRawObjectVisualParts(w,h,d,category,label,mode);
+  return buildRawObjectVisualParts(w, h, d, category, label, mode);
 }
 
 /**
  * Compute the exact union axis-aligned bounding box of a set of local visual parts.
  */
-export function computeLocalVisualBounds(parts: LocalVisualPart[]): LocalBoxBounds {
+export function computeLocalVisualBounds(
+  parts: LocalVisualPart[],
+): LocalBoxBounds {
   if (parts.length === 0) {
     return { minX: 0, maxX: 0, minY: 0, maxY: 0, minZ: 0, maxZ: 0 };
   }
@@ -482,12 +620,24 @@ export function computeLocalVisualBounds(parts: LocalVisualPart[]): LocalBoxBoun
   for (const p of parts) {
     const [px, py, pz] = p.position;
     const [sx, sy, sz] = p.size;
-    minX = Math.min(minX, px - sx * 0.5);
-    maxX = Math.max(maxX, px + sx * 0.5);
-    minY = Math.min(minY, py - sy * 0.5);
-    maxY = Math.max(maxY, py + sy * 0.5);
-    minZ = Math.min(minZ, pz - sz * 0.5);
-    maxZ = Math.max(maxZ, pz + sz * 0.5);
+    for (const x of [-sx / 2, sx / 2])
+      for (const y of [-sy / 2, sy / 2])
+        for (const z of [-sz / 2, sz / 2]) {
+          const [rx, ry, rz] = p.rotation ?? [0, 0, 0];
+          // Three.js Euler XYZ: apply Z, then Y, then X to local vertices.
+          const xz = x * Math.cos(rz) - y * Math.sin(rz),
+            yz = x * Math.sin(rz) + y * Math.cos(rz);
+          const xy = xz * Math.cos(ry) + z * Math.sin(ry),
+            zy = -xz * Math.sin(ry) + z * Math.cos(ry);
+          const yy = yz * Math.cos(rx) - zy * Math.sin(rx),
+            zz = yz * Math.sin(rx) + zy * Math.cos(rx);
+          minX = Math.min(minX, px + xy);
+          maxX = Math.max(maxX, px + xy);
+          minY = Math.min(minY, py + yy);
+          maxY = Math.max(maxY, py + yy);
+          minZ = Math.min(minZ, pz + zz);
+          maxZ = Math.max(maxZ, pz + zz);
+        }
   }
 
   return { minX, maxX, minY, maxY, minZ, maxZ };
@@ -611,8 +761,23 @@ export function buildOpeningVisualParts(
     });
   }
 
-  return parts.map(part => {
-    const local = clampPartToBounds({...part, position: [part.position[0], part.position[1]-sill, part.position[2]]}, w, h, t);
-    return {...local, position: [local.position[0], local.position[1]+sill, local.position[2]] as [number,number,number]};
+  return parts.map((part) => {
+    const local = clampPartToBounds(
+      {
+        ...part,
+        position: [part.position[0], part.position[1] - sill, part.position[2]],
+      },
+      w,
+      h,
+      t,
+    );
+    return {
+      ...local,
+      position: [
+        local.position[0],
+        local.position[1] + sill,
+        local.position[2],
+      ] as [number, number, number],
+    };
   });
 }

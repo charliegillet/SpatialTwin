@@ -1005,13 +1005,14 @@ def normalize_provider_payload(
         is_stairs = cat_lower in ("stairs", "staircase", "stair") or lbl_lower.startswith(("stair", "stairs", "staircase", "interior stair"))
         if is_stairs:
             has_stairs = True
-        is_fixed_arch = is_stairs or cat_lower in ("pillar", "column", "structural", "counter", "island", "fixed", "reception") or lbl_lower.startswith(("pillar", "column", "reception counter", "reception desk", "built-in"))
+        is_door_leaf = cat_lower == "door_leaf"
+        is_fixed_arch = is_door_leaf or is_stairs or cat_lower in ("pillar", "column", "structural", "counter", "island", "fixed", "reception") or lbl_lower.startswith(("pillar", "column", "reception counter", "reception desk", "built-in"))
         movable = False if is_fixed_arch else bool(obj.movable)
         if is_stairs and obj.movable:
             warnings.append(f"Forced staircase object '{obj_id}' to movable=False (fixed placeholder).")
 
         w_m, cw = _clamp_with_warning(obj.width_m, 0.15, 20.0, 0.8, f"object '{obj_id}' width_m", warnings)
-        d_m, cd = _clamp_with_warning(obj.depth_m, 0.15, 20.0, 0.8, f"object '{obj_id}' depth_m", warnings)
+        d_m, cd = _clamp_with_warning(obj.depth_m, 0.015 if is_door_leaf else 0.15, 20.0, 0.8, f"object '{obj_id}' depth_m", warnings)
         h_m, ch = _clamp_with_warning(obj.height_m, 0.15, wall_h, 0.75, f"object '{obj_id}' height_m", warnings)
         yaw, cy = _clamp_with_warning(obj.yaw_deg, -360.0, 360.0, 0.0, f"object '{obj_id}' yaw_deg", warnings)
         unc, cu = _clamp_with_warning(
@@ -1051,6 +1052,10 @@ def normalize_provider_payload(
                 )
 
         ev_ids = _clean_frame_ids(obj.evidence_frame_ids, f"object '{obj_id}'")
+        if is_door_leaf and not ev_ids:
+            topology_review_required = True
+            warnings.append(f"Skipped uncited static door leaf '{obj_id}'; doorway state needs visual review.")
+            continue
         repaired = cw or cd or ch or cy or cu or repaired_pos
         vis = obj.visibility
         if (repaired or not ev_ids) and vis == "observed":
@@ -1069,6 +1074,9 @@ def normalize_provider_payload(
             )
         elif repaired:
             note_parts.append("Geometry clamped during normalization.")
+
+        if is_door_leaf:
+            note_parts.append("Source-supported static leaf snapshot only; fixed obstacle, not articulated door operation or future state.")
 
         obj_appearance = _build_surface_appearance(
             obj.color,

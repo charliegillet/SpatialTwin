@@ -116,3 +116,12 @@ reviews additionally bind a `render_hash`, covering appearance and floor-note hi
 so stale recolorings cannot publish results. This is not a cache that reuses reviews
 across edits. Floors currently have one global finish; mixed-material zoning remains
 unsupported. No external texture assets or arbitrary uploaded shaders are used.
+
+Stair proxies climb the positive longer local footprint axis: +Z when depth is
+longer, otherwise +X. Their treads and bounded sloped rail are illustrative;
+neither the proxy step count nor its riser dimensions are recovered measurements.
+Extraction prompts now specify that orientation explicitly. A clearly observed
+static door leaf can be represented as a fixed `door_leaf` object box, with source
+citations and pose uncertainty, so a closed/propped leaf is also an obstacle in
+clearance checks. Unsupported leaf poses are not invented. This represents a video
+snapshot, not articulated door operation or a guaranteed future door state.

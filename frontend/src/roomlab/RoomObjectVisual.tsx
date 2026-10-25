@@ -48,6 +48,7 @@ export const RoomObjectVisual: React.FC<RoomObjectVisualProps> = ({
     ],
   );
 
+  const kind = classifyVisualCategory(object.category, object.label);
   const vis = object.provenance?.visibility ?? "partial";
   const isSolid = object.provenance?.source === "user_measurement";
   const baseOpacity = isSolid ? 0.96 : vis === "unobserved" ? 0.45 : 0.78;
@@ -70,10 +71,14 @@ export const RoomObjectVisual: React.FC<RoomObjectVisualProps> = ({
                     : 0.75
               }
               metalness={part.role === "frame" ? 0.25 : 0.1}
-              transparent={!isSolid}
-              opacity={baseOpacity}
+              transparent={!isSolid || appearance.material === "glass"}
+              depthWrite={appearance.material !== "glass"}
+              opacity={appearance.material === "glass" ? 0.14 : baseOpacity}
             />
-            {part.shape === "box" && <Edges threshold={15} color={edgeColor} />}
+            {part.shape === "box" &&
+              (kind !== "stairs" || selected || mode === "bounds") && (
+                <Edges threshold={15} color={edgeColor} />
+              )}
           </mesh>
         );
       })}

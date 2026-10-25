@@ -391,25 +391,35 @@ function RoomSceneContent({
         const isSelected =
           selectedTarget?.kind === "opening" && selectedTarget.id === op.id;
         return (
-          <group key={op.id} position={[cx, 0, cz]} rotation={[0, yawRad, 0]}>
+          <group
+            key={op.id}
+            position={[cx, 0, cz]}
+            rotation={[0, yawRad, 0]}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelectTarget({ kind: "opening", id: op.id });
+            }}
+          >
             <OpeningVisual opening={op} wall={wall} />
             <mesh
-              onClick={(e) => {
-                e.stopPropagation();
-                onSelectTarget({ kind: "opening", id: op.id });
-              }}
+              position={[
+                0,
+                (op.sill_m ?? 0) + Math.min(0.03, op.height_m ?? 2.1) / 2,
+                0,
+              ]}
             >
               <boxGeometry
-                args={[op.width_m, 0.03, (wall.thickness_m ?? 0.12) + 0.06]}
+                args={[
+                  op.width_m,
+                  Math.min(0.03, op.height_m ?? 2.1),
+                  wall.thickness_m ?? 0.12,
+                ]}
               />
               <meshBasicMaterial
-                color={
-                  isSelected
-                    ? "#f59e0b"
-                    : op.kind === "window"
-                      ? "#a3bdb0"
-                      : "#8bb29a"
-                }
+                color={isSelected ? "#d79e54" : "#81796d"}
+                transparent
+                opacity={isSelected ? 0.55 : visualMode === "bounds" ? 0.3 : 0}
+                depthWrite={false}
               />
             </mesh>
           </group>

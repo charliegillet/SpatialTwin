@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import { glassPalette, resolveWallAppearance } from "./appearance";
 import type { Opening, Wall } from "./contracts.generated";
 import { buildOpeningVisualParts } from "./visualBounds";
 
@@ -31,20 +32,19 @@ export const OpeningVisual: React.FC<OpeningVisualProps> = ({
         opening.sill_m ?? 0,
         wall.thickness_m ?? 0.12,
       ),
-    [opening.kind, opening.width_m, opening.height_m, opening.sill_m, wall.thickness_m],
+    [
+      opening.kind,
+      opening.width_m,
+      opening.height_m,
+      opening.sill_m,
+      wall.thickness_m,
+    ],
   );
 
-  const frameColor = selected
-    ? "#d97706"
-    : wall.role === "partition"
-      ? "#6e8b7e"
-      : "#7c8576";
-  const glassColor = selected ? "#fde68a" : "#a8c7bc";
-  const thresholdColor = selected
-    ? "#f59e0b"
-    : opening.kind === "window"
-      ? "#a3bdb0"
-      : "#8bb29a";
+  const palette = glassPalette(resolveWallAppearance(wall));
+  const frameColor = palette.frame;
+  const glassColor = palette.pane;
+  const thresholdColor = selected ? "#d79e54" : palette.frame;
 
   return (
     <group>
@@ -55,11 +55,13 @@ export const OpeningVisual: React.FC<OpeningVisualProps> = ({
           <mesh key={part.id} position={part.position}>
             <boxGeometry args={part.size} />
             <meshStandardMaterial
-              color={isGlass ? glassColor : isFrame ? frameColor : thresholdColor}
+              color={
+                isGlass ? glassColor : isFrame ? frameColor : thresholdColor
+              }
               roughness={isGlass ? 0.15 : 0.7}
               metalness={isGlass ? 0.1 : 0.15}
               transparent={isGlass}
-              opacity={isGlass ? 0.34 : 0.92}
+              opacity={isGlass ? 0.14 : 0.95}
               depthWrite={!isGlass}
             />
           </mesh>
