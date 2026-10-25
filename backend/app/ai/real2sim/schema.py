@@ -35,8 +35,13 @@ RoomKind = Literal["room", "corridor", "lobby", "hall", "stair", "kitchen", "bed
                    "storage", "void", "other"]
 DoorSymbol = Literal["swing", "double", "sliding", "opening", "fire_door", "unknown"]
 ExitKind = Literal["door", "stair", "window", "unknown"]
-ScaleBasis = Literal["dimension_label", "scale_bar", "door_width_prior", "operator_input", "unknown"]
-ImageKind = Literal["evacuation_map", "architectural_plan", "sketch", "photo_of_plan", "other"]
+ScaleBasis = Literal["dimension_label", "scale_bar", "door_width_prior", "operator_input", "video_estimate", "unknown"]
+ImageKind = Literal["evacuation_map", "architectural_plan", "sketch", "photo_of_plan", "video_walkthrough", "other"]
+# Presentation only (a video walkthrough's look): never read by the planner, the checker or the graph checks.
+FloorMaterial = Literal["wood", "tile", "carpet", "stone", "concrete", "terrazzo", "unknown"]
+HEX_COLOR_PATTERN = r"^(#[0-9a-f]{6})?$"
+HexColor = Annotated[str, Field(pattern=HEX_COLOR_PATTERN)]
+MAX_FURNITURE = 60
 
 
 class _Strict(BaseModel):
@@ -76,6 +81,9 @@ class DraftRoom(_Strict):
     extra_boxes: Annotated[List[Box], Field(max_length=2)] = []
     label_point: Point
     occupants_hint: Optional[Annotated[StrictInt, Field(ge=0, le=2000)]] = None
+    wall_color: HexColor = ""
+    floor_color: HexColor = ""
+    floor_material: FloorMaterial = "unknown"
 
     @model_validator(mode="after")
     def _boxes(self) -> "DraftRoom":
@@ -105,6 +113,19 @@ class DraftExit(_Strict):
     evidence: ShortText = ""
 
 
+class DraftFurniture(_Strict):
+    """A piece of furniture seen in a video walkthrough: where it stands on the plan and its real size. Looks only."""
+    room: Key
+    label: Annotated[str, Field(min_length=1, max_length=40)]
+    category: Annotated[str, Field(max_length=24)] = "furniture"
+    point: Point
+    width_m: float = Field(gt=0, le=10)
+    depth_m: float = Field(gt=0, le=10)
+    height_m: float = Field(gt=0, le=4)
+    yaw_deg: float = Field(default=0, ge=-360, le=360)
+    color: HexColor = ""
+
+
 class VenueDraftV1(_Strict):
     schema_version: Literal["draft-1"]
     title: Annotated[str, Field(max_length=60)] = ""
@@ -123,6 +144,7 @@ class VenueDraftV1(_Strict):
     # What Argon saw but could not read with confidence; shown to the operator next to Accept.
     unreadable: Annotated[List[ShortText], Field(max_length=10)] = []
     notes: Annotated[str, Field(max_length=300)] = ""
+    furniture: Annotated[List[DraftFurniture], Field(max_length=MAX_FURNITURE)] = []
 
     @model_validator(mode="after")
     def _references(self) -> "VenueDraftV1":
@@ -137,6 +159,9 @@ class VenueDraftV1(_Strict):
         for exit_ in self.exits:
             if exit_.room not in rooms:
                 raise ValueError(f"exit {exit_.key} references an unknown room")
+        for piece in self.furniture:
+            if piece.room not in rooms:
+                raise ValueError(f"furniture {piece.label!r} references an unknown room")
         return self
 
 
@@ -188,6 +213,16 @@ class SalvageResult:
 # Words a model uses for "the other side is outdoors". Not EXIT or OUT: a door keyed to EXIT usually leads to an
 # exit stair or lobby the model also read as a room, and an invented outside exit is a safety claim.
 _OUTSIDE_WORDS = {"OUTSIDE", "EXTERIOR", "STREET"}
+_HEX = re.compile(r"^#?([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$")
+
+
+def _hex_color(value: Any) -> str:
+    """``#rrggbb`` (lower case) from a 3- or 6-digit hex string; anything else is no colour."""
+    match = _HEX.match(value.strip()) if isinstance(value, str) else None
+    if not match:
+        return ""
+    digits = match.group(1).lower()
+    return "#" + (digits if len(digits) == 6 else "".join(c * 2 for c in digits))
 _LIMITS = {"name": 40, "evidence": 160, "label": 40}
 
 
@@ -275,6 +310,12 @@ def salvage_draft(raw: Any) -> SalvageResult:
             text(item, name, f"{kind} {item.get('key', '?')}")
         if kind == "room" and isinstance(item.get("name"), str) and not item["name"].strip():
             item["name"] = str(item.get("key") or "Room")
+        # Colours and materials are looks only: an unreadable one becomes "none", never a dropped element.
+        for name in ("wall_color", "floor_color", "color"):
+            if name in item:
+                item[name] = _hex_color(item[name])
+        if "floor_material" in item and item["floor_material"] not in FloorMaterial.__args__:
+            item["floor_material"] = "unknown"
         return item
 
     seen: set = set()
@@ -369,6 +410,39 @@ def salvage_draft(raw: Any) -> SalvageResult:
             seen.add(exit_.key)
             exits.append(exit_)
 
+    furniture: List[DraftFurniture] = []
+    for item in raw.get("furniture") or []:
+        if not isinstance(item, dict):
+            result.dropped.append("furniture: not an object")
+            continue
+        item = dict(item)
+        if "room" in item:
+            item["room"] = _key(item["room"])
+        if "point" in item:
+            item["point"] = _coordinates(item["point"], 2)
+        for name, limit in (("label", 40), ("category", 24)):
+            if isinstance(item.get(name), str):
+                item[name] = item[name].strip()[:limit] or ("furniture" if name == "category" else item[name])
+        for name in ("width_m", "depth_m", "height_m"):
+            value = item.get(name)
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value > 0:
+                item[name] = float(min(value, 10.0 if name != "height_m" else 4.0))
+        yaw = item.get("yaw_deg")
+        if isinstance(yaw, (int, float)) and not isinstance(yaw, bool) and math.isfinite(yaw):
+            item["yaw_deg"] = float(((yaw + 180.0) % 360.0) - 180.0)
+        item["color"] = _hex_color(item.get("color"))
+        try:
+            piece = DraftFurniture.model_validate(item)
+        except ValidationError as error:
+            result.dropped.append(f"furniture {str(item.get('label', '?'))[:40]}: {_issue(error)}")
+            continue
+        if piece.room not in room_keys:
+            result.dropped.append(f"furniture {piece.label}: unknown room {piece.room}")
+        elif len(furniture) >= MAX_FURNITURE:
+            result.dropped.append(f"furniture {piece.label}: more than {MAX_FURNITURE} pieces")
+        else:
+            furniture.append(piece)
+
     scale_raw = raw.get("scale") if isinstance(raw.get("scale"), dict) else {}
     try:
         scale = DraftScale.model_validate({**scale_raw, **{name: _coordinates(scale_raw[name], 2)
@@ -393,13 +467,14 @@ def salvage_draft(raw: Any) -> SalvageResult:
             schema_version="draft-1", title=str(raw.get("title") or "")[:60], image_kind=image_kind, scale=scale,
             rooms=rooms, doors=doors, exits=exits, sheet_corners=corners,
             you_are_here=_coordinates(raw.get("you_are_here"), 2) if raw.get("you_are_here") is not None else None,
-            unreadable=unreadable, notes=str(raw.get("notes") or "")[:300])
+            unreadable=unreadable, notes=str(raw.get("notes") or "")[:300], furniture=furniture)
     except ValidationError as error:
         # Only the optional extras can still fail here (sheet corners, the you-are-here marker); drop them.
         result.repaired.append(f"optional markers ignored: {_issue(error)}")
         result.draft = VenueDraftV1(
             schema_version="draft-1", title=str(raw.get("title") or "")[:60], image_kind=image_kind, scale=scale,
-            rooms=rooms, doors=doors, exits=exits, unreadable=unreadable, notes=str(raw.get("notes") or "")[:300])
+            rooms=rooms, doors=doors, exits=exits, unreadable=unreadable, notes=str(raw.get("notes") or "")[:300],
+            furniture=furniture)
     return result
 
 

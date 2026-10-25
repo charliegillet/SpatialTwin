@@ -36,7 +36,7 @@ from backend.app.venues.model import VenueV2, load_building_v2, point_in_polygon
 GRID_M = 0.1                       # every coordinate is rounded to 0.1 m
 SNAP_MIN_M, SNAP_FRACTION = 0.4, 0.015   # cluster tolerance: max(0.4 m, 1.5 % of the axis extent)
 DEFAULT_BUILDING_WIDTH_M = {"evacuation_map": 30.0, "architectural_plan": 20.0, "sketch": 12.0,
-                            "photo_of_plan": 20.0, "other": 20.0}
+                            "photo_of_plan": 20.0, "video_walkthrough": 10.0, "other": 20.0}
 DEFAULT_DOOR_M, DEFAULT_WINDOW_M = 0.9, 0.6
 MIN_OPENING_M = 0.6                # graph_checks flags openings outside 0.6-6.0 m
 MAX_OPENING_M = 6.0
@@ -49,7 +49,7 @@ CAPACITY_PER_M2 = 1.0              # building-v2 holds at most about one person 
 MIN_CAPACITY = 2
 CIRCULATION = frozenset({"corridor", "lobby", "stair"})    # no occupants are placed here by default
 DEFAULT_DENSITY = {"evacuation_map": 0.08, "architectural_plan": 0.08, "sketch": 0.12,
-                   "photo_of_plan": 0.10, "other": 0.10}   # people per m² of non-circulation floor
+                   "photo_of_plan": 0.10, "video_walkthrough": 0.10, "other": 0.10}   # people per m² of non-circulation floor
 LED_PIXELS_PER_ELEMENT = 3
 MIN_HORIZON_S, MAX_HORIZON_S = 30, 120
 WALK_SPEED_M_PER_S = 1.6           # horizon = (width + height) / 1.6 s plus queueing time, see _horizon
@@ -324,6 +324,60 @@ def _canonical_revision(raw: dict) -> str:
     body = {k: v for k, v in raw.items() if k != "geometry_revision"}
     text = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return "geom-" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+def _appearance(draft: VenueDraftV1, rooms: Dict[str, DraftRoom], zone_id: Dict[str, str],
+                polygons: Dict[str, List[Tuple[float, float]]], frame: _Frame, extent: Tuple[float, float],
+                report: CompileReport) -> Optional[dict]:
+    """Room colours and furniture (a video walkthrough's look), in venue metres. None when the draft has no look.
+
+    Looks only: nothing here changes a zone, door, exit, rate or capacity. A piece is kept inside its room's bounding
+    box so a misread position cannot float outside the building.
+    """
+    zones = {zone_id[k]: {"wall_color": r.wall_color, "floor_color": r.floor_color, "floor_material": r.floor_material}
+             for k, r in rooms.items() if r.wall_color or r.floor_color or r.floor_material != "unknown"}
+    furniture = []
+    for piece in draft.furniture:
+        if piece.room not in rooms:
+            report.dropped.append(f"furniture {piece.label}: its room {piece.room} was dropped")
+            continue
+        xs = [p[0] for p in polygons[piece.room]]
+        ys = [p[1] for p in polygons[piece.room]]
+        x, y = frame.to_m(piece.point[0], piece.point[1])
+        x = min(max(x, min(xs)), max(xs))
+        y = min(max(y, min(ys)), max(ys))
+        furniture.append({"id": f"F{len(furniture) + 1}", "zone": zone_id[piece.room], "label": piece.label,
+                          "category": piece.category or "furniture", "position": [round(x, 2), round(y, 2)],
+                          "width": round(piece.width_m, 2), "depth": round(piece.depth_m, 2),
+                          "height": round(piece.height_m, 2), "yaw_deg": round(piece.yaw_deg, 1),
+                          "color": piece.color})
+    if not zones and not furniture:
+        return None
+    return {"zones": zones, "furniture": furniture}
+
+
+def with_furniture(venue: VenueV2, furniture: Sequence[dict]) -> VenueV2:
+    """The venue with its furniture replaced by an operator's edit (ids renumbered F1..), revision recomputed.
+
+    Raises ValueError (or pydantic's ValidationError) when a piece is malformed or names an unknown zone.
+    """
+    raw = venue.to_json()
+    zone_ids = {zone["id"] for zone in raw["zones"]}
+    width, height = raw["extent"]
+    pieces = []
+    for index, piece in enumerate(furniture, 1):
+        if piece.get("zone") not in zone_ids:
+            raise ValueError("furniture names an unknown zone")
+        x, y = piece["position"]
+        pieces.append({**piece, "id": f"F{index}",
+                       "position": [round(min(max(float(x), 0.0), width), 2), round(min(max(float(y), 0.0), height), 2)]})
+    appearance = raw.get("appearance") or {"zones": {}}
+    raw["appearance"] = {**appearance, "furniture": pieces}
+    if not raw["appearance"]["zones"] and not pieces:
+        raw.pop("appearance")
+    probe = VenueV2.model_validate({**raw, "geometry_revision": "geom-pending"}).to_json()
+    raw["geometry_revision"] = _canonical_revision(probe)
+    return VenueV2.model_validate(raw)
 
 
 # ---- the compiler ----------------------------------------------------------------------------------------------
@@ -704,6 +758,9 @@ def compile_draft(draft: VenueDraftV1, image: SourceImage, *, venue_id: str,
         "led_map": {k: list(v) for k, v in led_map.items()},
         "hazard_defaults": {k: v.model_dump(exclude_none=True) for k, v in load_building_v2().hazard_defaults.items()},
     }
+    appearance = _appearance(draft, rooms, zone_id, polygons, frame, extent, report)
+    if appearance is not None:
+        raw_venue["appearance"] = appearance
     try:
         probe = VenueV2.model_validate(raw_venue).to_json()
         raw_venue["geometry_revision"] = _canonical_revision(probe)

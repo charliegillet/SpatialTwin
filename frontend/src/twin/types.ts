@@ -60,7 +60,25 @@ export interface VenueV2 {
   exits: VenueExit[];
   led_map: Record<string, [number, number]>;
   hazard_defaults: Record<HazardType, HazardDefaults>;
+  /** How the rooms look and what furniture stands in them (a video walkthrough). Looks only: never planned on. */
+  appearance?: VenueAppearance;
 }
+
+export type FloorMaterial = 'wood' | 'tile' | 'carpet' | 'stone' | 'concrete' | 'terrazzo' | 'unknown';
+export interface ZoneLook { wall_color?: string; floor_color?: string; floor_material?: FloorMaterial }
+export interface VenueFurniture {
+  id?: string;
+  zone: string;
+  label: string;
+  category: string;
+  position: Point2;
+  width: number;
+  depth: number;
+  height: number;
+  yaw_deg: number;
+  color: string;
+}
+export interface VenueAppearance { zones: Record<string, ZoneLook>; furniture: VenueFurniture[] }
 
 // POST /api/venues/building-v2/door-plan
 export interface HazardInput {
@@ -342,6 +360,14 @@ export interface TwinScene3DProps {
   onSelectHazard: (id: string | null) => void;
   /** Virtual gates (doors the controller moves): drawn from observed endpoint state, never from the plan. */
   gates?: Record<string, GateVisual>;
+  /** Set while the operator edits a draft's furniture: click a piece to select it, drag it to move it. */
+  furnitureEdit?: FurnitureEditBridge;
+}
+
+export interface FurnitureEditBridge {
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
+  onMove: (id: string, position: Point2) => void;
 }
 
 /** How a virtual gate is drawn: only 'open' and 'closed' are endpoint-confirmed. `since` is when transit began. */

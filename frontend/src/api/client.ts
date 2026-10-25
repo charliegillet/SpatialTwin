@@ -38,6 +38,8 @@ export class ApiError extends Error {
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT';
   body?: unknown;
+  /** Sent as-is (a file upload) instead of a JSON body; set its Content-Type in `headers`. */
+  rawBody?: Blob;
   headers?: Record<string, string>;
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -56,12 +58,12 @@ async function errorDetail(res: Response): Promise<{ text: string; code: string 
 }
 
 /** The one place that sets the timeout, serialises the body and turns failures into ApiError. */
-export async function requestJson<T>(path: string, { method = 'GET', body, headers, signal, timeoutMs, fallback, describe }: RequestOptions): Promise<T> {
+export async function requestJson<T>(path: string, { method = 'GET', body, rawBody, headers, signal, timeoutMs, fallback, describe }: RequestOptions): Promise<T> {
   const signals = [signal, timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined].filter((item): item is AbortSignal => Boolean(item));
   const res = await fetch(`${API_BASE}${path}`, {
     method,
     headers: body === undefined ? headers : { 'Content-Type': 'application/json', ...headers },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: rawBody ?? (body === undefined ? undefined : JSON.stringify(body)),
     signal: signals.length > 1 ? AbortSignal.any(signals) : signals[0],
   });
   if (res.ok) return res.json() as Promise<T>;

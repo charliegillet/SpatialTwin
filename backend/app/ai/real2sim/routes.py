@@ -1,6 +1,8 @@
 """Real2Sim routes (Contract 3). Exact request/response shapes: docs/plans/contracts/real2sim-api.md.
 
 POST /api/real2sim/drafts                     -> start a draft (live Argon reading or a labelled saved run)
+POST /api/real2sim/drafts/video               -> start a live draft from a video walkthrough (raw body, video/*)
+PUT  /api/real2sim/drafts/{draft_id}/furniture -> store the operator's furniture edit (looks only) as a new revision
 GET  /api/real2sim/drafts/{draft_id}          -> the draft view
 GET  /api/real2sim/drafts/{draft_id}/events   -> SSE: status, thought, draft, checks, round, done, error (+ ": ping")
 GET  /api/real2sim/drafts/{draft_id}/overlay.png | /topdown.png
@@ -13,15 +15,18 @@ the registry serializes writers on a threading lock and SQLite's busy timeout, w
 from __future__ import annotations
 
 import asyncio
+import tempfile
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.app.ai.grounding.adapter import GroundingAdapter
 from backend.app.ai.real2sim.drafts import Real2SimError, Real2SimService, decode_source
 from backend.app.ai.real2sim.fixtures import FixtureError, fixtures_dir, list_saved_runs, load_saved_run
+from backend.app.ai.real2sim.video_source import MAX_VIDEO_BYTES, prepare_video
 from backend.app.venues.model import VENUE_ID_PATTERN
 
 SSE_HEADERS = {"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"}
@@ -47,6 +52,26 @@ class AcceptRequest(BaseModel):
     building_width_m: Optional[float] = Field(default=None, gt=0, le=500)
     venue_id: Optional[str] = Field(default=None, pattern=VENUE_ID_PATTERN)
     make_active: bool = True
+
+
+class FurniturePiece(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: Optional[str] = Field(default=None, max_length=8)
+    zone: str = Field(min_length=1, max_length=40)
+    label: str = Field(min_length=1, max_length=40)
+    category: str = Field(default="furniture", max_length=24)
+    position: List[float] = Field(min_length=2, max_length=2)
+    width: float = Field(gt=0, le=10)
+    depth: float = Field(gt=0, le=10)
+    height: float = Field(gt=0, le=4)
+    yaw_deg: float = Field(default=0, ge=-180, le=180)
+    color: str = Field(default="", pattern=r"^(#[0-9a-f]{6})?$")
+
+
+class FurnitureRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: int = Field(ge=1)
+    furniture: List[FurniturePiece] = Field(default_factory=list, max_length=60)
 
 
 def _http(error: Real2SimError) -> HTTPException:
@@ -92,6 +117,45 @@ def build_real2sim_router(adapter: GroundingAdapter, fixtures_enabled: Callable[
                                                     request.source_kind)
             return await real2sim.create_live(source, name=request.name, thinking_level=request.thinking_level,
                                               notes=notes)
+        except Real2SimError as error:
+            raise _http(error) from None
+
+    @router.post("/drafts/video")
+    async def create_video_draft(request: Request,
+                                 name: Optional[str] = Query(default=None, min_length=1, max_length=60),
+                                 thinking_level: Optional[Literal["low", "medium", "high"]] = Query(default=None),
+                                 ) -> Dict[str, Any]:
+        """The body is the video file itself (MP4, WebM or MOV); it is streamed to a temporary file, never held whole."""
+        try:
+            if not real2sim.is_live_configured():
+                raise Real2SimError("configuration_missing", 503)
+            if real2sim.live_busy():
+                raise Real2SimError("real2sim_busy", 429)
+            declared = request.headers.get("content-length")
+            if declared is not None and declared.isdigit() and int(declared) > MAX_VIDEO_BYTES:
+                raise Real2SimError("source_too_large", 413)
+            with tempfile.TemporaryDirectory(prefix="r2s-upload-") as tmp:
+                path = Path(tmp) / "upload.bin"
+                size = 0
+                with path.open("wb") as handle:
+                    async for chunk in request.stream():
+                        size += len(chunk)
+                        if size > MAX_VIDEO_BYTES:
+                            raise Real2SimError("source_too_large", 413)
+                        handle.write(chunk)
+                if size == 0:
+                    raise Real2SimError("source_required", 422)
+                source, notes = await asyncio.to_thread(prepare_video, path, original_bytes=size)
+            return await real2sim.create_live(source, name=name, thinking_level=thinking_level, notes=notes)
+        except Real2SimError as error:
+            raise _http(error) from None
+
+    @router.put("/drafts/{draft_id}/furniture")
+    async def save_furniture(draft_id: str, request: FurnitureRequest) -> Dict[str, Any]:
+        try:
+            return await real2sim.save_furniture(
+                draft_id, expected_revision=request.expected_revision,
+                furniture=[piece.model_dump(exclude={"id"}) for piece in request.furniture])
         except Real2SimError as error:
             raise _http(error) from None
 

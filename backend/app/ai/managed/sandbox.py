@@ -58,7 +58,7 @@ def input_documents(venue: VenueV2, horizon: int, hazards: List[dict], checked_p
     resolved = [{"id": h["id"], "type": h["type"], "zone_id": h["zone_id"], "untenable_s": h.get("untenable_s")}
                 for h in hazards]
     return {
-        "venue": json.dumps(venue.to_json(), sort_keys=True),
+        "venue": json.dumps(venue.planning_json(), sort_keys=True),
         "hazards": json.dumps({"horizon_seconds": horizon, "hazards": resolved}, sort_keys=True),
         "checked_plan": json.dumps(checked_plan, sort_keys=True),
     }

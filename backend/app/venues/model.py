@@ -71,6 +71,37 @@ class HazardDefaults(_Strict):
     travel_multiplier: Optional[float] = None
 
 
+FloorMaterial = Literal["wood", "tile", "carpet", "stone", "concrete", "terrazzo", "unknown"]
+HexColor = str  # "#rrggbb" or ""; checked by the pattern below
+_HEX_FIELD = dict(pattern=r"^(#[0-9a-f]{6})?$")
+
+
+class ZoneLook(_Strict):
+    """How a room looks (from a video walkthrough). Presentation only: no solver, checker or graph check reads it."""
+    wall_color: HexColor = Field(default="", **_HEX_FIELD)
+    floor_color: HexColor = Field(default="", **_HEX_FIELD)
+    floor_material: FloorMaterial = "unknown"
+
+
+class VenueFurniture(_Strict):
+    """A piece of furniture drawn in the twin. Presentation only: it never blocks, slows or re-routes anyone."""
+    id: str = Field(pattern=r"^F[0-9]{1,3}$")
+    zone: str
+    label: str = Field(min_length=1, max_length=40)
+    category: str = Field(default="furniture", max_length=24)
+    position: Point2
+    width: float = Field(gt=0, le=10)
+    depth: float = Field(gt=0, le=10)
+    height: float = Field(gt=0, le=4)
+    yaw_deg: float = Field(default=0, ge=-180, le=180)
+    color: HexColor = Field(default="", **_HEX_FIELD)
+
+
+class VenueAppearance(_Strict):
+    zones: Dict[str, ZoneLook] = Field(default_factory=dict)
+    furniture: List[VenueFurniture] = Field(default_factory=list, max_length=60)
+
+
 class VenueV2(_Strict):
     schema_version: Literal["2.0.0"]
     venue_id: str = Field(pattern=VENUE_ID_PATTERN)
@@ -85,6 +116,7 @@ class VenueV2(_Strict):
     exits: List[VenueExit]
     led_map: Dict[str, Tuple[int, int]]
     hazard_defaults: Dict[HazardKind, HazardDefaults]
+    appearance: Optional[VenueAppearance] = None
 
     @model_validator(mode="after")
     def _validate(self) -> "VenueV2":
@@ -126,7 +158,19 @@ class VenueV2(_Strict):
                 raise ValueError("led_map ranges must be non-negative and ordered")
         if self.default_horizon_seconds % self.time_step_seconds:
             raise ValueError("default horizon must be a multiple of the time step")
+        if self.appearance is not None:
+            for zone_id in self.appearance.zones:
+                if zone_id not in zone_ids:
+                    raise ValueError(f"appearance references unknown zone {zone_id}")
+            unique("furniture", [f.id for f in self.appearance.furniture])
+            for piece in self.appearance.furniture:
+                if piece.zone not in zone_ids:
+                    raise ValueError(f"furniture {piece.id} references an unknown zone")
         return self
+
+    def planning_json(self) -> dict:
+        """The venue without its looks: what a solver, checker or sandbox needs."""
+        return {key: value for key, value in self.to_json().items() if key != "appearance"}
 
     def zone(self, zone_id: str) -> VenueZone:
         return next(z for z in self.zones if z.id == zone_id)

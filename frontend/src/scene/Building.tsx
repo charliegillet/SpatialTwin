@@ -1,9 +1,34 @@
-import { useLayoutEffect, useMemo, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { pointInPolygon } from '../twin/geometry.ts';
 import { buildWalls, zoneRenders } from '../twin/sceneModel.ts';
 import type { DoorPlanResponse, Point2, VenueV2 } from '../twin/types.ts';
+import { makeFloorTexture, resolveZoneLook, type ResolvedAppearance } from './FurnitureModels.tsx';
 import { PALETTE } from './palette.ts';
+
+/** True when the venue carries a look from a video walkthrough (room colours or furniture). */
+export const hasLooks = (venue: VenueV2) =>
+  Boolean(venue.appearance && (venue.appearance.furniture.length > 0 || Object.keys(venue.appearance.zones).length > 0));
+
+/** One wall colour for the building: the most common room wall colour (shared walls have no single owner). */
+function wallColor(venue: VenueV2): string | null {
+  const counts = new Map<string, number>();
+  for (const look of Object.values(venue.appearance?.zones ?? {})) {
+    if (look.wall_color) counts.set(look.wall_color, (counts.get(look.wall_color) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+}
+
+/** A video room's floor: its colour and material as a texture in world metres (ShapeGeometry UVs are metres). */
+function LookFloor({ geometry, look }: { geometry: THREE.ShapeGeometry; look: ResolvedAppearance }) {
+  const texture = useMemo(() => makeFloorTexture(look.floorMaterial, look.floorColor), [look.floorMaterial, look.floorColor]);
+  useEffect(() => () => texture.dispose(), [texture]);
+  return (
+    <mesh geometry={geometry}>
+      <meshStandardMaterial map={texture} roughness={0.8} metalness={0.02} />
+    </mesh>
+  );
+}
 
 export const WALL_HEIGHT = 1.2;
 const WALL_THICK = 0.24;
@@ -17,6 +42,7 @@ function polygonShape(polygon: Point2[]): THREE.Shape {
 
 function Walls({ venue }: { venue: VenueV2 }) {
   const walls = useMemo(() => buildWalls(venue), [venue]);
+  const color = useMemo(() => wallColor(venue), [venue]);
   const body = useRef<THREE.InstancedMesh>(null);
   const cap = useRef<THREE.InstancedMesh>(null);
   useLayoutEffect(() => {
@@ -43,17 +69,17 @@ function Walls({ venue }: { venue: VenueV2 }) {
     <>
       <instancedMesh ref={body} args={[undefined, undefined, walls.length]} frustumCulled={false}>
         <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial color={PALETTE.wall} roughness={0.9} metalness={0} />
+        <meshStandardMaterial color={color ?? PALETTE.wall} roughness={0.9} metalness={0} />
       </instancedMesh>
       <instancedMesh ref={cap} args={[undefined, undefined, walls.length]} frustumCulled={false}>
         <boxGeometry args={[1, 1, 1]} />
-        <meshBasicMaterial color={PALETTE.wallTop} />
+        <meshBasicMaterial color={color ? new THREE.Color(color).offsetHSL(0, 0, -0.18) : PALETTE.wallTop} />
       </instancedMesh>
     </>
   );
 }
 
-function Grid({ venue }: { venue: VenueV2 }) {
+function Grid({ venue, faint }: { venue: VenueV2; faint: boolean }) {
   const geometry = useMemo(() => {
     const pts: number[] = [];
     const [w, h] = venue.extent;
@@ -70,7 +96,7 @@ function Grid({ venue }: { venue: VenueV2 }) {
   }, [venue]);
   return (
     <lineSegments geometry={geometry}>
-      <lineBasicMaterial color={PALETTE.grid} transparent opacity={0.8} />
+      <lineBasicMaterial color={PALETTE.grid} transparent opacity={faint ? 0.18 : 0.8} />
     </lineSegments>
   );
 }
@@ -78,26 +104,34 @@ function Grid({ venue }: { venue: VenueV2 }) {
 export default function Building({ venue, plan, fills }: { venue: VenueV2; plan: DoorPlanResponse | null; fills?: Record<string, number> }) {
   const zones = useMemo(() => zoneRenders(venue, plan), [venue, plan]);
   const shapes = useMemo(() => zones.map((z) => new THREE.ShapeGeometry(polygonShape(z.polygon))), [zones]);
+  const looks = useMemo(() => Object.fromEntries(venue.zones.map((z) => [z.id, resolveZoneLook(venue.appearance?.zones[z.id])])), [venue]);
+  const lit = hasLooks(venue);
   return (
     <group>
-      {zones.map((z, i) => (
-        <group key={z.id} rotation={[-Math.PI / 2, 0, 0]}>
-          <mesh geometry={shapes[i]}>
-            <meshStandardMaterial color={PALETTE.floor} roughness={0.85} metalness={0.05} />
-          </mesh>
-          {fills && fills[z.id] > 0 && (
-            <mesh geometry={shapes[i]} position={[0, 0, 0.02]}>
-              <meshBasicMaterial color={PALETTE.text} transparent opacity={0.04 + fills[z.id] * 0.26} depthWrite={false} />
-            </mesh>
-          )}
-          {z.tintOpacity > 0 && (
-            <mesh geometry={shapes[i]} position={[0, 0, 0.012]}>
-              <meshBasicMaterial color={z.tintColor} transparent opacity={z.tintOpacity} depthWrite={false} />
-            </mesh>
-          )}
-        </group>
-      ))}
-      <Grid venue={venue} />
+      {zones.map((z, i) => {
+        const look = looks[z.id];
+        return (
+          <group key={z.id} rotation={[-Math.PI / 2, 0, 0]}>
+            {look ? <LookFloor geometry={shapes[i]} look={look} /> : (
+              <mesh geometry={shapes[i]}>
+                <meshStandardMaterial color={PALETTE.floor} roughness={0.85} metalness={0.05} />
+              </mesh>
+            )}
+            {/* On light video floors a white occupant wash and a faint hazard tint vanish: darken and strengthen them. */}
+            {fills && fills[z.id] > 0 && (
+              <mesh geometry={shapes[i]} position={[0, 0, 0.02]}>
+                <meshBasicMaterial color={lit ? PALETTE.canvas : PALETTE.text} transparent opacity={(lit ? 0.08 : 0.04) + fills[z.id] * (lit ? 0.4 : 0.26)} depthWrite={false} />
+              </mesh>
+            )}
+            {z.tintOpacity > 0 && (
+              <mesh geometry={shapes[i]} position={[0, 0, 0.012]}>
+                <meshBasicMaterial color={z.tintColor} transparent opacity={lit ? Math.min(0.6, z.tintOpacity * 2.4) : z.tintOpacity} depthWrite={false} />
+              </mesh>
+            )}
+          </group>
+        );
+      })}
+      <Grid venue={venue} faint={lit} />
       <Walls venue={venue} />
     </group>
   );

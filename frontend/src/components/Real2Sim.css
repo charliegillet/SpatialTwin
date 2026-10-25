@@ -75,6 +75,17 @@
 .r2s-field { display: grid; gap: 4px; font-size: .75rem; color: var(--muted); }
 .r2s-field input { min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--canvas); color: var(--text); font: .8125rem var(--mono); }
 .r2s-field input[aria-invalid="true"] { border-color: var(--hazard); }
+.r2s-field select, .r2s-add select { min-height: 36px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--canvas); color: var(--text); font-size: .8125rem; }
+.r2s-field input[type="color"] { padding: 2px 4px; }
+.r2s-fields-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.r2s-review-actions, .r2s-edit-actions, .r2s-add { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.r2s-furniture { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-raised); }
+.r2s-pieces { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.r2s-piece { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--canvas); color: var(--text); font-size: .8125rem; }
+.r2s-piece.is-on { border-color: var(--accent); color: var(--accent); }
+.r2s-swatch { width: 10px; height: 10px; border-radius: 2px; border: 1px solid var(--line); }
+.r2s-piece-form { display: grid; gap: 8px; margin: 0; padding: 10px; border: 1px solid var(--line); border-radius: 6px; }
+.r2s-piece-form legend { padding: 0 4px; font-size: .75rem; color: var(--muted); }
 .r2s-why { overflow-wrap: anywhere; }
 .r2s-accept-btn { min-height: 44px; }
 .r2s-accepted { display: grid; gap: 6px; padding: 8px 10px; border: 1px solid var(--safe-deep); border-radius: 6px; background: var(--surface-raised); }

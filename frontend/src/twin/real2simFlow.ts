@@ -294,6 +294,20 @@ export function createReal2SimFlow(deps: Real2SimDeps) {
       }
     },
 
+    /** Re-reads a ready draft after a change made outside the flow (a furniture edit): new revision and preview. */
+    async refresh() {
+      const myEpoch = epoch;
+      if (state.stage !== 'ready' || !state.draftId) return;
+      try {
+        const view = await deps.fetchDraft(state.draftId);
+        if (myEpoch !== epoch || state.stage !== 'ready') return;
+        publish({ ...applyView(view), acceptError: null, acceptNotice: null });
+      } catch (error) {
+        if (myEpoch !== epoch) return;
+        publish({ acceptError: errorOf(error, 'The draft could not be refreshed.').message });
+      }
+    },
+
     /** "Start over" / unmount: invalidates every outstanding request, stream and timer. */
     reset() {
       closeTransport();

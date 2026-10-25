@@ -21,3 +21,4 @@
 .twin-playback__note { color: #a3b1a9; }
 @media (max-width: 560px) { .twin-playback { right: 12px; max-width: none; bottom: 64px; } }
 .twin-label--count, .twin-label--exit { background: rgba(7, 9, 8, 0.72); padding: 1px 4px; border-radius: 3px; }
+.twin-scene--lit .twin-label--zone { opacity: 0.92; background: rgba(7, 9, 8, 0.72); padding: 1px 4px; border-radius: 3px; }

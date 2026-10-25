@@ -1,8 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
-import { Camera, CheckCircle2, LoaderCircle, RotateCcw } from 'lucide-react';
-import { MAX_CONTROLLABLE_DOORS, overlayUrl, topdownUrl } from '../api/real2sim.ts';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Armchair, Camera, CheckCircle2, LoaderCircle, RotateCcw, Video } from 'lucide-react';
+import { ApiError } from '../api/client.ts';
+import { MAX_CONTROLLABLE_DOORS, overlayUrl, saveFurniture, topdownUrl } from '../api/real2sim.ts';
 import type { AcceptResponse, SourceKind } from '../api/real2sim.ts';
-import type { VenueV2 } from '../twin/types.ts';
+import { furnitureOf, furniturePayload, movePiece, withFurniture } from '../twin/furnitureEdit.ts';
+import type { FurnitureEditBridge, Point2, VenueFurniture, VenueV2 } from '../twin/types.ts';
+import { FurnitureEditor } from './FurnitureEditor.tsx';
 import { elapsedLabel } from '../twin/doorAgent.ts';
 import { isRunning, type Real2SimState } from '../twin/real2simFlow.ts';
 import {
@@ -16,16 +19,25 @@ const KINDS: { kind: SourceKind; label: string }[] = [
   { kind: 'photo', label: 'Photo of a posted map' },
   { kind: 'sketch', label: 'Sketch' },
   { kind: 'pdf', label: 'PDF' },
+  { kind: 'video', label: 'Video walkthrough' },
 ];
 
-/** Build stage: a photo, sketch or PDF of a floor plan becomes a checked venue draft the operator accepts.
+const PICK: Record<SourceKind, { accept: string; label: string; aria: string }> = {
+  photo: { accept: 'image/jpeg,image/png,image/*', label: 'Take or upload a photo', aria: 'Take or upload a photo' },
+  sketch: { accept: 'image/jpeg,image/png,image/*', label: 'Take or upload a photo', aria: 'Take or upload a photo' },
+  pdf: { accept: 'application/pdf', label: 'Upload a PDF', aria: 'Upload a floor-plan PDF' },
+  video: { accept: 'video/mp4,video/webm,video/quicktime,.mp4,.mov,.webm', label: 'Record or upload a video', aria: 'Record or upload a walkthrough video (up to 2 minutes)' },
+};
+
+/** Build stage: a photo, sketch or PDF of a floor plan, or a video walkthrough, becomes a checked venue draft the operator accepts.
  *  Argon proposes; the local compiler and graph checks decide; the operator accepts. `onAccepted` is the only output. */
-export function Real2SimPanel({ onAccepted, onPreview }: { onAccepted?: (venueId: string, accepted: AcceptResponse) => void; onPreview?: (venue: VenueV2 | null) => void }) {
+export function Real2SimPanel({ onAccepted, onPreview }: { onAccepted?: (venueId: string, accepted: AcceptResponse) => void; onPreview?: (venue: VenueV2 | null, edit?: FurnitureEditBridge) => void }) {
   const r2s = useReal2Sim(onAccepted);
   const { state } = r2s;
   // The stage shows the draft's preview compile until it is accepted (then the accepted venue is the active one).
   const preview = state.view && !state.view.accepted ? state.view.preview : null;
-  useEffect(() => { onPreview?.(preview); }, [preview, onPreview]);
+  const furniture = useFurnitureEdit(r2s, preview);
+  useEffect(() => { onPreview?.(furniture.shown, furniture.bridge); }, [furniture.shown, furniture.bridge, onPreview]);
   useEffect(() => () => onPreview?.(null), [onPreview]);
   const running = isRunning(state.stage);
   const picking = state.stage === 'idle' || state.stage === 'failed';
@@ -41,7 +53,7 @@ export function Real2SimPanel({ onAccepted, onPreview }: { onAccepted?: (venueId
     {picking && <SourcePicker r2s={r2s} />}
     {state.provenanceLabel && !picking && <p className={`r2s-provenance is-${state.provenance ?? 'live'}`}>{state.provenanceLabel}</p>}
     {(running || state.thoughts.length > 0) && <Progress state={state} />}
-    {(state.stage === 'ready' || state.stage === 'accepting' || state.stage === 'accepted') && <Review r2s={r2s} />}
+    {(state.stage === 'ready' || state.stage === 'accepting' || state.stage === 'accepted') && <Review r2s={r2s} furniture={furniture} />}
     {state.stage !== 'idle' && !picking && <button type="button" className="btn r2s-start-over" onClick={r2s.reset}><RotateCcw size={14} aria-hidden="true" />Start over</button>}
     {state.stage === 'failed' && <button type="button" className="btn r2s-start-over" onClick={r2s.reset}><RotateCcw size={14} aria-hidden="true" />Clear</button>}
   </section>;
@@ -50,7 +62,8 @@ export function Real2SimPanel({ onAccepted, onPreview }: { onAccepted?: (venueId
 function SourcePicker({ r2s }: { r2s: Real2SimController }) {
   const [kind, setKind] = useState<SourceKind>('photo');
   const input = useRef<HTMLInputElement>(null);
-  const pdf = kind === 'pdf';
+  const pick = PICK[kind];
+  const Icon = kind === 'video' ? Video : Camera;
   return <div className="r2s-source">
     <fieldset className="r2s-kinds">
       <legend>What are you showing it?</legend>
@@ -59,11 +72,11 @@ function SourcePicker({ r2s }: { r2s: Real2SimController }) {
       </label>)}
     </fieldset>
     {/* Picking a file starts the reading at once; the kind radios come first so the choice is made before the live call. */}
-    <input ref={input} className="r2s-file" type="file" accept={pdf ? 'application/pdf' : 'image/jpeg,image/png,image/*'} {...(pdf ? {} : { capture: 'environment' as const })}
-      aria-label={pdf ? 'Upload a floor-plan PDF' : 'Take or upload a photo'} tabIndex={-1}
+    <input ref={input} className="r2s-file" type="file" accept={pick.accept} {...(kind === 'pdf' || kind === 'video' ? {} : { capture: 'environment' as const })}
+      aria-label={pick.aria} tabIndex={-1}
       onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) r2s.startFile(file, kind); }} />
     <button type="button" className="btn btn-primary r2s-pick" onClick={() => input.current?.click()}>
-      <Camera size={16} aria-hidden="true" />{pdf ? 'Upload a PDF' : 'Take or upload a photo'}
+      <Icon size={16} aria-hidden="true" />{pick.label}
     </button>
     <SavedRuns r2s={r2s} />
   </div>;
@@ -136,19 +149,80 @@ function Progress({ state }: { state: Real2SimState }) {
   </div>;
 }
 
-function Review({ r2s }: { r2s: Real2SimController }) {
+/** The optional furniture edit on a ready draft: a working copy drawn on the stage until it is saved or dropped. */
+interface FurnitureEdit {
+  editing: VenueFurniture[] | null;
+  shown: VenueV2 | null;
+  bridge: FurnitureEditBridge | undefined;
+  selectedId: string | null;
+  saving: boolean;
+  error: string | null;
+  start: () => void;
+  change: (next: VenueFurniture[]) => void;
+  select: (id: string | null) => void;
+  save: () => void;
+  cancel: () => void;
+}
+
+function useFurnitureEdit(r2s: Real2SimController, preview: VenueV2 | null): FurnitureEdit {
+  const { state } = r2s;
+  const [editing, setEditing] = useState<VenueFurniture[] | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // A new draft, Start over or Accept drops an unsaved edit.
+  useEffect(() => { setEditing(null); setSelectedId(null); setError(null); }, [state.draftId, state.epoch]);
+  useEffect(() => { if (state.stage !== 'ready') { setEditing(null); setSelectedId(null); } }, [state.stage]);
+  const previewRef = useRef(preview);
+  previewRef.current = preview;
+  const onMove = useCallback((id: string, position: Point2) => {
+    const base = previewRef.current;
+    if (base) setEditing(current => current && movePiece(base, current, id, position));
+  }, []);
+  const shown = useMemo(() => (preview && editing ? withFurniture(preview, editing) : preview), [preview, editing]);
+  const bridge = useMemo(() => (editing ? { selectedId, onSelect: setSelectedId, onMove } : undefined), [editing !== null, selectedId, onMove]); // eslint-disable-line react-hooks/exhaustive-deps
+  const save = () => {
+    if (!editing || !state.draftId || state.revision === null) return;
+    setSaving(true); setError(null);
+    saveFurniture(state.draftId, state.revision, furniturePayload(editing))
+      .then(() => r2s.refresh())
+      .then(() => { setEditing(null); setSelectedId(null); })
+      .catch(failure => setError(failure instanceof ApiError ? failure.message : 'The furniture could not be saved. Try again.'))
+      .finally(() => setSaving(false));
+  };
+  return {
+    editing, shown, bridge, selectedId, saving, error,
+    start: () => { if (preview) { setEditing(furnitureOf(preview)); setError(null); } },
+    change: setEditing, select: setSelectedId, save,
+    cancel: () => { setEditing(null); setSelectedId(null); setError(null); },
+  };
+}
+
+function Review({ r2s, furniture }: { r2s: Real2SimController; furniture: FurnitureEdit }) {
   const { state } = r2s;
   const view = state.view;
   if (!view) return null;
   const receipt = receiptView(view);
   const accepted = state.stage === 'accepted' && state.accepted;
+  const editable = !accepted && state.stage === 'ready' && view.preview !== null;
+  let action;
+  if (accepted) action = <AcceptedNote accepted={state.accepted as AcceptResponse} />;
+  else if (furniture.editing && view.preview) action = <FurnitureEditor venue={view.preview} furniture={furniture.editing} onChange={furniture.change}
+    selectedId={furniture.selectedId} onSelect={furniture.select} onSave={furniture.save} onCancel={furniture.cancel} saving={furniture.saving} error={furniture.error} />;
+  else action = <>
+    {editable && <div className="r2s-review-actions">
+      <button type="button" className="btn" onClick={furniture.start}><Armchair size={14} aria-hidden="true" />Edit furniture</button>
+      <span className="twin-quiet">Optional. You can accept straight away.</span>
+    </div>}
+    <AcceptForm r2s={r2s} />
+  </>;
   return <div className="r2s-review">
     <p className={`r2s-receipt is-${receipt.tone}`}>
       <span className="r2s-chip">{receipt.provenance}</span>
       {[receipt.model, receipt.latency, receipt.tokens, receipt.thinking].filter(Boolean).map(text => <span key={text} className="r2s-chip">{text}</span>)}
     </p>
     <Real2SimEvidence view={view} overlaySrc={view.overlay_available ? overlayUrl(view.draft_id, view.revision) : null} topdownSrc={view.topdown_available ? topdownUrl(view.draft_id, view.revision) : null} />
-    {accepted ? <AcceptedNote accepted={state.accepted as AcceptResponse} /> : <AcceptForm r2s={r2s} />}
+    {action}
   </div>;
 }
 

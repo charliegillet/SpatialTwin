@@ -4,7 +4,8 @@ import * as THREE from 'three';
 import { playbackView } from '../twin/playback.ts';
 import { ariaSummary } from '../twin/sceneModel.ts';
 import type { TwinScene3DProps } from '../twin/types.ts';
-import Building from './Building.tsx';
+import Building, { hasLooks } from './Building.tsx';
+import Furniture, { justDragged } from './Furniture.tsx';
 import CameraRig, { FOV, type CameraPreset } from './CameraRig.tsx';
 import Doors from './Doors.tsx';
 import DropPlane from './DropPlane.tsx';
@@ -46,6 +47,8 @@ export default function TwinScene3D(props: TwinScene3DProps) {
   const labels = useMemo(() => buildLabels(venue, plan, hazards, view), [venue, plan, hazards, view]);
   const labelRefs = useRef(new Map<string, HTMLElement>());
   const animating = !reducedMotion && hazards.length > 0;
+  // Video colours read true under neutral light; the dark twin keeps its green-grey wash.
+  const lit = hasLooks(venue);
 
   const choose = useCallback((next: CameraPreset) => {
     setPreset(next);
@@ -63,7 +66,7 @@ export default function TwinScene3D(props: TwinScene3DProps) {
 
   return (
     <div
-      className="twin-scene"
+      className={lit ? 'twin-scene twin-scene--lit' : 'twin-scene'}
       role="group"
       aria-label={summary}
       style={{ cursor: armedType ? 'crosshair' : undefined }}
@@ -78,13 +81,14 @@ export default function TwinScene3D(props: TwinScene3DProps) {
         gl={{ antialias: true, powerPreference: 'high-performance' }}
         onCreated={({ gl }) => gl.setClearColor(PALETTE.canvas)}
       >
-        <ambientLight intensity={1.3} color="#a9bfb3" />
-        <directionalLight position={[10, 25, 12]} intensity={0.9} color="#dfeee6" />
+        <ambientLight intensity={lit ? 1.15 : 1.3} color={lit ? '#ffffff' : '#a9bfb3'} />
+        <directionalLight position={[10, 25, 12]} intensity={lit ? 1.1 : 0.9} color={lit ? '#ffffff' : '#dfeee6'} />
         {/* Keyed by geometry so a new venue with the same footprint still re-frames from scratch. */}
         <CameraRig key={venue.geometry_revision} extent={venue.extent} preset={preset} nonce={nonce} />
         <PickBridge pickRef={pickRef} />
         <LabelProjector labels={labels} refs={labelRefs} />
         <Building venue={venue} plan={plan} fills={fills} />
+        <Furniture venue={venue} edit={props.furnitureEdit} />
         <Routes venue={venue} plan={plan} />
         <Doors venue={venue} plan={plan} reducedMotion={reducedMotion} gates={props.gates} />
         <ExitSigns venue={venue} plan={plan} reducedMotion={reducedMotion} />
@@ -97,7 +101,7 @@ export default function TwinScene3D(props: TwinScene3DProps) {
           reducedMotion={reducedMotion}
           onSelect={onSelectHazard}
         />
-        <DropPlane venue={venue} armedType={armedType} onPlace={onPlace} onEmptyClick={() => onSelectHazard(null)} />
+        <DropPlane venue={venue} armedType={armedType} onPlace={onPlace} onEmptyClick={() => { onSelectHazard(null); if (!justDragged()) props.furnitureEdit?.onSelect(null); }} />
       </Canvas>
       <LabelLayer labels={labels} refs={labelRefs} hidden={!showLabels} />
       {view && <PlaybackBar view={view} playback={playback} />}

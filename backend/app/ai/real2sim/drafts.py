@@ -79,7 +79,8 @@ DEFAULT_PING_SECONDS = 15.0
 PDF_CANVAS_WIDTH_PX = 1600
 A4_LANDSCAPE_PT = (842.0, 595.0)
 IN_PROGRESS = ("extracting", "checking", "critiquing")
-SOURCE_SUFFIX = {"image/jpeg": "jpg", "image/png": "png", "application/pdf": "pdf"}
+SOURCE_SUFFIX = {"image/jpeg": "jpg", "image/png": "png", "application/pdf": "pdf", "video/mp4": "mp4"}
+MAX_FURNITURE_EDITS = 60
 PAPER = (255, 255, 255)
 
 CompileFn = Callable[..., CompileResult]
@@ -459,7 +460,7 @@ class Real2SimService:
         directory = runtime_root(self._runtime_dir) / draft_id
         suffix = SOURCE_SUFFIX[source.mime_type]
         overlay_base = source.data
-        if source.mime_type == "application/pdf":
+        if source.mime_type in ("application/pdf", "video/mp4"):
             canvas = Image.new("RGB", (source.image.width_px, source.image.height_px), PAPER)
             buffer = io.BytesIO()
             canvas.save(buffer, format="PNG")
@@ -491,6 +492,7 @@ class Real2SimService:
             "settings": {"thinking_level": thinking_level, "critique_rounds": self.critique_rounds,
                          "stream": self.extractor.stream},
             "overlay_available": False, "topdown_available": False, "accepted": None,
+            "furniture_edits": None,
         }
         self._pending.add(draft_id)
         try:
@@ -794,6 +796,41 @@ class Real2SimService:
                        terminal=True)
         return log
 
+    # -- furniture edits --------------------------------------------------------------------------------------
+
+    async def save_furniture(self, draft_id: Any, *, expected_revision: int,
+                             furniture: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Store an operator's furniture (venue metres) on a ready draft as a new revision. Looks only: the preview's
+        zones, doors and exits are untouched, and Accept applies the same furniture to the venue it stores."""
+        from backend.app.venues.compiler import with_furniture
+        record = await asyncio.to_thread(self._record, draft_id)
+        if record["status"] != "ready":
+            raise Real2SimError("draft_not_ready", 409, status=record["status"])
+        if expected_revision != record["revision"]:
+            raise Real2SimError("stale_draft_revision", 409, revision=record["revision"])
+        preview = (record.get("compile") or {}).get("venue")
+        if not preview:
+            raise Real2SimError("preview_unavailable", 409)
+        if len(furniture) > MAX_FURNITURE_EDITS:
+            raise Real2SimError("too_much_furniture", 422, max=MAX_FURNITURE_EDITS)
+        try:
+            from backend.app.venues.model import VenueV2
+            edited = with_furniture(VenueV2.model_validate(preview), furniture)
+        except (ValueError, TypeError, KeyError):
+            raise Real2SimError("invalid_furniture", 422) from None
+        payload = {key: value for key, value in record.items()
+                   if key not in ("draft_id", "revision", "status", "created_at", "updated_at")}
+        payload["furniture_edits"] = [piece.model_dump(mode="json")
+                                      for piece in (edited.appearance.furniture if edited.appearance else [])]
+        payload["compile"] = {**payload["compile"], "venue": edited.to_json()}
+        try:
+            revision = await asyncio.to_thread(self._registry().update_draft, record["draft_id"], expected_revision,
+                                               "ready", payload)
+        except RegistryConflict as conflict:
+            raise Real2SimError(conflict.code, 409) from None
+        return {"draft_id": record["draft_id"], "revision": revision,
+                "furniture": payload["furniture_edits"], "preview": payload["compile"]["venue"]}
+
     # -- accept -----------------------------------------------------------------------------------------------
 
     async def accept(self, draft_id: Any, *, expected_revision: int, controllable_doors: List[str],
@@ -829,10 +866,23 @@ class Real2SimService:
             provenance_text = None
         name = record.get("name") or draft.title or None
 
+        furniture_edits = record.get("furniture_edits")
+        preview_extent = ((record.get("compile") or {}).get("venue") or {}).get("extent")
+
         def compile_and_check() -> tuple[CompileResult, List[GraphIssue]]:
             result = self._compile(draft, image, venue_id=venue_id, controllable_doors=list(controllable_doors),
                                    headcount=headcount, building_width_m=building_width_m, name=name,
                                    provenance=provenance_text)
+            if result.venue is not None and furniture_edits is not None:
+                from backend.app.venues.compiler import with_furniture
+                pieces = furniture_edits
+                if preview_extent and all(preview_extent):
+                    # An operator building width rescales the plan: keep each piece where it stood in its room.
+                    sx = result.venue.extent[0] / preview_extent[0]
+                    sy = result.venue.extent[1] / preview_extent[1]
+                    pieces = [{**piece, "position": [piece["position"][0] * sx, piece["position"][1] * sy]}
+                              for piece in furniture_edits]
+                result = dataclasses.replace(result, venue=with_furniture(result.venue, pieces))
             return result, (list(self._check(result.venue)) if result.venue is not None else [])
 
         try:

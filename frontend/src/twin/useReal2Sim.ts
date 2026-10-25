@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { acceptDraft, createDraft, eventsUrl, fetchDraft, fetchSavedRuns, prepareSource } from '../api/real2sim.ts';
+import { acceptDraft, createDraft, eventsUrl, fetchDraft, fetchSavedRuns, prepareSource, prepareVideo } from '../api/real2sim.ts';
 import type { AcceptResponse, SavedRun, SourceKind } from '../api/real2sim.ts';
 import { createReal2SimFlow, idleState, type AcceptOptions, type EventSourceLike, type Real2SimFlow, type Real2SimState } from './real2simFlow.ts';
 
@@ -9,10 +9,12 @@ export interface Real2SimController {
   saved: SavedRun[] | null;
   savedEnabled: boolean;
   savedError: string | null;
-  /** Reads the picked file (downscaling big photos), uploads it and starts the live reading. */
+  /** Reads the picked file (downscaling big photos; a video is sent as it is), uploads it and starts the live reading. */
   startFile: (file: File, kind: SourceKind, name?: string) => void;
   startSaved: (fixtureId: string) => void;
   accept: (options: AcceptOptions) => void;
+  /** Re-reads the ready draft (after a furniture edit was saved). */
+  refresh: () => Promise<void>;
   /** "Start over": drops the draft and every outstanding stream, timer and response. */
   reset: () => void;
   reloadSaved: () => void;
@@ -60,6 +62,10 @@ export function useReal2Sim(onAccepted?: (venueId: string, accepted: AcceptRespo
 
   const startFile = useCallback((file: File, kind: SourceKind, name?: string) => {
     void flow.startLive(async () => {
+      if (kind === 'video') {
+        const video = prepareVideo(file);
+        return { mode: 'video', file: video.file, mime_type: video.mime_type, ...(name ? { name } : {}) };
+      }
       const prepared = await prepareSource(file, kind);
       return { mode: 'live', image_base64: prepared.image_base64, mime_type: prepared.mime_type, source_kind: prepared.source_kind, ...(name ? { name } : {}) };
     });
@@ -67,6 +73,7 @@ export function useReal2Sim(onAccepted?: (venueId: string, accepted: AcceptRespo
   const startSaved = useCallback((fixtureId: string) => { void flow.startSaved(fixtureId); }, [flow]);
   const accept = useCallback((options: AcceptOptions) => { void flow.accept(options); }, [flow]);
   const reset = useCallback(() => flow.reset(), [flow]);
+  const refresh = useCallback(() => flow.refresh(), [flow]);
 
-  return { state, saved, savedEnabled, savedError, startFile, startSaved, accept, reset, reloadSaved: () => { loadSaved(); } };
+  return { state, saved, savedEnabled, savedError, startFile, startSaved, accept, refresh, reset, reloadSaved: () => { loadSaved(); } };
 }

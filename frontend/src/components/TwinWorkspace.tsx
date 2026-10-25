@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { prefersReducedMotion } from '../scene/webgl';
 import type { TwinController } from '../twin/useTwin';
-import type { DoorAgentMode, TwinMode, VenueV2 } from '../twin/types';
+import type { DoorAgentMode, FurnitureEditBridge, TwinMode, VenueV2 } from '../twin/types';
 import { cameraCardsLabel } from '../twin/camera';
 import { twinChips, twinHero, withFallback } from '../twin/twinHero';
 import { toHazardInputs } from '../twin/placement';
@@ -35,6 +35,8 @@ export function TwinWorkspace({ twin, notice, mode, calibrateTick, imageFile, an
   const incident = useIncident(twin.venueId, hazardInputs, { enabled: !building });
   const [seed, setSeed] = useState<'live' | 'fixture' | null>(null);
   const [preview, setPreview] = useState<VenueV2 | null>(null);
+  const [furnitureEdit, setFurnitureEdit] = useState<FurnitureEditBridge | undefined>(undefined);
+  const showPreview = useCallback((venue: VenueV2 | null, edit?: FurnitureEditBridge) => { setPreview(venue); setFurnitureEdit(edit); }, []);
   const hasCamera = twin.hazards.some(item => item.source === 'camera');
   useEffect(() => { if (!hasCamera) setSeed(null); }, [hasCamera]);
   // Accepted venues are named after their floor plan; the built-in keeps its id.
@@ -50,9 +52,9 @@ export function TwinWorkspace({ twin, notice, mode, calibrateTick, imageFile, an
     population: summary.initial_population, stuck: summary.stuck_doors }, plan);
   const accepted = (venueId: string) => { twin.refreshVenues(); onBuilt?.(venueId); };
   if (building) return <>
-    <div className="twin-side twin-build"><Real2SimPanel onAccepted={accepted} onPreview={setPreview} /></div>
+    <div className="twin-side twin-build"><Real2SimPanel onAccepted={accepted} onPreview={showPreview} /></div>
     {preview && <div className="stage-chips twin-preview-chip"><span className="chip chip-warn">Draft preview · not accepted</span></div>}
-    {preview ?? venue ? <TwinStage venue={(preview ?? venue)!} plan={null} hazards={[]} armedType={null} selectedHazardId={null} lowGraphics={false}
+    {preview ?? venue ? <TwinStage venue={(preview ?? venue)!} plan={null} hazards={[]} armedType={null} selectedHazardId={null} lowGraphics={false} furnitureEdit={preview ? furnitureEdit : undefined}
       reducedMotion={reducedMotion} onPlace={() => undefined} onSelectHazard={() => undefined} />
       : <div className="twin-stage twin-loading" role="status">Loading the building…</div>}
   </>;

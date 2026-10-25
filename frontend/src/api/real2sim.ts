@@ -1,6 +1,6 @@
 import { ApiError, requestJson } from './client.ts';
 import { parseVenue } from './twin.ts';
-import type { VenueV2 } from '../twin/types.ts';
+import type { VenueFurniture, VenueV2 } from '../twin/types.ts';
 
 /** Client for the Real2Sim draft API (docs/plans/contracts/real2sim-api.md). Argon proposes, the local compiler and
  *  graph checks decide, an operator accepts: nothing here changes the active venue except `acceptDraft`. */
@@ -11,10 +11,13 @@ export const DRAFT_ID_PATTERN = /^r2s-[0-9a-f]{24}$/;
 export const MAX_SOURCE_BYTES = 8 * 1024 * 1024;
 export const MAX_LONG_SIDE_PX = 4096;
 export const MAX_CONTROLLABLE_DOORS = 3;
+/** Video walkthroughs: the server measures the real duration (at most 120 s) and refuses files over 256 MiB. */
+export const MAX_VIDEO_BYTES = 256 * 1024 * 1024;
+export const VIDEO_MIMES = ['video/mp4', 'video/webm', 'video/quicktime'] as const;
 
 export type DraftStatus = 'extracting' | 'checking' | 'critiquing' | 'ready' | 'failed' | 'accepted';
 export type Provenance = 'live' | 'synthetic' | 'saved_run';
-export type SourceKind = 'photo' | 'sketch' | 'pdf';
+export type SourceKind = 'photo' | 'sketch' | 'pdf' | 'video';
 export type SourceMime = 'image/jpeg' | 'image/png' | 'application/pdf';
 export type ThinkingLevel = 'low' | 'medium' | 'high';
 
@@ -56,7 +59,9 @@ export interface CreateDraftResponse { draft_id: string; revision: number; statu
 
 export type CreateDraftRequest =
   | { mode: 'live'; image_base64: string; mime_type: SourceMime; source_kind: SourceKind; name?: string; thinking_level?: ThinkingLevel }
-  | { mode: 'fixture'; fixture_id: string; name?: string };
+  | { mode: 'fixture'; fixture_id: string; name?: string }
+  | { mode: 'video'; file: Blob; mime_type: VideoMime; name?: string };
+export type VideoMime = typeof VIDEO_MIMES[number];
 
 export interface AcceptRequest {
   expected_revision: number; controllable_doors: string[]; headcount?: number; building_width_m?: number; make_active: boolean;
@@ -84,7 +89,16 @@ export const REAL2SIM_ERRORS: Record<string, string> = {
   fixtures_disabled: 'Saved runs are switched off on this server.',
   unknown_fixture: 'That saved run is not available any more.',
   source_too_large: 'That file is over 8 MB. Use a smaller photo.',
-  unsupported_mime_type: 'Use a JPEG or PNG photo, or a PDF.',
+  unsupported_mime_type: 'Use a JPEG or PNG photo, a PDF, or an MP4, WebM or MOV video.',
+  video_too_long: 'That video is over 2 minutes. Trim it and try again.',
+  video_too_short: 'That video is under a second long. Film a short walk through the space.',
+  video_too_large_to_read: 'That video could not be made small enough to read. Try a shorter clip.',
+  invalid_source_video: 'That video could not be decoded. Try another file.',
+  video_processing_timeout: 'The video took too long to prepare. Try a shorter clip.',
+  video_decoder_unavailable: 'The server cannot decode video right now.',
+  invalid_furniture: 'That furniture could not be saved. Check each piece is inside a room.',
+  too_much_furniture: 'At most 60 pieces of furniture can be kept.',
+  preview_unavailable: 'This draft has no preview to edit.',
   source_required: 'Choose a photo or PDF first.',
   invalid_source_encoding: 'The file could not be read. Try another one.',
   source_mime_mismatch: 'The file type does not match its contents. Try another file.',
@@ -153,6 +167,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 const bad = (what: string): never => { throw new ApiError(`The server returned an unexpected ${what}.`, 502, 'invalid_response'); };
 const STATUSES: readonly string[] = ['extracting', 'checking', 'critiquing', 'ready', 'failed', 'accepted'];
 const PROVENANCES: readonly string[] = ['live', 'synthetic', 'saved_run'];
+// Saved runs are photo, sketch or PDF readings only; a video is always read live.
 const KINDS: readonly string[] = ['photo', 'sketch', 'pdf'];
 const isInt = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value);
 const num = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -298,8 +313,28 @@ export function parseDraftEvent(name: string, data: string): DraftEvent | null {
 const draftPath = (draftId: string) => `${REAL2SIM_BASE}/drafts/${encodeURIComponent(draftId)}`;
 const describe = (status: number, _detail: string, code: string) => real2simErrorMessage(status, code);
 
-export const createDraft = async (body: CreateDraftRequest, signal?: AbortSignal): Promise<CreateDraftResponse> =>
-  parseCreateResponse(await requestJson<unknown>(`${REAL2SIM_BASE}/drafts`, { method: 'POST', body, signal, timeoutMs: 60_000, fallback: 'The drawing could not be sent', describe }));
+export async function createDraft(body: CreateDraftRequest, signal?: AbortSignal): Promise<CreateDraftResponse> {
+  if (body.mode === 'video') {
+    // The file itself is the body; the server streams it to disk, measures it and re-encodes it before reading.
+    const query = body.name ? `?name=${encodeURIComponent(body.name)}` : '';
+    return parseCreateResponse(await requestJson<unknown>(`${REAL2SIM_BASE}/drafts/video${query}`, {
+      method: 'POST', rawBody: body.file, headers: { 'Content-Type': body.mime_type }, signal, timeoutMs: 300_000,
+      fallback: 'The video could not be sent', describe,
+    }));
+  }
+  return parseCreateResponse(await requestJson<unknown>(`${REAL2SIM_BASE}/drafts`, { method: 'POST', body, signal, timeoutMs: 60_000, fallback: 'The drawing could not be sent', describe }));
+}
+
+export interface FurnitureSaveResponse { draft_id: string; revision: number; preview: VenueV2 }
+
+/** Stores the operator's furniture on a ready draft (looks only) and returns the new revision and preview. */
+export async function saveFurniture(draftId: string, expectedRevision: number, furniture: VenueFurniture[], signal?: AbortSignal): Promise<FurnitureSaveResponse> {
+  const raw = await requestJson<unknown>(`${draftPath(draftId)}/furniture`, {
+    method: 'PUT', body: { expected_revision: expectedRevision, furniture }, signal, timeoutMs: 15_000, fallback: 'The furniture could not be saved', describe,
+  });
+  if (!isRecord(raw) || typeof raw.draft_id !== 'string' || !isInt(raw.revision)) return bad('furniture result');
+  return { draft_id: raw.draft_id, revision: raw.revision, preview: parseVenue(raw.preview) };
+}
 
 export const fetchDraft = async (draftId: string, signal?: AbortSignal): Promise<DraftView> =>
   parseDraftView(await requestJson<unknown>(draftPath(draftId), { signal, timeoutMs: 15_000, fallback: 'The draft could not be loaded', describe }));
@@ -330,6 +365,25 @@ export function bytesToBase64(bytes: Uint8Array): string {
 
 export async function fileToBase64(file: Blob): Promise<string> {
   return bytesToBase64(new Uint8Array(await file.arrayBuffer()));
+}
+
+/** A video's mime: the browser's type, else the extension. */
+export function videoMime(name: string, type: string): VideoMime | null {
+  if ((VIDEO_MIMES as readonly string[]).includes(type)) return type as VideoMime;
+  const ext = name.toLowerCase().split('.').pop();
+  if (ext === 'mp4' || ext === 'm4v') return 'video/mp4';
+  if (ext === 'webm') return 'video/webm';
+  if (ext === 'mov' || ext === 'qt') return 'video/quicktime';
+  return null;
+}
+
+/** Checks a picked video before upload (type and size only; the server measures the duration). */
+export function prepareVideo(file: File): { file: File; mime_type: VideoMime } {
+  const mime = videoMime(file.name, file.type);
+  if (!mime) throw new ApiError(REAL2SIM_ERRORS.unsupported_mime_type, 415, 'unsupported_mime_type');
+  if (file.size === 0) throw new ApiError(REAL2SIM_ERRORS.source_required, 422, 'source_required');
+  if (file.size > MAX_VIDEO_BYTES) throw new ApiError('That video is over 256 MB. Use a shorter clip.', 413, 'source_too_large');
+  return { file, mime_type: mime };
 }
 
 /** Resolves the mime to send: the browser's type, else the extension (some phones leave `type` empty). */
