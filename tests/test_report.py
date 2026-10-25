@@ -10,7 +10,8 @@ import pytest
 
 from walktwin import report as rp
 from walktwin.checker import check_run
-from walktwin.contracts import FlowParams, Hazard, Measure, Scenario, VenueGraph
+from walktwin.contracts import (Anchor, FlowParams, Hazard, Measure, Scenario, VenueGraph,
+                                apply_anchor)
 from walktwin.egress_rules import ALWAYS_CANNOT_MEASURE
 from walktwin.flow import solve
 from walktwin.media import PreparedVideo
@@ -216,7 +217,8 @@ def test_scale_badge_disagrees_is_cannot_measure_not_failed():
     for rid in GEOM_IDS:
         row = _req(report, rid)
         assert row.status == "cannot_measure" and "scale badge disagrees" in row.evidence, rid
-    todo = [h for h in report.hand_checks if h.startswith("Re-tape the anchor door")]
+    # no anchor was applied, so the to-do asks for one instead of a re-tape
+    todo = [h for h in report.hand_checks if h.startswith("Tape-measure one door as the anchor")]
     assert len(todo) == 1 and "re-capture the venue walkthrough" in todo[0]
     assert "alignment_scale" in todo[0] and all(rid in todo[0] for rid in GEOM_IDS)
 
@@ -398,3 +400,129 @@ def test_report_json_round_trips():
     assert isinstance(data["graph_revision"], str) and isinstance(data["run_id"], str)
     incomplete = to_jsonable(rp.build_report(_session(run=False)))
     assert isinstance(incomplete["run_id"], str)  # the UI parser expects strings
+
+
+# --- final-review fixes (Lane F3) -------------------------------------------------------
+
+ROUTING = "system-optimal (earliest arrival); real crowds tend to use the way they came in"
+
+
+def _set(s: Session, name: str, value) -> Session:
+    """Set a session field that another lane adds (e.g. alignment_unanchored)."""
+    if name in Session.model_fields:
+        setattr(s, name, value)
+        return s
+    return s.model_copy(update={name: value})
+
+
+def _baseline(rev: str, geometry: dict | None) -> dict:
+    return {**_iteration(0, rev, geometry, 0), "kind": "baseline", "receipt": None,
+            "stop_reason": None}
+
+
+def test_geometry_baseline_comes_from_baseline_kind():
+    s = _session(sfm=True)
+    rev = s.accepted_graph.revision
+    s.iterations = [
+        {**_iteration(1, "g-old", _geometry(wall=0.99), 0), "kind": "round"},  # earlier refine
+        _baseline(rev, _geometry(crossings=1, wall=0.95)),
+        {**_iteration(1, rev, _geometry(wall=0.94), 0), "kind": "round"},
+    ]
+    row = _req(rp.build_report(s), "geometry_wall_support")
+    assert row.status == "pass" and row.value == "0.94", row  # 0.94 >= 0.95 - 0.02
+    assert "baseline before the loop 0.95" in row.evidence
+    assert "loop round 1" in row.evidence
+    s.iterations[-1]["geometry"] = _geometry(wall=0.90)
+    assert _req(rp.build_report(s), "geometry_wall_support").status == "fail"
+
+
+def test_geometry_only_baseline_is_single_round():
+    s = _session(sfm=True)
+    s.iterations = [_baseline(s.accepted_graph.revision, _geometry(wall=0.9))]
+    row = _req(rp.build_report(s), "geometry_wall_support")
+    assert row.status == "pass" and "baseline before the loop" in row.evidence
+    assert "single measured round" in row.evidence
+
+
+def test_geometry_rows_prefer_accepted_kind():
+    g = _office()
+    anchor = Anchor(door_id="D4", measured_width_m=0.95)
+    anchored = apply_anchor(g, anchor)
+    s = _session(anchored)
+    rev = anchored.revision
+    s.alignment = {**_alignment(), "hash": "a-2"}  # the accepted-frame (anchored) alignment
+    s = _set(s, "alignment_unanchored", _alignment())  # hash a-1
+    s.iterations = [
+        _baseline(g.revision, _geometry(wall=0.85)),
+        {**_iteration(1, rev, _geometry(wall=0.20, edge=0.1), 0), "kind": "round"},
+        {**_iteration(2, rev, {**_geometry(wall=0.88), "alignment_hash": "a-2"}, 0),
+         "kind": "accepted", "receipt": None, "stop_reason": None},
+    ]
+    report = rp.build_report(s)
+    row = _req(report, "geometry_wall_support")
+    assert row.status == "pass" and row.value == "0.88", row
+    assert "accepted graph" in row.evidence and "a-2" in row.evidence
+    assert "not compared" in row.evidence  # the baseline was scored under a-1
+    # without the accepted iteration the round's a-1 score is not the current alignment
+    s.iterations = s.iterations[:2]
+    assert _req(rp.build_report(s), "geometry_wall_support").status == "not_run"
+
+
+def test_discrepancy_row_skips_baseline_and_accepted():
+    s = _session(sfm=False)
+    rev = s.accepted_graph.revision
+    s.iterations = [_baseline(rev, None)]
+    row = _req(rp.build_report(s), "loop_discrepancies")
+    assert row.status == "not_run", row  # the baseline's 0 is not a critique
+    s.iterations.append({**_iteration(1, "g-next", None, 2), "applied": [0], "kind": "round"})
+    row = _req(rp.build_report(s), "loop_discrepancies")
+    assert row.value == "2" and "round 1" in row.evidence  # round 1 critiqued the baseline graph
+    s.iterations.append({**_iteration(2, rev, None, 0), "kind": "accepted", "receipt": None})
+    assert _req(rp.build_report(s), "loop_discrepancies").value == "2"
+
+
+def test_scale_row_declared_eye_height_and_no_anchor_unless_anchored():
+    s = _session()
+    row = _req(rp.build_report(s), "alignment_scale")
+    assert "consistent with the declared 1.5 ± 0.1 m eye height" in row.statement
+    assert row.status == "pass"
+    assert "anchor" not in row.statement.lower() and "anchor" not in row.evidence.lower()
+    # same hash as the unanchored alignment: still not anchored
+    s = _set(_session(), "alignment_unanchored", _alignment())
+    row = _req(rp.build_report(s), "alignment_scale")
+    assert "anchor" not in row.statement.lower() and "anchor" not in row.evidence.lower()
+    # anchored at accept: the alignment hash differs from the pre-anchor one
+    anchored = apply_anchor(_office(), Anchor(door_id="D4", measured_width_m=0.95))
+    s = _session(anchored)
+    s.alignment = {**_alignment(), "hash": "a-2"}
+    s = _set(s, "alignment_unanchored", _alignment())
+    row = _req(rp.build_report(s), "alignment_scale")
+    assert "consistent with the declared 1.5 ± 0.1 m eye height" in row.statement
+    assert "tape-measured anchor D4" in row.evidence and "a-1" in row.evidence
+
+
+def test_declared_routing_parameter():
+    report = rp.build_report(_session())
+    assert report.declared_parameters["routing"] == ROUTING
+    assert ROUTING.replace("'", "&#x27;") in rp.render_html(report)
+
+
+def test_provenance_tape_measured_only_when_applied():
+    g = _office().model_copy(update={"anchor": Anchor(door_id="D4", measured_width_m=0.95)})
+    prov = rp.build_report(_session(g)).provenance
+    assert not any("tape-measured" in p for p in prov), prov  # anchor set, never applied
+    anchored = apply_anchor(_office(), Anchor(door_id="D4", measured_width_m=0.95))
+    prov = rp.build_report(_session(anchored)).provenance
+    assert any("anchor D4 tape-measured at 0.950 m" in p for p in prov), prov
+
+
+def test_provenance_labels_baseline_and_accepted():
+    s = _session(sfm=True)
+    rev = s.accepted_graph.revision
+    s.iterations = [_baseline(rev, _geometry()),
+                    {**_iteration(1, rev, _geometry(), 0), "kind": "round"},
+                    {**_iteration(2, rev, _geometry(), 0), "kind": "accepted", "receipt": None}]
+    prov = rp.build_report(s).provenance
+    assert any(p.startswith("loop baseline (before round 1)") for p in prov), prov
+    assert any(p.startswith("loop round 1:") for p in prov), prov
+    assert any(p.startswith("accepted graph rescored") for p in prov), prov

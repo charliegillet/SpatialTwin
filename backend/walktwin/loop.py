@@ -1,5 +1,9 @@
 """Render -> watch -> critique -> patch loop, graded by measured geometry.
 
+Iteration 0 is the ``"baseline"``: the extraction graph scored before any patch
+(geometry only when SfM is available; no critique, no renders). Critique rounds
+are numbered from 1 and have kind ``"round"``.
+
 Each round renders the current twin at the graph's keyframes, pairs each render
 with the real video frame at the same time, and asks Argon (chained onto the
 extraction, then onto its own previous critique) for discrepancies and patch
@@ -27,7 +31,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from . import critique as critique_mod
 from .contracts import VenueGraph
@@ -53,6 +57,8 @@ MAX_ZOOM = 4
 
 _DOOR_ID = re.compile(r"^D\d{1,3}$")
 
+IterationKind = Literal["baseline", "round", "accepted"]
+
 
 @dataclass(frozen=True)
 class Iteration:
@@ -69,6 +75,9 @@ class Iteration:
     # measured score of a candidate reverted for measured_regression
     rejected_geometry: Any | None = None
     critique: CritiqueResult | None = field(default=None, repr=False)
+    # "baseline" (index 0, before any patch), "round" (critique rounds, from 1) or
+    # "accepted" (recorded by the session API at accept time)
+    kind: IterationKind = "round"
 
 
 def _geometry_module():
@@ -115,7 +124,11 @@ async def refine_graph(client, graph: VenueGraph, video: PreparedVideo,
                        alignment: Alignment | None, base_url: str, max_iterations: int = 4,
                        deadline_s: float, zoom_enabled: bool = False,
                        work_dir: Path | None = None) -> tuple[VenueGraph, list[Iteration]]:
-    """Run the loop; returns (graph after the last kept patch, iterations)."""
+    """Run the loop; returns (graph after the last kept patch, iterations).
+
+    ``iterations[0]`` is the baseline (kind ``"baseline"``, index 0); critique
+    rounds follow with indices from 1.
+    """
     if extraction.receipt is None or not extraction.receipt.interaction_id:
         raise ValueError("refine needs the extraction's interaction_id to chain onto")
     if not extraction.video_uri:
@@ -130,18 +143,22 @@ async def refine_graph(client, graph: VenueGraph, video: PreparedVideo,
     gs = _geometry_module() if use_geometry else None
     heldout = heldout_times(sfm, [k.t_s for k in graph.keyframes]) if use_geometry else []
 
-    def score(g: VenueGraph):
-        return gs.score_geometry(g, sfm, alignment, video=video, heldout_t_s=heldout)
+    async def score(g: VenueGraph):
+        return await asyncio.to_thread(gs.score_geometry, g, sfm, alignment, video=video,
+                                       heldout_t_s=heldout)
 
     current = graph
     current_findings = check_graph(current, duration)
-    current_geom = score(current) if use_geometry else None
+    current_geom = await score(current) if use_geometry else None
     seen = {current.revision}
     previous_id = extraction.receipt.interaction_id
     zoom: list[tuple[str, float, float]] = []
-    iterations: list[Iteration] = []
+    iterations: list[Iteration] = [Iteration(
+        index=0, graph_revision=current.revision, discrepancy_count=0, applied=[],
+        rejected=[], findings=current_findings, geometry=current_geom, renders=[],
+        receipt=None, stop_reason=None, critique=None, kind="baseline")]
 
-    for index in range(max_iterations):
+    for index in range(1, max_iterations + 1):
         rdir = work / f"iter_{index:02d}"
         renders = await render_views(current, rdir / "render", base_url)
         persp = _pick([v for v in renders if v.kind == "perspective" and v.t_s is not None],
@@ -179,7 +196,7 @@ async def refine_graph(client, graph: VenueGraph, video: PreparedVideo,
             break
 
         candidate = outcome.graph
-        cand_geom = score(candidate) if use_geometry else None
+        cand_geom = await score(candidate) if use_geometry else None
         if use_geometry and gs.is_regression(current_geom, cand_geom):
             rejected = sorted([*outcome.rejected,
                                *((i, "measured_regression") for i in outcome.applied)])
@@ -193,7 +210,7 @@ async def refine_graph(client, graph: VenueGraph, video: PreparedVideo,
             break
         seen.add(current.revision)
         zoom = _zoom_targets(current, res, duration)
-        last = index == max_iterations - 1
+        last = index == max_iterations
         record(applied=outcome.applied, rejected=outcome.rejected,
                stop="max_iterations" if last else None)
 
@@ -288,7 +305,8 @@ async def _main(argv: list[str] | None = None) -> int:
                "iterations": [_jsonable(it) for it in its]}
     path.write_text(json.dumps(payload, indent=2))
     for it in its:
-        print(f"round {it.index}: rev={it.graph_revision} discrepancies(model-reported)="
+        label = "baseline" if it.kind == "baseline" else f"round {it.index}"
+        print(f"{label}: rev={it.graph_revision} discrepancies(model-reported)="
               f"{it.discrepancy_count} applied={it.applied} rejected={len(it.rejected)} "
               f"geometry={'measured' if it.geometry is not None else 'unavailable'} "
               f"stop={it.stop_reason}")

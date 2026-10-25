@@ -1,4 +1,5 @@
 import json
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
@@ -92,7 +93,7 @@ def fake_geometry(monkeypatch):
 
     def score_geometry(graph, sfm, alignment, video=None, heldout_t_s=[]):
         calls.append({"revision": graph.revision, "heldout": list(heldout_t_s),
-                      "alignment": alignment.hash})
+                      "alignment": alignment.hash, "thread": threading.current_thread()})
         present = {d.id for d in graph.doors}
         return FakeScore(alignment_hash=alignment.hash,
                          illegal_crossings=sorted(PATH_DOORS - present),
@@ -152,11 +153,13 @@ async def _refine(client, office_graph, video, extraction, *, sfm=None, alignmen
 async def test_loop_stops_on_repeated_revision(office_graph, video, extraction, tmp_path):
     client = FakeClient(add_d7(), remove_d7(), add_d7(), remove_d7())
     its = await _refine(client, office_graph, video, extraction, tmp_path=tmp_path)
-    assert len(its) <= 3
-    assert its[-1].stop_reason == "repeated_revision"
+    rounds = its[1:]
+    assert len(rounds) <= 3
+    assert rounds[-1].stop_reason == "repeated_revision"
     assert all(it.stop_reason is None for it in its[:-1])
-    assert its[0].applied == [0]
-    assert [it.index for it in its] == list(range(len(its)))
+    assert rounds[0].applied == [0]
+    assert [it.index for it in its] == list(range(len(its)))  # baseline 0, rounds from 1
+    assert [it.kind for it in its] == ["baseline"] + ["round"] * len(rounds)
 
 
 async def test_loop_rejects_measured_regression(office_graph, video, extraction, sfm,
@@ -167,8 +170,9 @@ async def test_loop_rejects_measured_regression(office_graph, video, extraction,
     graph, its = await refine_graph(client, office_graph, video, extraction, sfm=sfm,
                                     alignment=alignment, base_url="http://127.0.0.1:4173",
                                     deadline_s=30, work_dir=tmp_path)
-    assert len(its) == 1
-    it = its[0]
+    assert [it.kind for it in its] == ["baseline", "round"]
+    it = its[1]
+    assert it.index == 1
     assert it.stop_reason == "measured_regression"
     assert it.applied == []
     assert it.rejected == [(0, "measured_regression")]
@@ -188,12 +192,12 @@ async def test_loop_stops_no_discrepancies(office_graph, video, extraction, tmp_
                                            fake_media):
     client = FakeClient(reply())
     its = await _refine(client, office_graph, video, extraction, tmp_path=tmp_path)
-    assert len(its) == 1
-    assert its[0].stop_reason == "no_discrepancies"
-    assert its[0].discrepancy_count == 0
-    assert its[0].graph_revision == office_graph.revision
-    assert its[0].receipt is not None
-    assert len(its[0].renders) == len(office_graph.keyframes) + 1
+    assert len(its) == 2
+    assert its[1].stop_reason == "no_discrepancies"
+    assert its[1].discrepancy_count == 0
+    assert its[1].graph_revision == office_graph.revision
+    assert its[1].receipt is not None
+    assert len(its[1].renders) == len(office_graph.keyframes) + 1
     assert fake_media["frames"] == [k.t_s for k in office_graph.keyframes]
 
 
@@ -202,10 +206,11 @@ async def test_loop_provider_failure_keeps_last_graph(office_graph, video, extra
     graph, its = await refine_graph(client, office_graph, video, extraction, sfm=None,
                                     alignment=None, base_url="http://127.0.0.1:4173",
                                     deadline_s=30, work_dir=tmp_path)
-    assert [it.stop_reason for it in its] == [None, "provider_failed"]
+    assert [it.stop_reason for it in its] == [None, None, "provider_failed"]
     assert any(d.id == "D7" for d in graph.doors)
-    assert its[1].graph_revision == graph.revision == its[0].graph_revision
-    assert its[1].receipt.status == "failed"
+    assert its[2].graph_revision == graph.revision == its[1].graph_revision
+    assert its[2].receipt.status == "failed"
+    assert its[0].kind == "baseline" and its[0].graph_revision == office_graph.revision
     # chaining: round 1 from the extraction, round 2 from round 1's critique
     assert client.requests[0]["previous_interaction_id"] == "ext-1"
     assert client.requests[1]["previous_interaction_id"] == "crit-1"
@@ -214,7 +219,8 @@ async def test_loop_provider_failure_keeps_last_graph(office_graph, video, extra
 async def test_loop_without_sfm_labels_unavailable(office_graph, video, extraction, tmp_path):
     client = FakeClient(add_d7(), reply())
     its = await _refine(client, office_graph, video, extraction, tmp_path=tmp_path)
-    assert len(its) == 2
+    assert len(its) == 3
+    assert its[0].kind == "baseline"
     assert all(it.geometry is None for it in its)
     assert lp.LABELS == {"discrepancy_count": "model-reported", "geometry": "measured"}
 
@@ -227,9 +233,9 @@ async def test_loop_no_ops_applied(office_graph, video, extraction, tmp_path):
                           "reason": "r"}])
     client = FakeClient(bad)
     its = await _refine(client, office_graph, video, extraction, tmp_path=tmp_path)
-    assert its[0].stop_reason == "no_ops_applied"
-    assert its[0].rejected and "unknown id" in its[0].rejected[0][1]
-    assert its[0].discrepancy_count == 1
+    assert its[1].stop_reason == "no_ops_applied"
+    assert its[1].rejected and "unknown id" in its[1].rejected[0][1]
+    assert its[1].discrepancy_count == 1
 
 
 async def test_loop_max_iterations_with_geometry(office_graph, video, extraction, sfm,
@@ -241,7 +247,8 @@ async def test_loop_max_iterations_with_geometry(office_graph, video, extraction
     client = FakeClient(open_door("D5", "open"), open_door("D5", "closed"))
     its = await _refine(client, office_graph, video, extraction, sfm=sfm,
                         alignment=alignment, tmp_path=tmp_path, max_iterations=2)
-    assert [it.stop_reason for it in its] == [None, "max_iterations"]
+    assert [it.stop_reason for it in its] == [None, None, "max_iterations"]
+    assert [it.kind for it in its] == ["baseline", "round", "round"]
     assert all(it.geometry is not None and it.geometry.alignment_hash == "align-frozen"
                for it in its)
 
@@ -273,3 +280,54 @@ async def test_refine_needs_extraction_interaction(office_graph, video, extracti
     bad = extraction.model_copy(update={"receipt": None})
     with pytest.raises(ValueError):
         await _refine(FakeClient(), office_graph, video, bad, tmp_path=tmp_path)
+
+
+# --- baseline iteration (D1) ---------------------------------------------------------
+
+
+async def test_baseline_geometry_equals_score_geometry_on_extraction_graph(
+        office_graph, video, extraction, sfm, alignment, fake_geometry, tmp_path):
+    remove_d1 = reply([{"t_s": 33, "element_id": "D1", "description": "no door at 0:33"}],
+                      [{"op": "remove_door", "id": "D1", "cite_t_s": 33, "reason": "wall only"}])
+    client = FakeClient(add_d7(), remove_d1)
+    graph, its = await refine_graph(client, office_graph, video, extraction, sfm=sfm,
+                                    alignment=alignment, base_url="http://127.0.0.1:4173",
+                                    deadline_s=30, work_dir=tmp_path)
+    base = its[0]
+    assert base.kind == "baseline" and base.index == 0
+    assert base.graph_revision == extraction.graph.revision == office_graph.revision
+    assert base.applied == [] and base.rejected == [] and base.discrepancy_count == 0
+    assert base.critique is None and base.stop_reason is None and base.renders == []
+    assert base.receipt is None and base.rejected_geometry is None
+    held = lp.heldout_times(sfm, [k.t_s for k in office_graph.keyframes])
+    expected = fake_geometry.score_geometry(office_graph, sfm, alignment, video=video,
+                                            heldout_t_s=held)
+    assert base.geometry == expected
+    assert [f.code for f in base.findings] == [
+        f.code for f in lp.check_graph(office_graph, video.duration_s)]
+    assert [it.index for it in its] == [0, 1, 2]
+    assert [it.kind for it in its] == ["baseline", "round", "round"]
+    assert its[-1].stop_reason == "measured_regression"
+
+
+async def test_baseline_without_sfm_has_no_geometry(office_graph, video, extraction, tmp_path):
+    its = await _refine(FakeClient(reply()), office_graph, video, extraction, tmp_path=tmp_path)
+    assert [it.kind for it in its] == ["baseline", "round"]
+    assert its[0].geometry is None and its[0].graph_revision == office_graph.revision
+    assert its[1].index == 1
+
+
+async def test_iteration_kind_defaults_to_round():
+    it = Iteration(index=1, graph_revision="g", discrepancy_count=0, applied=[], rejected=[],
+                   findings=[], geometry=None, renders=[], receipt=None, stop_reason=None)
+    assert it.kind == "round"
+    assert lp._jsonable(it)["kind"] == "round"
+
+
+async def test_score_geometry_runs_off_the_event_loop(office_graph, video, extraction, sfm,
+                                                      alignment, fake_geometry, tmp_path):
+    await _refine(FakeClient(add_d7(), reply()), office_graph, video, extraction, sfm=sfm,
+                  alignment=alignment, tmp_path=tmp_path)
+    assert len(fake_geometry.calls) == 2  # baseline + the round-1 candidate
+    main = threading.main_thread()
+    assert all(c["thread"] is not main for c in fake_geometry.calls)

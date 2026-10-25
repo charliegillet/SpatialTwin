@@ -92,3 +92,37 @@ def test_office_graph_smoke(office_graph):
     doors = [d for d in office_graph.doors if d.kind in ("door", "exit")]
     assert len([r for r in rs if r.rule_id == "ADA-404.2.3"]) == len(doors)
     assert len([r for r in rs if r.rule_id == "ADA-304.3.1"]) == len(office_graph.zones)
+
+
+# --- I7: model-reported wording unless the width is tape-measured ------------------
+
+MODEL = "within the model's estimated range (model-reported)"
+
+
+def test_estimated_pass_and_fail_say_model_reported():
+    for kind, lo, hi in (("door", 0.95, 1.0), ("opening", 0.95, 1.0)):
+        r = _one(_graph([_door(lo, hi, kind=kind)]))
+        assert r.status == "pass" and MODEL in r.statement, r.statement
+        assert "within measured range" not in r.statement
+    for kind in ("door", "opening"):
+        r = _one(_graph([_door(0.6, 0.7, kind=kind)]))
+        assert r.status == "fail" and MODEL in r.statement, r.statement
+    assert "§404.2.3" in _one(_graph([_door(0.95, 1.0)])).statement
+    assert "§403.5.1" in _one(_graph([_door(0.6, 0.7, kind="opening")])).statement
+
+
+def test_anchor_measured_pass_and_fail_say_measured():
+    r = _one(_graph([_door(0.95, 0.95, "anchor_measured")]))
+    assert r.status == "pass" and "within measured range" in r.statement
+    assert "model-reported" not in r.statement
+    r = _one(_graph([_door(0.70, 0.70, "anchor_measured")]))
+    assert r.status == "fail" and "tape-measured" in r.statement
+    assert "model-reported" not in r.statement and "§404.2.3" in r.statement
+
+
+def test_turning_circle_is_always_model_reported():
+    r = _one(_graph(zones=[_zone(5, 6)]))
+    assert r.status == "pass" and MODEL in r.statement and "§304.3.1" in r.statement
+    r = _one(_graph(zones=[_zone(1.0, 6)]))
+    assert r.status == "fail" and MODEL in r.statement
+    assert r.citation == "2010 ADA Standards §304.3.1"
