@@ -435,13 +435,16 @@ async def test_actual_sdk_timeout_wrapper_is_classified_and_sanitized(service, m
 @pytest.mark.asyncio
 async def test_progress_has_only_bounded_sanitized_receipts(service):
     adapter = make_adapter(service)
-    for index in range(75):
+    # The bound rose from 64 to 256 for two-lane runs with retries and streaming; trace rows are kept apart.
+    for index in range(300):
         adapter.ledger.event("bounded", float(index), "provider_response",
                              {"method": "get", "interaction_id": "opaque", "status": "in_progress"})
+    adapter.ledger.event("bounded", 999.0, "trace", {"seq": 1, "event": "step"})
     events = await adapter.get_progress("bounded")
-    assert len(events) == 64
-    assert events[0]["elapsed_ms"] == 11.0
-    assert events[-1]["elapsed_ms"] == 74.0
+    assert len(events) == 256
+    assert events[0]["elapsed_ms"] == 44.0
+    assert events[-1]["elapsed_ms"] == 299.0
+    assert [row["seq"] for row in adapter.ledger.trace_events("bounded")] == [1]
 
 
 @pytest.mark.asyncio

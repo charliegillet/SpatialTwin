@@ -37,6 +37,13 @@ Worktree (the only implementation root): `/Users/nihalnihalani/Desktop/Github/Sp
 | agents (Opus) | `backend/app/ai/managed/**`, `backend/app/hazard/door_planner.py`, `backend/app/venues/agent.py`, `tools/build_sandbox_kit.py`, `tools/probe_capabilities.py`, `tests/ai_contracts/**`, `tests/venues/test_door_planner*.py`, `tests/agents/**`, `docs/plans/contracts/agent-team.md`, `docs/ai/managed.md` |
 | incident (Sonnet) | `backend/app/incident/**`, `tests/incident/**`, `docs/plans/contracts/incident.md` |
 | devil's advocate (Opus) | read-only everywhere; reports findings in its final message |
+| ui-real2sim (Sonnet, wave 2) | `frontend/src/api/real2sim.ts`, `frontend/src/twin/real2sim*.ts`, `frontend/src/twin/real2sim*.test.mjs`, `frontend/src/components/Real2Sim*.tsx`, `frontend/src/components/Real2Sim.css` |
+| ui-incident (Sonnet, wave 2) | `frontend/src/api/incident.ts`, `frontend/src/twin/incident*.ts`, `frontend/src/twin/incident*.test.mjs`, `frontend/src/components/Incident*.tsx`, `frontend/src/components/Incident.css` |
+
+Wave 2 note: `frontend/src/api/real2sim.ts` and `frontend/src/api/incident.ts` are delegated by the lead to those two
+teammates (new files only); everything else under `frontend/src/api/**` stays lead-owned. Wave 2 teammates mount
+nothing: the lead wires their components into `App.tsx` / `TwinWorkspace.tsx` from the exact instructions in their
+reports.
 
 ## Contract 1: VenueDraftV1 and the compiler (frozen)
 

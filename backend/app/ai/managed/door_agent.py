@@ -1337,8 +1337,11 @@ class DoorAgentRunner:
         outcomes: Dict[str, Tuple[Optional[DoorAgentResult], Optional[DoorAgentResult]]] = {}
         team_status = "finished"
         try:
+            # asyncio.wait, not ``await task``: a lane converts its own cancellation into a published CANCELLED
+            # result, which would otherwise swallow the team's cancellation and leave the other lane running.
+            await asyncio.wait(tasks.values())
             for lane, task in tasks.items():
-                outcomes[lane] = await task
+                outcomes[lane] = task.result()
         except asyncio.CancelledError:
             team_status = "cancelled"
             for task in tasks.values():

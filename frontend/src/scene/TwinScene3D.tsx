@@ -85,7 +85,7 @@ export default function TwinScene3D(props: TwinScene3DProps) {
         <LabelProjector labels={labels} refs={labelRefs} />
         <Building venue={venue} plan={plan} fills={fills} />
         <Routes venue={venue} plan={plan} />
-        <Doors venue={venue} plan={plan} reducedMotion={reducedMotion} />
+        <Doors venue={venue} plan={plan} reducedMotion={reducedMotion} gates={props.gates} />
         <ExitSigns venue={venue} plan={plan} reducedMotion={reducedMotion} />
         <Hazards
           plan={plan}

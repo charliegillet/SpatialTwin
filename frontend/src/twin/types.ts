@@ -323,7 +323,8 @@ export const SHEET_FIDUCIALS_M: Record<CornerId, [number, number]> = {
   BL: [-2.5, -2.5],
 };
 
-export type TwinMode = 'tabletop' | 'camera' | 'sim';
+/** 'build' is Act 1: Gemini reads a floor plan and an operator accepts it as the venue. */
+export type TwinMode = 'tabletop' | 'camera' | 'sim' | 'build';
 
 // Props of the lazily loaded 3D scene (src/scene/TwinScene3D.tsx). The scene never fetches.
 export interface TwinScene3DProps {
@@ -337,6 +338,15 @@ export interface TwinScene3DProps {
   /** Floor point in metres where the judge dropped the armed hazard (raw; App validates). */
   onPlace: (point: { x: number; y: number }) => void;
   onSelectHazard: (id: string | null) => void;
+  /** Virtual gates (doors the controller moves): drawn from observed endpoint state, never from the plan. */
+  gates?: Record<string, GateVisual>;
+}
+
+/** How a virtual gate is drawn: only 'open' and 'closed' are endpoint-confirmed. `since` is when transit began. */
+export interface GateVisual {
+  draw: 'open' | 'closed' | 'opening' | 'closing' | 'unknown' | 'fault';
+  since: number | null;
+  transitMs: number;
 }
 
 // --- Door agent (POST /api/venues/building-v2/investigate) -------------------------------------------------------

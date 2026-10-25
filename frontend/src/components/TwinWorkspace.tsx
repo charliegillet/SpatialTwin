@@ -6,26 +6,42 @@ import { cameraCardsLabel } from '../twin/camera';
 import { twinChips, twinHero } from '../twin/twinHero';
 import { toHazardInputs } from '../twin/placement';
 import { useDoorAgent } from '../twin/useDoorAgent';
+import { useIncident } from '../twin/useIncident';
 import { CameraPanel } from './CameraPanel';
 import { DoorPlanBar } from './DoorPlanBar';
 import { HazardToolbar } from './HazardToolbar';
+import { IncidentPanel } from './IncidentPanel';
+import { Real2SimPanel } from './Real2SimPanel';
 import { LightsPanel } from './LightsPanel';
 import { TwinHeroView } from './TwinHero';
 import { TwinStage } from './TwinStage';
 import { ZoneList } from './ZoneList';
 import './TwinStage.css';
 
-/** Everything the Simulation mode puts in the main grid: side column, scene, hero overlay and door plan. */
-export function TwinWorkspace({ twin, notice, mode, calibrateTick, imageFile, analysisMode }: { twin: TwinController; notice: string | null; mode: TwinMode; calibrateTick: number; imageFile: File | null; analysisMode: DoorAgentMode }) {
+/** Everything the twin modes put in the main grid: side column, scene, hero overlay and door plan.
+ *  Build (Act 1) shows the Real2Sim panel beside the active building; Simulation and Camera twin add the incident
+ *  panel, whose virtual gates also drive the 3D door leaves. */
+export function TwinWorkspace({ twin, notice, mode, calibrateTick, imageFile, analysisMode, onBuilt }: { twin: TwinController; notice: string | null; mode: TwinMode; calibrateTick: number; imageFile: File | null; analysisMode: DoorAgentMode; onBuilt?: (venueId: string) => void }) {
   const { venue, flow } = twin;
   const reducedMotion = prefersReducedMotion();
   const plan = flow.plan;
   const pending = flow.status === 'pending';
-  const agent = useDoorAgent({ hazards: toHazardInputs(twin.hazards), plan, pending, mode, analysisMode, venueId: twin.venueId });
+  const building = mode === 'build';
+  const hazardInputs = toHazardInputs(twin.hazards);
+  const agent = useDoorAgent({ hazards: hazardInputs, plan, pending, mode, analysisMode, venueId: twin.venueId });
+  // One incident mirror per mount (one EventSource, one hazard sync); idle while a floor plan is being read.
+  const incident = useIncident(twin.venueId, hazardInputs, { enabled: !building });
   const [seed, setSeed] = useState<'live' | 'fixture' | null>(null);
   const hasCamera = twin.hazards.some(item => item.source === 'camera');
   useEffect(() => { if (!hasCamera) setSeed(null); }, [hasCamera]);
-  const hero = twinHero({ plan, pending, error: flow.status === 'error' ? flow.error : null });
+  const hero = twinHero({ plan, pending, error: flow.status === 'error' ? flow.error : null, venueId: twin.venueId });
+  const accepted = (venueId: string) => { twin.refreshVenues(); onBuilt?.(venueId); };
+  if (building) return <>
+    <div className="twin-side twin-build"><Real2SimPanel onAccepted={accepted} /></div>
+    {venue ? <TwinStage venue={venue} plan={null} hazards={[]} armedType={null} selectedHazardId={null} lowGraphics={false}
+      reducedMotion={reducedMotion} onPlace={() => undefined} onSelectHazard={() => undefined} />
+      : <div className="twin-stage twin-loading" role="status">Loading the building…</div>}
+  </>;
   if (!venue) return <div className="twin-stage twin-loading" role="status">Loading the building…</div>;
   const zoneNames = Object.fromEntries(venue.zones.map(zone => [zone.id, zone.name]));
   const reference = plan ? `${plan.no_hazard_completed} of ${plan.chosen.initial_population} with no hazard` : undefined;
@@ -35,11 +51,12 @@ export function TwinWorkspace({ twin, notice, mode, calibrateTick, imageFile, an
       <HazardToolbar armed={twin.armed} onArm={twin.setArmed} smokeSeconds={twin.smokeSeconds} onSmokeStep={twin.stepSmoke} hazards={twin.hazards} zoneNames={zoneNames}
         selectedId={twin.selectedId} onSelect={twin.setSelectedId} onRemove={twin.remove} canUndo={twin.canUndo} onUndo={twin.undo} onClear={twin.clear} notice={notice} />
       <DoorPlanBar plan={plan} pending={pending} agent={agent} />
+      <IncidentPanel incident={incident} />
       <LightsPanel venue={venue} plan={plan} reducedMotion={reducedMotion} />
       <ZoneList venue={venue} hazards={twin.hazards} armed={twin.armed} onPlaceInZone={twin.placeInZone} />
     </div>
     <TwinStage venue={venue} plan={plan} hazards={twin.hazards} armedType={twin.armed} selectedHazardId={twin.selectedId} lowGraphics={false}
-      reducedMotion={reducedMotion} onPlace={point => twin.place(point)} onSelectHazard={twin.setSelectedId} />
+      reducedMotion={reducedMotion} onPlace={point => twin.place(point)} onSelectHazard={twin.setSelectedId} gates={incident.doors} />
     <div className="stage-chips twin-hero"><TwinHeroView hero={hero} chips={[...twinChips(plan, twin.fixtureVenue), ...(cameraCardsLabel(twin.hazards, plan, seed) ?? [])]} title={reference} /></div>
   </>;
 }

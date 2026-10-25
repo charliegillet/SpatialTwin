@@ -25,7 +25,7 @@ def interaction_id(n: int) -> str:
 
 
 def usage(total: int = 5333, cached: int = 0) -> NS:
-    output, thought = 16, 13
+    output, thought = min(16, total // 4), min(13, total // 4)
     return NS(total_tokens=total, total_input_tokens=total - output - thought, total_output_tokens=output,
               total_thought_tokens=thought, total_cached_tokens=cached, total_tool_use_tokens=0)
 
@@ -146,6 +146,61 @@ class Provider:
     async def cancel(self, **kwargs):
         self.cancel_calls.append(kwargs)
         return response("cancelled")
+
+
+class LaneProvider:
+    """Routes each call to a per-lane script. A first create is routed by its tools (code_execution means the
+    robustness or follow-up lane), a continuation or get by the interaction id it names."""
+
+    def __init__(self, scripts: Dict[str, Dict[str, list]]):
+        self.scripts = {lane: {k: list(v) for k, v in script.items()} for lane, script in scripts.items()}
+        self.owner: Dict[str, str] = {}
+        self.calls: List[tuple] = []
+        self.cancel_calls: List[dict] = []
+        self.aio = NS(interactions=self)
+
+    def _lane_of(self, kwargs: dict) -> str:
+        ref = kwargs.get("previous_interaction_id") or kwargs.get("id")
+        if ref in self.owner:
+            return self.owner[ref]
+        tools = kwargs.get("tools") or []
+        if any(t.get("type") == "code_execution" for t in tools):
+            return "followup" if kwargs.get("previous_interaction_id") else "robustness"
+        return "strategist"
+
+    async def _next(self, lane: str, queue: str) -> Any:
+        value = self.scripts[lane][queue].pop(0)
+        if callable(value):
+            value = await value()
+        if isinstance(value, BaseException):
+            raise value
+        identifier = getattr(value, "id", None) or (value.events[0].get("interaction", {}).get("id")
+                                                    if isinstance(value, FakeStream) and value.events else None)
+        if identifier:
+            self.owner[identifier] = lane
+        return value
+
+    async def create(self, **kwargs):
+        lane = self._lane_of(kwargs)
+        self.calls.append((lane, "create", kwargs))
+        items = kwargs.get("input") if isinstance(kwargs.get("input"), list) else []
+        is_ack = (kwargs.get("previous_interaction_id") in self.owner and "acks" in self.scripts[lane] and items
+                  and all(i.get("type") == "function_result" for i in items)
+                  and any(i.get("name") == "submit_recommendation" for i in items))
+        queue = "acks" if is_ack else "creates"
+        return await self._next(lane, queue)
+
+    async def get(self, **kwargs):
+        lane = self._lane_of(kwargs)
+        self.calls.append((lane, "get", kwargs))
+        return await self._next(lane, "streams" if kwargs.get("stream") else "gets")
+
+    async def cancel(self, **kwargs):
+        self.cancel_calls.append(kwargs)
+        return response("cancelled", identifier=kwargs.get("id"))
+
+    def lane_calls(self, lane: str, method: str = "create") -> List[dict]:
+        return [kwargs for owner, name, kwargs in self.calls if owner == lane and name == method]
 
 
 class HttpError(Exception):

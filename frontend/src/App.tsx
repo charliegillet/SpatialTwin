@@ -603,7 +603,8 @@ export function App() {
         {isEditing && selectedTarget && <TargetReview reviewRef={reviewRef} targets={targets} target={selectedTarget} blocked={targetBlocked} busy={isMutating} disabled={!canChange} onChange={value => setSelectedTarget(value as Target)} onApply={() => void mutate(selectedTarget)} onClose={closeEditor} />}
         {reset.phase !== 'idle' && <ResetChecklist facts={resetFacts} message={resetMessage} physical={physical} />}
       </div>
-      {sim && <TwinWorkspace twin={twin} notice={stageNotice} mode={twinMode} calibrateTick={calibrateTick} imageFile={imageFile} analysisMode={mode} />}
+      {sim && <TwinWorkspace twin={twin} notice={stageNotice} mode={twinMode} calibrateTick={calibrateTick} imageFile={imageFile} analysisMode={mode}
+        onBuilt={() => changeTwinMode('sim')} />}
       <ObservationPanel resetKey={epochKey} physical={physical} proposal={proposal} result={grounding} currentContext={snapshot?.context} liveConfigured={health?.ai?.direct.configured ?? health?.live_api_configured ?? false} fixturesEnabled={health?.ai?.fixtures_enabled ?? false} appliedCaptureId={appliedCaptureId} isLoading={isGrounding} isApplying={isMutating} isProposalCurrent={proposalCurrent} availabilityMessage={availabilityMessage} error={groundingError} onCapture={capture} onApply={applyProposal} onClearProposal={clearProposal} isAvailable={connection === 'connected' && Boolean(snapshot)} uploadSlot={uploadPanel} settingsSlot={menuSlot} locked={isInvestigating} onLockedTap={() => showNotice(ANALYSIS_RUNNING)} readSeconds={readSeconds} onCameraLive={setCameraLive} onBoardView={setBoardView} />
       <div className="stage-decision">
         <WhyStrip snapshot={snapshot} isCurrent={connection === 'connected' && planCurrent} closeKey={`${epochKey}:${snapshot?.physical_gate_state}`} />

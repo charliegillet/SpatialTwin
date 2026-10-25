@@ -1,0 +1,64 @@
+/* Act 3: approval and simulated door controller. Existing tokens only; warning colour is reserved for UNKNOWN/FAULT/stuck. */
+.incident { display: grid; gap: 12px; min-width: 0; }
+.incident-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.incident-head h3 { margin: 0 auto 0 0; font-size: .875rem; }
+.incident-conn.is-live { color: var(--accent); border-color: #5cf28a55; }
+.incident-conn.is-polling, .incident-conn.is-offline { color: var(--pending); border-color: #ffb45466; }
+
+.incident-banner { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--hazard-core); border-radius: 8px; background: #2a1415; color: var(--text); font-size: .8125rem; line-height: 1.5; }
+.incident-banner svg { margin-top: 2px; color: var(--warning); }
+.incident-banner small { display: block; margin-top: 2px; color: var(--muted); font-size: .75rem; }
+
+.incident-plan { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.incident-plan.is-fallback { border-color: var(--hazard-core); }
+.incident-plan-top, .incident-doors, .incident-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.incident-count { margin: 0; font-size: 1rem; }
+.incident-count small { color: var(--muted); font-size: .75rem; font-weight: 400; }
+.incident-approve { width: 100%; min-height: 44px; }
+.incident-reason { min-height: 1.5em; }
+.incident-approval { margin: 0; padding: 6px 8px; border-left: 3px solid var(--pending); background: var(--surface-raised); font-size: .75rem; line-height: 1.5; }
+.incident-approval.is-applied { border-left-color: var(--accent); }
+.incident-approval.is-failed { border-left-color: var(--hazard-core); color: var(--warning); }
+.incident-error { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; padding: 6px 8px; border-left: 3px solid var(--hazard-core); background: #2a1415; font-size: .75rem; line-height: 1.5; }
+
+.incident-gates { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 10px; }
+.incident-gate { display: grid; gap: 8px; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.incident-gate.is-open { border-color: #5cf28a66; }
+.incident-gate.is-warn { border-color: var(--hazard-core); background: #1c1213; }
+.incident-gate > header { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.incident-gate > header strong { font-size: 1rem; }
+.incident-gate-state { margin-right: auto; font: .75rem var(--mono); color: var(--muted); }
+.incident-gate.is-warn .incident-gate-state, .incident-gate.is-warn .incident-gate-label { color: var(--warning); }
+.incident-gate-label { display: flex; align-items: center; gap: 6px; margin: 0; font-size: .8125rem; line-height: 1.4; }
+.incident-detail { overflow-wrap: anywhere; }
+
+/* Driven by elapsed-since-command, capped; when the endpoint switch is late the bar stops and pulses instead of pretending to arrive. */
+.incident-transit { position: relative; height: 22px; border: 1px solid var(--line); border-radius: 5px; background: var(--canvas); overflow: hidden; }
+.incident-transit i { position: absolute; inset: 0 auto 0 0; background: #2e6b44; transition: width .1s linear; }
+.incident-transit i.is-overdue { background: #6b2a2b; animation: incident-pulse 1s ease-in-out infinite; }
+.incident-transit small { position: relative; display: block; padding: 0 8px; font: .6875rem/20px var(--mono); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@keyframes incident-pulse { 50% { opacity: .55; } }
+
+.incident-switch i { width: 8px; height: 8px; border-radius: 50%; background: var(--line); }
+.incident-switch.is-lit { color: var(--accent); border-color: #5cf28a55; }
+.incident-switch.is-lit i { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.incident-ack { color: var(--pending); border-color: #ffb45466; }
+
+.incident-gate-actions, .incident-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.incident-gate-actions select { min-width: 0; max-width: 100%; min-height: 36px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-raised); color: var(--text); font-size: .75rem; }
+
+.incident-console { display: grid; gap: 6px; }
+.incident-console-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .75rem; }
+.incident-log { max-height: 180px; overflow: auto; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--canvas); font: .6875rem/1.6 var(--mono); }
+.incident-line { display: flex; gap: 8px; color: var(--muted); overflow-wrap: anywhere; }
+.incident-line > span { flex: none; min-width: 2.5ch; color: #5b6862; text-align: right; }
+.incident-line.is-ok { color: var(--accent); }
+.incident-line.is-warn { color: var(--warning); }
+
+@media (max-width: 767px) {
+  .incident-gate-actions .btn, .incident-gate-actions select, .incident-actions .btn { min-height: 44px; }
+  .incident-gate-actions > * { flex: 1 1 140px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .incident-transit i, .incident-transit i.is-overdue { animation: none; transition: none; }
+}

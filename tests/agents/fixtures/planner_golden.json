@@ -1,0 +1,668 @@
+{
+ "cases": [
+  {
+   "alternatives": [
+    {
+     "completed_crossings": 125,
+     "door_states": {
+      "D4": "closed",
+      "D9": "closed"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 0,
+     "rank": 1
+    },
+    {
+     "completed_crossings": 125,
+     "door_states": {
+      "D4": "open",
+      "D9": "closed"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 0,
+     "rank": 2
+    },
+    {
+     "completed_crossings": 125,
+     "door_states": {
+      "D4": "closed",
+      "D9": "open"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 0,
+     "rank": 3
+    },
+    {
+     "completed_crossings": 125,
+     "door_states": {
+      "D4": "open",
+      "D9": "open"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 0,
+     "rank": 4
+    }
+   ],
+   "baseline_completed": 125,
+   "chosen_candidate_hash": "cd75311525d4c68b",
+   "chosen_completed": 125,
+   "hazards": [],
+   "lights_px": "FFFFFFFFFFFFggggggFFFBBB",
+   "venue": "building-v2"
+  },
+  {
+   "alternatives": [
+    {
+     "completed_crossings": 125,
+     "door_states": {
+      "D4": "closed",
+      "D9": "open"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 52,
+     "rank": 1
+    },
+    {
+     "completed_crossings": 125,
+     "door_states": {
+      "D4": "open",
+      "D9": "open"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 52,
+     "rank": 2
+    },
+    {
+     "completed_crossings": 102,
+     "door_states": {
+      "D4": "open",
+      "D9": "closed"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 52,
+     "rank": 3
+    },
+    {
+     "completed_crossings": 96,
+     "door_states": {
+      "D4": "closed",
+      "D9": "closed"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 52,
+     "rank": 4
+    }
+   ],
+   "baseline_completed": 96,
+   "chosen_candidate_hash": "25d1cbe51552e17f",
+   "chosen_completed": 125,
+   "hazards": [
+    [
+     "FIRE",
+     20,
+     4
+    ]
+   ],
+   "lights_px": "XXXXXXFFFFFFFFFFFFFFFBBB",
+   "venue": "building-v2"
+  },
+  {
+   "alternatives": [
+    {
+     "completed_crossings": 105,
+     "door_states": {
+      "D4": "open",
+      "D9": "closed"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 1040,
+     "rank": 1
+    },
+    {
+     "completed_crossings": 105,
+     "door_states": {
+      "D4": "open",
+      "D9": "open"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 1040,
+     "rank": 2
+    },
+    {
+     "completed_crossings": 93,
+     "door_states": {
+      "D4": "closed",
+      "D9": "closed"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 1472,
+     "rank": 3
+    },
+    {
+     "completed_crossings": 93,
+     "door_states": {
+      "D4": "closed",
+      "D9": "open"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 1472,
+     "rank": 4
+    }
+   ],
+   "baseline_completed": 93,
+   "chosen_candidate_hash": "6bf4a0bf99ed40a6",
+   "chosen_completed": 105,
+   "hazards": [
+    [
+     "FIRE",
+     20,
+     14
+    ]
+   ],
+   "lights_px": "FFFFFFFFFFFFggggggFFFOOO",
+   "venue": "building-v2"
+  },
+  {
+   "alternatives": [
+    {
+     "completed_crossings": 99,
+     "door_states": {
+      "D4": "open",
+      "D9": "closed"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 1418,
+     "rank": 1
+    },
+    {
+     "completed_crossings": 99,
+     "door_states": {
+      "D4": "open",
+      "D9": "open"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 1418,
+     "rank": 2
+    },
+    {
+     "completed_crossings": 87,
+     "door_states": {
+      "D4": "closed",
+      "D9": "closed"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 1814,
+     "rank": 3
+    },
+    {
+     "completed_crossings": 87,
+     "door_states": {
+      "D4": "closed",
+      "D9": "open"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 1814,
+     "rank": 4
+    }
+   ],
+   "baseline_completed": 87,
+   "chosen_candidate_hash": "b4f0c8b577d712d9",
+   "chosen_completed": 99,
+   "hazards": [
+    [
+     "SMOKE",
+     20,
+     14
+    ]
+   ],
+   "lights_px": "FFFFFFFFFFFFggggggFFFOOO",
+   "venue": "building-v2"
+  },
+  {
+   "alternatives": [
+    {
+     "completed_crossings": 125,
+     "door_states": {
+      "D9": "closed"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 480,
+     "rank": 1
+    },
+    {
+     "completed_crossings": 125,
+     "door_states": {
+      "D9": "open"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 480,
+     "rank": 2
+    }
+   ],
+   "baseline_completed": 125,
+   "chosen_candidate_hash": "de3f0f001e61b594",
+   "chosen_completed": 125,
+   "hazards": [
+    [
+     "GAS",
+     20,
+     14
+    ]
+   ],
+   "lights_px": "FFFFFFFFFFFFggggggFFFLLL",
+   "venue": "building-v2"
+  },
+  {
+   "alternatives": [
+    {
+     "completed_crossings": 125,
+     "door_states": {
+      "D4": "closed",
+      "D9": "closed"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 0,
+     "rank": 1
+    },
+    {
+     "completed_crossings": 125,
+     "door_states": {
+      "D4": "open",
+      "D9": "closed"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 0,
+     "rank": 2
+    },
+    {
+     "completed_crossings": 125,
+     "door_states": {
+      "D4": "closed",
+      "D9": "open"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 0,
+     "rank": 3
+    },
+    {
+     "completed_crossings": 125,
+     "door_states": {
+      "D4": "open",
+      "D9": "open"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 0,
+     "rank": 4
+    }
+   ],
+   "baseline_completed": 125,
+   "chosen_candidate_hash": "4e5bf505f1571a74",
+   "chosen_completed": 125,
+   "hazards": [
+    [
+     "WATER",
+     20,
+     14
+    ]
+   ],
+   "lights_px": "FFFFFFFFFFFFggggggFFFBBB",
+   "venue": "building-v2"
+  },
+  {
+   "alternatives": [
+    {
+     "completed_crossings": 120,
+     "door_states": {
+      "D4": "closed",
+      "D9": "closed"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 0,
+     "rank": 1
+    },
+    {
+     "completed_crossings": 120,
+     "door_states": {
+      "D4": "open",
+      "D9": "closed"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 0,
+     "rank": 2
+    },
+    {
+     "completed_crossings": 120,
+     "door_states": {
+      "D4": "closed",
+      "D9": "open"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 0,
+     "rank": 3
+    },
+    {
+     "completed_crossings": 120,
+     "door_states": {
+      "D4": "open",
+      "D9": "open"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 0,
+     "rank": 4
+    }
+   ],
+   "baseline_completed": 120,
+   "chosen_candidate_hash": "74321c2c318a3234",
+   "chosen_completed": 120,
+   "hazards": [
+    [
+     "FIRE",
+     30,
+     12
+    ]
+   ],
+   "lights_px": "FFFFFFFFFFFFggggggFFFBBB",
+   "venue": "building-v2"
+  },
+  {
+   "alternatives": [
+    {
+     "completed_crossings": 125,
+     "door_states": {
+      "D4": "closed",
+      "D9": "closed"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 12,
+     "rank": 1
+    },
+    {
+     "completed_crossings": 125,
+     "door_states": {
+      "D4": "open",
+      "D9": "closed"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 12,
+     "rank": 2
+    },
+    {
+     "completed_crossings": 125,
+     "door_states": {
+      "D4": "closed",
+      "D9": "open"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 12,
+     "rank": 3
+    },
+    {
+     "completed_crossings": 125,
+     "door_states": {
+      "D4": "open",
+      "D9": "open"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 12,
+     "rank": 4
+    }
+   ],
+   "baseline_completed": 125,
+   "chosen_candidate_hash": "28bfbe8ab785cf0a",
+   "chosen_completed": 125,
+   "hazards": [
+    [
+     "CHEMICAL",
+     36,
+     4
+    ]
+   ],
+   "lights_px": "FFFFFFFFFFFFggggggFFFBBB",
+   "venue": "building-v2"
+  },
+  {
+   "alternatives": [
+    {
+     "completed_crossings": 125,
+     "door_states": {
+      "D4": "open",
+      "D9": "open"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 60,
+     "rank": 1
+    },
+    {
+     "completed_crossings": 80,
+     "door_states": {
+      "D4": "open",
+      "D9": "closed"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 60,
+     "rank": 2
+    },
+    {
+     "completed_crossings": 74,
+     "door_states": {
+      "D4": "closed",
+      "D9": "open"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 60,
+     "rank": 3
+    },
+    {
+     "completed_crossings": 20,
+     "door_states": {
+      "D4": "closed",
+      "D9": "closed"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 60,
+     "rank": 4
+    }
+   ],
+   "baseline_completed": 20,
+   "chosen_candidate_hash": "e9f9256d39e5235f",
+   "chosen_completed": 125,
+   "hazards": [
+    [
+     "FIRE",
+     20,
+     4
+    ],
+    [
+     "SMOKE",
+     10,
+     12
+    ]
+   ],
+   "lights_px": "XXXXXXFFFFFFFFFFFFFFFOOO",
+   "venue": "building-v2"
+  },
+  {
+   "alternatives": [
+    {
+     "completed_crossings": 125,
+     "door_states": {
+      "D4": "closed",
+      "D9": "open"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 52,
+     "rank": 1
+    },
+    {
+     "completed_crossings": 125,
+     "door_states": {
+      "D4": "open",
+      "D9": "open"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 52,
+     "rank": 2
+    },
+    {
+     "completed_crossings": 102,
+     "door_states": {
+      "D4": "open",
+      "D9": "closed"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 52,
+     "rank": 3
+    },
+    {
+     "completed_crossings": 96,
+     "door_states": {
+      "D4": "closed",
+      "D9": "closed"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 52,
+     "rank": 4
+    }
+   ],
+   "baseline_completed": 96,
+   "chosen_candidate_hash": "8c3ca6676d22a245",
+   "chosen_completed": 125,
+   "hazards": [
+    [
+     "FIRE",
+     20,
+     4,
+     {
+      "untenable_s": 10
+     }
+    ]
+   ],
+   "lights_px": "XXXXXXFFFFFFFFFFFFFFFBBB",
+   "venue": "building-v2"
+  },
+  {
+   "alternatives": [
+    {
+     "completed_crossings": 87,
+     "door_states": {
+      "D4": "open",
+      "D9": "open"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 1760,
+     "rank": 1
+    },
+    {
+     "completed_crossings": 75,
+     "door_states": {
+      "D4": "closed",
+      "D9": "open"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 2192,
+     "rank": 2
+    },
+    {
+     "completed_crossings": 67,
+     "door_states": {
+      "D4": "open",
+      "D9": "closed"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 1808,
+     "rank": 3
+    },
+    {
+     "completed_crossings": 55,
+     "door_states": {
+      "D4": "closed",
+      "D9": "closed"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 2240,
+     "rank": 4
+    }
+   ],
+   "baseline_completed": 55,
+   "chosen_candidate_hash": "a24844a93e76680f",
+   "chosen_completed": 87,
+   "hazards": [
+    [
+     "GAS",
+     20,
+     4
+    ],
+    [
+     "FIRE",
+     20,
+     14
+    ]
+   ],
+   "lights_px": "SSSSSSFFFFFFFFFFFFFFFOOO",
+   "venue": "building-v2"
+  },
+  {
+   "alternatives": [
+    {
+     "completed_crossings": 7,
+     "door_states": {
+      "D5": "closed"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 0,
+     "rank": 1
+    },
+    {
+     "completed_crossings": 7,
+     "door_states": {
+      "D5": "open"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 0,
+     "rank": 2
+    }
+   ],
+   "baseline_completed": 7,
+   "chosen_candidate_hash": "60426c6a37174809",
+   "chosen_completed": 7,
+   "hazards": [],
+   "lights_px": "FFFFFFFFBB00000000000000",
+   "venue": "home-flat"
+  },
+  {
+   "alternatives": [
+    {
+     "completed_crossings": 7,
+     "door_states": {
+      "D5": "open"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 8,
+     "rank": 1
+    },
+    {
+     "completed_crossings": 7,
+     "door_states": {
+      "D5": "closed"
+     },
+     "is_valid": true,
+     "modeled_exposure_people_seconds": 12,
+     "rank": 2
+    }
+   ],
+   "baseline_completed": 7,
+   "chosen_candidate_hash": "c1c90820217b1a30",
+   "chosen_completed": 7,
+   "hazards": [
+    [
+     "FIRE",
+     1,
+     1
+    ]
+   ],
+   "lights_px": "XXXFFFFFOO00000000000000",
+   "venue": "home-flat"
+  }
+ ],
+ "note": "plan_doors output recorded with the pre-refactor door_planner (26 Oct 2026); evaluate_with_faults without faults and the refactored plan_doors must reproduce it exactly."
+}

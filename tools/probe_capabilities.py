@@ -1,4 +1,7 @@
-"""Opt-in live capability probes P1..P7 with sanitized receipts.
+"""Opt-in live capability probes P1..P11 with sanitized receipts.
+
+P8-P11 (agent team: sandbox networkx ladder, trace stream shape, hooks deny, environment reuse) are opt-in only:
+they run solely when named with --only, e.g. --only P8 (then P8b / P8c only if P8 reported "estimate").
 
 Run from repository root: .venv/bin/python -m tools.probe_capabilities            (prints the plan, no network)
                           .venv/bin/python -m tools.probe_capabilities --live --confirm-spend
@@ -25,8 +28,9 @@ FALLBACK_MODEL = 'gemini-3.8-flash'
 RECEIPT_DIR = REPO_ROOT / 'runtime' / 'probes'  # anchored to the repo, like video.py's receipt dir
 RECEIPT_FIELDS = ('probe_id', 'timestamp_utc', 'sdk_version', 'requested_model', 'echoed_model', 'http_status_class',
                   'error_code', 'token_usage', 'interaction_id_hash', 'passed', 'reason')
-OPTIONAL_FIELDS = ('mode', 'deletion_result', 'fallback_note', 'model_source')
+OPTIONAL_FIELDS = ('mode', 'deletion_result', 'fallback_note', 'model_source', 'detail')
 EXCLUDED_PROBES = {'P7': 'excluded_by_call_cap'}
+OPT_IN_PROBES = frozenset({'P8', 'P8b', 'P8c', 'P9', 'P10', 'P11'})
 
 
 @dataclass(frozen=True)
@@ -47,6 +51,12 @@ PLAN = (
     ProbeSpec('P5', 'agents.create spatialtwin-evac-v1 + 1 run + agents.delete (needs P1 or P1b pass)', 3, 20000),
     ProbeSpec('P6', 'Run with network-deny environment (needs P1 or P1b pass)', 1, 15000),
     ProbeSpec('P7', 'Full investigation with hazard tools', 1, 30000),
+    ProbeSpec('P8', 'Sandbox kit, network disabled: import networkx and run the kit sweep (exact or estimate)', 1, 30000),
+    ProbeSpec('P8b', 'networkx as a zip uploaded via environments.files.upload, then zipimport (if P8 = estimate)', 3, 30000),
+    ProbeSpec('P8c', 'pip install networkx with a PyPI allowlist, then reuse the environment network-disabled', 2, 40000),
+    ProbeSpec('P9', 'Trace stream shape: background + stream create with code execution (event and step types)', 1, 20000),
+    ProbeSpec('P10', 'Hooks deny observed: a write to /workspace/inputs is blocked by the kit guard hook', 1, 20000),
+    ProbeSpec('P11', 'environments.create (SDK 2.33, undocumented) + two chained interactions reuse it + delete', 4, 30000),
 )
 SPECS = {spec.probe_id: spec for spec in PLAN}
 
@@ -58,8 +68,8 @@ class ProbeCapReached(Exception):
 class CallCounter:
     """Hard cap on provider calls. Metered clients charge it once per real call attempt."""
 
-    COUNTED = frozenset({'create', 'get', 'cancel', 'delete'})
-    CLEANUP = frozenset({'cancel', 'delete'})  # allowed (and counted) past the cap so nothing is orphaned
+    COUNTED = frozenset({'create', 'get', 'cancel', 'delete', 'upload', 'create_environment', 'delete_environment'})
+    CLEANUP = frozenset({'cancel', 'delete', 'delete_environment'})  # allowed (and counted) past the cap so nothing is orphaned
 
     def __init__(self, cap=CALL_CAP):
         self.cap = cap
@@ -107,7 +117,8 @@ def _error_status(exc):
 class MeteredClient:
     """Transparent proxy over a genai client: counts every interactions/agents create/get/cancel/delete."""
 
-    _SCOPES = frozenset({'aio', 'interactions', 'agents'})
+    _SCOPES = frozenset({'aio', 'interactions', 'agents', 'environments', 'files'})
+    _METERED = ('interactions', 'agents', 'environments', 'files')
 
     def __init__(self, target, counter, scope='root'):
         self._target, self._counter, self._scope = target, counter, scope
@@ -116,7 +127,7 @@ class MeteredClient:
         value = getattr(self._target, name)
         if name in self._SCOPES:
             return MeteredClient(value, self._counter, name)
-        if self._scope in ('interactions', 'agents') and name in CallCounter.COUNTED and callable(value):
+        if self._scope in self._METERED and name in CallCounter.COUNTED and callable(value):
             return self._wrap(name, value)
         return value
 
@@ -417,6 +428,202 @@ class LiveExecutors:
             raw['fallback_note'] = 'provider rejected the network-deny environment; the run failed (no downgrade)'
         return raw
 
+    # --- P8-P11: agent team capabilities (opt-in; code reviewed offline, run live only by the lead) -------------
+    # Each uses blocking (non-background) interactions so a probe costs one metered call per turn, not a poll loop.
+
+    def _team_client(self, manager):
+        adapter = self._metered(self.managed_factory(manager_service(manager)))
+        return adapter, adapter.client
+
+    @staticmethod
+    def _sandbox(environment_extra=None, network='disabled'):
+        from backend.app.ai.managed.door_agent import DoorToolbox
+        from backend.app.ai.managed.robustness import ScenarioEvaluator
+        from backend.app.ai.managed.sandbox import input_documents, sandbox_environment
+        from backend.app.hazard.door_planner import plan_doors
+        from backend.app.venues.model import load_building_v2
+        from backend.app.venues.schemas import DoorPlanRequest
+        venue = load_building_v2()
+        request = DoorPlanRequest(hazards=[{'id': 'h0', 'type': 'FIRE', 'position': {'x': 20, 'y': 4},
+                                            'source': 'simulated'}])
+        evaluator = ScenarioEvaluator(venue, request)
+        documents = input_documents(venue, evaluator.base.horizon, evaluator.base.hazards,
+                                    DoorToolbox(plan_doors(venue, request), evaluator).checked_plan())
+        environment = sandbox_environment(documents, network_disabled=network == 'disabled')
+        if network not in ('disabled', None):
+            environment['network'] = network
+        environment.update(environment_extra or {})
+        return environment
+
+    @staticmethod
+    def _steps(interaction, kind):
+        out = []
+        for step in getattr(interaction, 'steps', None) or []:
+            if getattr(step, 'type', None) == kind:
+                out.append(step)
+        return out
+
+    @classmethod
+    def _code_output(cls, interaction):
+        return '\n'.join(str(getattr(step, 'result', '') or '') for step in cls._steps(interaction, 'code_execution_result'))
+
+    @staticmethod
+    def _interaction_raw(interaction, calls, **extra):
+        from backend.app.ai.managed.adapter import ManagedAgentAdapter
+        usage = ManagedAgentAdapter._usage(interaction) if interaction is not None else None
+        return {'http_status': 200 if interaction is not None else None,
+                'model': getattr(interaction, 'model', None) if interaction is not None else None,
+                'usage': usage, 'interaction_id': getattr(interaction, 'id', None) if interaction is not None else None,
+                'calls': calls, **extra}
+
+    async def _agent_turn(self, client, input_text, environment, *, tools=None, previous=None, stream=False):
+        from backend.app.ai.managed.adapter import AGENT, MODEL
+        kwargs = dict(agent=AGENT, agent_config={'type': 'antigravity', 'model': MODEL, 'max_total_tokens': 20000},
+                      environment=environment, input=input_text, tools=tools or [{'type': 'code_execution'}],
+                      timeout=180)
+        if previous:
+            kwargs['previous_interaction_id'] = previous
+        if stream:
+            kwargs.update(stream=True, background=True, store=True)
+        return await client.aio.interactions.create(**kwargs)
+
+    async def _p8(self, manager, tmp):
+        """Rung 1 + 4 of the ladder: does the sandbox import networkx, and does the kit sweep run either way?"""
+        adapter, client = self._team_client(manager)
+        try:
+            interaction = await self._agent_turn(client, (
+                "Use code execution to run exactly these two commands and nothing else, then stop:\n"
+                "python3 -c \"import importlib.util as u; print('NX', bool(u.find_spec('networkx')))\"\n"
+                "cd /workspace/kit && python3 -m spatialtwin_kit.sweep --only-single"), self._sandbox())
+        finally:
+            await adapter.aclose()
+        output = self._code_output(interaction)
+        has_nx = 'NX True' in output
+        engine = 'exact' if 'exact copy of the local solver' in output else 'estimate' if 'sandbox estimate' in output else None
+        ok = getattr(interaction, 'status', None) == 'completed' and engine is not None
+        return self._interaction_raw(interaction, 1, passed=ok, mode=engine or 'failed',
+                                     detail=f'networkx_importable={has_nx} engine={engine}',
+                                     reason='ok' if ok else 'sweep_output_missing')
+
+    async def _p8b(self, manager, tmp):
+        """Rung 2: upload the venv's pure-Python networkx package as a zip and zipimport it in the same sandbox."""
+        import io
+        import zipfile
+        import networkx
+        package = Path(networkx.__file__).parent
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as archive:
+            for path in package.rglob('*.py'):
+                if 'tests' not in path.parts:
+                    archive.write(path, Path('networkx') / path.relative_to(package))
+        adapter, client = self._team_client(manager)
+        calls = 0
+        try:
+            calls += 1
+            first = await self._agent_turn(client, "Use code execution to run: ls /workspace/kit", self._sandbox())
+            environment_id = getattr(first, 'environment_id', None)
+            buffer.seek(0)
+            calls += 1
+            await client.aio.environments.files.upload(environment=environment_id, path='workspace/wheels/networkx.zip',
+                                                       file=buffer, mime_type='application/zip', overwrite=True)
+            calls += 1
+            second = await self._agent_turn(client, (
+                "Use code execution to run exactly: cd /workspace/kit && PYTHONPATH=/workspace/wheels/networkx.zip "
+                "python3 -m spatialtwin_kit.sweep --only-single"), environment_id, previous=getattr(first, 'id', None))
+        finally:
+            await adapter.aclose()
+        ok = 'exact copy of the local solver' in self._code_output(second)
+        return self._interaction_raw(second, calls, passed=ok, mode='exact' if ok else 'failed',
+                                     detail=f'zip_bytes={buffer.getbuffer().nbytes}',
+                                     reason='ok' if ok else 'zipimport_failed')
+
+    async def _p8c(self, manager, tmp):
+        """Rung 3: pip install with a PyPI-only allowlist, then reuse the environment with the network disabled."""
+        adapter, client = self._team_client(manager)
+        allow = {'allowlist': [{'domain': 'pypi.org'}, {'domain': 'files.pythonhosted.org'}]}
+        try:
+            first = await self._agent_turn(client, "Use code execution to run exactly: pip install networkx==3.4.2",
+                                           self._sandbox(network=allow))
+            environment_id = getattr(first, 'environment_id', None)
+            second = await self._agent_turn(client, (
+                "Use code execution to run exactly: cd /workspace/kit && python3 -m spatialtwin_kit.sweep --only-single"),
+                {'type': 'remote', 'environment_id': environment_id, 'network': 'disabled'},
+                previous=getattr(first, 'id', None))
+        finally:
+            await adapter.aclose()
+        ok = 'exact copy of the local solver' in self._code_output(second)
+        return self._interaction_raw(second, 2, passed=ok, mode='exact' if ok else 'failed',
+                                     reason='ok' if ok else 'reuse_network_disabled_failed')
+
+    async def _p9(self, manager, tmp):
+        """Shape only (event and step types, ids present, terminal status); never content."""
+        adapter, client = self._team_client(manager)
+        shapes, statuses, ids, last = [], [], 0, None
+        try:
+            stream = await self._agent_turn(client, "Use code execution to run: python3 -c 'print(6*7)'",
+                                            {'type': 'remote', 'network': 'disabled'}, stream=True)
+            async for event in stream:
+                kind = getattr(event, 'event_type', None)
+                ids += 1 if getattr(event, 'event_id', None) else 0
+                detail = getattr(getattr(event, 'step', None), 'type', None) or getattr(getattr(event, 'delta', None), 'type', None)
+                shape = f'{kind}:{detail}' if detail else str(kind)
+                if shape not in shapes:
+                    shapes.append(shape)
+                status = getattr(event, 'status', None) or getattr(getattr(event, 'interaction', None), 'status', None)
+                if status:
+                    statuses.append(status)
+                    last = getattr(event, 'interaction_id', None) or getattr(getattr(event, 'interaction', None), 'id', None) or last
+        finally:
+            await adapter.aclose()
+        ok = 'step.stop' in shapes and bool(statuses) and statuses[-1] == 'completed'
+        return {'http_status': 200, 'model': None, 'usage': None, 'interaction_id': last, 'calls': 1, 'passed': ok,
+                'mode': f'event_ids={ids}', 'detail': ' '.join(shapes)[:200],
+                'reason': 'ok' if ok else f'last_status={statuses[-1] if statuses else None}'}
+
+    async def _p10(self, manager, tmp):
+        adapter, client = self._team_client(manager)
+        try:
+            interaction = await self._agent_turn(client, (
+                "Use code execution to run exactly: echo probe > /workspace/inputs/probe.txt\n"
+                "Then run: ls /workspace/inputs and stop."), self._sandbox())
+        finally:
+            await adapter.aclose()
+        output = self._code_output(interaction)
+        denied = 'Read-only' in output or 'Read-only' in str(getattr(interaction, 'output_text', '') or '')
+        written = 'probe.txt' in output
+        ok = denied and not written
+        return self._interaction_raw(interaction, 1, passed=ok, detail=f'deny_seen={denied} file_written={written}',
+                                     reason='ok' if ok else 'hook_deny_not_observed')
+
+    async def _p11(self, manager, tmp):
+        adapter, client = self._team_client(manager)
+        calls, environment_id, deletion, second = 0, None, 'not_attempted', None
+        try:
+            calls += 1
+            environment = await client.aio.environments.create(network='disabled', sources=[
+                {'type': 'inline', 'target': 'workspace/inputs/marker.txt', 'content': 'spatialtwin'}])
+            environment_id = getattr(environment, 'id', None)
+            calls += 1
+            first = await self._agent_turn(client, "Use code execution to run: cat /workspace/inputs/marker.txt > "
+                                                   "/workspace/out_marker.txt", environment_id)
+            calls += 1
+            second = await self._agent_turn(client, "Use code execution to run: cat /workspace/out_marker.txt",
+                                            environment_id, previous=getattr(first, 'id', None))
+        finally:
+            if environment_id:
+                calls += 1
+                try:
+                    await client.aio.environments.delete(id=environment_id)
+                    deletion = 'deleted'
+                except Exception as exc:
+                    deletion = f'delete_failed:{type(exc).__name__}'
+            await adapter.aclose()
+        ok = second is not None and 'spatialtwin' in self._code_output(second) and \
+            getattr(second, 'environment_id', None) == environment_id
+        return self._interaction_raw(second, calls, passed=ok, deletion_result=deletion,
+                                     detail=f'environments_create={"ok" if environment_id else "failed"}',
+                                     reason='ok' if ok else 'environment_reuse_failed')
+
 
 def manager_service(manager):
     from backend.app.state.service import ScenarioService
@@ -472,6 +679,13 @@ def _existing_failure(directory, probe_id):
         return True
 
 
+def _existing_mode(directory, pid, mode):
+    try:
+        return json.loads((Path(directory) / f'{pid}.json').read_text()).get('mode') == mode
+    except (OSError, ValueError):
+        return False
+
+
 def _existing_pass(directory, pid):
     path = Path(directory) / f'{pid}.json'
     try:
@@ -510,7 +724,13 @@ def run_probes(client, directory=RECEIPT_DIR, secrets=(), overwrite_failures=Fal
         if pid in EXCLUDED_PROBES:
             summary['skipped'][pid] = EXCLUDED_PROBES[pid]
             continue
-        if pid in ('P5', 'P6') and not (outcomes.get('P1') or outcomes.get('P1b')):
+        if pid in OPT_IN_PROBES and (only is None or pid not in only):
+            summary['skipped'][pid] = 'opt_in_only'
+            continue
+        if pid in ('P8b', 'P8c') and not _existing_mode(directory, 'P8', 'estimate'):
+            summary['skipped'][pid] = 'requires_P8_estimate'
+            continue
+        if (pid in ('P5', 'P6') or pid in OPT_IN_PROBES) and not (outcomes.get('P1') or outcomes.get('P1b')):
             summary['skipped'][pid] = 'requires_P1_or_P1b'
             continue
         if _existing_failure(directory, pid) and not overwrite_failures:
@@ -542,7 +762,8 @@ def run_probes(client, directory=RECEIPT_DIR, secrets=(), overwrite_failures=Fal
             'error_code': raw.get('error_code'), 'token_usage': raw.get('usage'),
             'interaction_id_hash': hash_identifier(raw.get('interaction_id')),
             'passed': raw.get('passed'), 'reason': raw.get('reason') or '', 'mode': raw.get('mode'),
-            'deletion_result': raw.get('deletion_result'), 'fallback_note': raw.get('fallback_note')}, secrets)
+            'deletion_result': raw.get('deletion_result'), 'fallback_note': raw.get('fallback_note'),
+            'detail': raw.get('detail')}, secrets)
         (directory / f'{pid}.json').write_text(json.dumps(receipt, indent=2, sort_keys=True) + '\n')
         outcomes[pid] = receipt['passed']
         summary['results'][pid] = receipt['passed']
