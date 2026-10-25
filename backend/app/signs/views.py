@@ -14,13 +14,15 @@ leaves this module.
 """
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, List, Optional, Tuple
 
 from backend.app.incident.events import now_iso
 from backend.app.incident.manager import IncidentManager
 from backend.app.signs.models import SignExit, SignHazard, SignState
-from backend.app.venues.model import BUILTIN_VENUE_ID, VenueV2, point_in_polygon
+from backend.app.venues.model import BUILTIN_VENUE_ID, VenueV2, _distance_to_segment, point_in_polygon
 
+WALL_EPSILON_M = 1e-6
 HAZARD_TYPES = {"FIRE", "SMOKE", "GAS", "CHEMICAL", "WATER"}
 
 
@@ -75,6 +77,34 @@ def sign_state(manager: IncidentManager, venue: VenueV2, exit_id: Optional[str] 
                     routed=by_id[x.id].modeled_crossings if x.id in by_id else None) for x in exits]
     return SignState(status="incident" if incident.hazards else "normal", plan_revision=plan.plan_revision,
                      plan_label=plan.label, exits=lit, hazards=hazards, **base)
+
+
+def zone_at(venue: VenueV2, x: float, y: float) -> Optional[str]:
+    """The zone whose polygon holds the point *strictly* inside (not on any wall), else None.
+
+    ``VenueV2.locate_zone`` counts a wall as inside and resolves a shared wall to the first zone; a judge's tap that
+    lands exactly on a wall is ambiguous, so it is refused as outside rather than guessed.
+    """
+    if not (math.isfinite(x) and math.isfinite(y)):
+        return None
+    for zone in venue.zones:
+        if not point_in_polygon(x, y, zone.polygon):
+            continue
+        edges = zip(zone.polygon, zone.polygon[1:] + zone.polygon[:1])
+        if all(_distance_to_segment(x, y, ax, ay, bx, by) > WALL_EPSILON_M for (ax, ay), (bx, by) in edges):
+            return zone.id
+    return None
+
+
+def plan_geometry(venue: VenueV2) -> Dict[str, Any]:
+    """Venue geometry for the phone's map: rooms, doors, exits. No door states, plan, occupants, reasons or hashes."""
+    return {
+        "extent": [venue.extent[0], venue.extent[1]],
+        "rooms": [{"id": z.id, "name": z.name, "polygon": [[p[0], p[1]] for p in z.polygon]} for z in venue.zones],
+        "doors": [{"id": d.id, "position": [d.position[0], d.position[1]], "width": d.width} for d in venue.doors],
+        "exits": [{"id": x.id, "name": x.name, "position": [x.position[0], x.position[1]], "kind": x.kind or "door"}
+                  for x in venue.exits],
+    }
 
 
 def interior_point(venue: VenueV2, zone_id: str) -> Optional[Tuple[float, float]]:

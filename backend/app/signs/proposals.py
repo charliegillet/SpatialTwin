@@ -17,7 +17,7 @@ import math
 import time
 from collections import OrderedDict, deque
 from dataclasses import dataclass
-from typing import Callable, Deque, Dict, List, Literal, Optional
+from typing import Callable, Deque, Dict, List, Literal, Optional, Tuple
 from uuid import uuid4
 
 from backend.app.incident.events import now_iso
@@ -53,14 +53,16 @@ class Proposal:
     invite_id: str
     created_at: str
     created_mono: float
+    position: Optional[Tuple[float, float]] = None  # exact tap in metres; None = "somewhere in the room"
     status: ProposalStatus = "pending"
     decided_at: Optional[str] = None
     hazard_id: Optional[str] = None
 
     def public(self) -> Dict[str, object]:
         """What the proposing phone may see: no device ids, no other phones."""
-        return {"proposal_id": self.proposal_id, "type": self.type, "room": self.room_name, "status": self.status,
-                "created_at": self.created_at, "decided_at": self.decided_at}
+        return {"proposal_id": self.proposal_id, "type": self.type, "room": self.room_name,
+                "position": {"x": self.position[0], "y": self.position[1]} if self.position else None,
+                "status": self.status, "created_at": self.created_at, "decided_at": self.decided_at}
 
     def operator(self) -> Dict[str, object]:
         return {**self.public(), "venue_id": self.venue_id, "zone_id": self.zone_id,
@@ -107,7 +109,7 @@ class ProposalQueue:
     # -- phone side --------------------------------------------------------------------------------------------
 
     def submit(self, *, venue_id: str, hazard_type: str, zone_id: str, room_name: str, device_id: str,
-               invite_id: str) -> Proposal:
+               invite_id: str, position: Optional[Tuple[float, float]] = None) -> Proposal:
         self._expire()
         now = self.clock()
         last = self._last_by_device.get(device_id)
@@ -125,7 +127,7 @@ class ProposalQueue:
             raise ProposalError("proposal_queue_full", 503)
         proposal = Proposal(proposal_id=f"pp-{uuid4().hex[:10]}", venue_id=venue_id, type=hazard_type,
                             zone_id=zone_id, room_name=room_name, device_id=device_id, invite_id=invite_id,
-                            created_at=now_iso(), created_mono=now)
+                            created_at=now_iso(), created_mono=now, position=position)
         self._items[proposal.proposal_id] = proposal
         self._remember(self._last_by_device, device_id, now)
         window.append(now)

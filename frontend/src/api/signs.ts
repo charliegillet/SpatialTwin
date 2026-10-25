@@ -13,6 +13,8 @@ export interface SignsStatus { sign_streams: number; by_sign: Record<string, num
 export interface PhoneProposal {
   proposal_id: string; type: HazardType; room: string; status: 'pending' | 'confirmed' | 'rejected' | 'expired'; created_at: string;
   venue_id: string; zone_id: string; phone: string;
+  /** Where the judge tapped (metres), or null for a room-list proposal. */
+  position: { x: number; y: number } | null;
 }
 export interface ProposalList { version: number; pending: PhoneProposal[]; recent: PhoneProposal[] }
 export const PROPOSAL_EVENTS_URL = '/api/signs/proposals/events';
@@ -48,7 +50,8 @@ export function parseProposalList(raw: unknown): ProposalList {
   const one = (item: unknown): PhoneProposal => {
     if (!isRecord(item) || typeof item.proposal_id !== 'string' || typeof item.type !== 'string' || typeof item.zone_id !== 'string') return bad('proposal');
     return { proposal_id: item.proposal_id, type: item.type as HazardType, room: String(item.room ?? item.zone_id), status: (item.status as PhoneProposal['status']) ?? 'pending',
-      created_at: String(item.created_at ?? ''), venue_id: String(item.venue_id ?? ''), zone_id: item.zone_id, phone: String(item.phone ?? '') };
+      created_at: String(item.created_at ?? ''), venue_id: String(item.venue_id ?? ''), zone_id: item.zone_id, phone: String(item.phone ?? ''),
+      position: isRecord(item.position) && Number.isFinite(item.position.x) && Number.isFinite(item.position.y) ? { x: item.position.x as number, y: item.position.y as number } : null };
   };
   return { version: Number(raw.version ?? 0), pending: raw.pending.map(one), recent: raw.recent.map(one) };
 }

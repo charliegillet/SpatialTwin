@@ -33,7 +33,7 @@ async def test_the_proposer_sees_rooms_and_only_its_own_proposals(proposer, app,
     assert created.status_code == 201
     body = created.json()
     assert body["status"] == "pending" and body["room"] == "Lobby" and set(body) == {
-        "proposal_id", "type", "room", "status", "created_at", "decided_at"}
+        "proposal_id", "type", "room", "position", "status", "created_at", "decided_at"}
     assert [p["proposal_id"] for p in (await proposer.get("/api/public/hazard-proposals")).json()["mine"]] == [body["proposal_id"]]
     async with make_client(app, PHONE) as other:  # a second phone scanning the same QR has its own list
         await redeem(other, await mint(local, scope="hazard:propose"))
@@ -175,3 +175,66 @@ def test_interior_point_handles_an_l_shaped_room_whose_centroid_is_outside():
     x, y = interior_point(venue, "ELL")
     assert venue.locate_zone(x, y) == "ELL" and (x <= 1 or y <= 1)
     assert interior_point(venue, "NOPE") is None
+
+
+# -- tap anywhere on the floor plan -----------------------------------------------------------------------------------
+
+async def test_the_proposer_state_carries_venue_geometry_and_nothing_else(proposer):
+    state = (await proposer.get("/api/public/hazard-proposals")).json()
+    plan, venue = state["plan"], load_building_v2()
+    assert set(plan) == {"extent", "rooms", "doors", "exits"} and plan["extent"] == list(venue.extent)
+    assert [set(r) for r in plan["rooms"]] == [{"id", "name", "polygon"}] * len(venue.zones)
+    assert plan["rooms"][0]["polygon"] == [list(p) for p in venue.zones[0].polygon]
+    assert {tuple(sorted(d)) for d in plan["doors"]} == {("id", "position", "width")} and len(plan["doors"]) == len(venue.doors)
+    assert {tuple(sorted(x)) for x in plan["exits"]} == {("id", "kind", "name", "position")}
+    assert {x["kind"] for x in plan["exits"]} <= {"door", "stair", "window"}
+    text = json.dumps(plan)
+    for leaked in ("default_state", "planner_can_open", "actuation", "occupants", "capacity", "throughput", "hash", "reason"):
+        assert leaked not in text
+
+
+async def test_a_tapped_point_resolves_to_its_room(proposer, local):
+    venue = load_building_v2()
+    x, y = interior_point(venue, "ROOM_A")
+    created = await proposer.post("/api/public/hazard-proposals", json={"type": "SMOKE", "position": {"x": x + 0.37, "y": y - 0.21}})
+    assert created.status_code == 201
+    body = created.json()
+    assert body["room"] == "Room A" or body["room"] == venue.zone("ROOM_A").name
+    assert body["position"] == {"x": round(x + 0.37, 2), "y": round(y - 0.21, 2)}
+    [pending] = (await local.get("/api/signs/proposals")).json()["pending"]
+    assert pending["zone_id"] == "ROOM_A"
+    mine = (await proposer.get("/api/public/hazard-proposals")).json()["mine"]
+    assert mine[0]["position"] == body["position"]
+
+
+async def test_a_point_outside_every_room_is_refused(proposer, local):
+    for point in ({"x": -5, "y": 3}, {"x": 500, "y": 500}, {"x": 20, "y": 30}):
+        response = await proposer.post("/api/public/hazard-proposals", json={"type": "FIRE", "position": point})
+        assert response.status_code == 422 and response.json()["detail"]["code"] == "outside_building", point
+    assert (await local.get("/api/signs/proposals")).json()["pending"] == []
+    for bad in ({"x": "nan", "y": 1}, {"x": 1}, {"x": 1e9, "y": 1}, {"x": 1, "y": 1, "z": 2}):
+        assert (await proposer.post("/api/public/hazard-proposals", json={"type": "FIRE", "position": bad})).status_code == 422
+    assert (await proposer.post("/api/public/hazard-proposals", json={"type": "FIRE"})).status_code == 422
+
+
+async def test_a_point_on_a_wall_is_refused_and_a_mismatched_room_is_too(proposer):
+    wall = await proposer.post("/api/public/hazard-proposals", json={"type": "FIRE", "position": {"x": 12, "y": 14}})
+    assert wall.status_code == 422 and wall.json()["detail"]["code"] == "outside_building"
+    x, y = interior_point(load_building_v2(), "LOBBY")
+    mismatch = await proposer.post("/api/public/hazard-proposals", json={"type": "FIRE", "zone_id": "HALL", "position": {"x": x, "y": y}})
+    assert mismatch.status_code == 422 and mismatch.json()["detail"]["code"] == "zone_mismatch"
+    both = await proposer.post("/api/public/hazard-proposals", json={"type": "FIRE", "zone_id": "LOBBY", "position": {"x": x, "y": y}})
+    assert both.status_code == 201
+
+
+async def test_the_confirmed_hazard_keeps_the_judges_exact_position(proposer, local, clock):
+    venue = load_building_v2()
+    x, y = interior_point(venue, "ROOM_A")
+    tap = {"x": round(x + 0.37, 2), "y": round(y - 0.21, 2)}
+    proposal = (await proposer.post("/api/public/hazard-proposals", json={"type": "GAS", "position": tap})).json()
+    hazard = (await local.post(f"/api/signs/proposals/{proposal['proposal_id']}/confirm")).json()["hazard"]
+    assert hazard["position"] == tap and hazard["zone_id"] == "ROOM_A" and hazard["proposal_id"] == proposal["proposal_id"]
+    assert hazard["position"] != {"x": x, "y": y}
+    clock.advance(11)
+    room_only = (await proposer.post("/api/public/hazard-proposals", json={"type": "FIRE", "zone_id": "LOBBY"}))
+    assert room_only.json()["position"] is None

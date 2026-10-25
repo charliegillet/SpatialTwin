@@ -17,7 +17,12 @@ interface Options {
   mode: TwinMode;
   /** The presenter menu's Analysis mode (live Gemini or local solver). */
   analysisMode: TeamMode;
+  /** Start the team by itself once the planner has a checked plan for the current hazards. */
+  auto?: boolean;
 }
+
+/** A judge dropping several hazards in a row starts one run, not one per drop. */
+export const AUTO_START_MS = 2500;
 
 const BAD_SCENARIO = 'Try "What if D3 jams?" or a scenario like stuck_closed:D3.';
 
@@ -35,7 +40,7 @@ function makeRunner(venue: () => string, onRun: (run: TeamRun) => void) {
 }
 
 /** Ask-the-agent-team state for Simulation. A new hazard set, a venue or mode switch, Next judge (unmount) or Cancel drops the run and its follow-up. */
-export function useAgentTeam({ venueId, hazards, plan, pending, mode, analysisMode }: Options) {
+export function useAgentTeam({ venueId, hazards, plan, pending, mode, analysisMode, auto = false }: Options) {
   const [run, setRun] = useState<TeamRun>(idleRun);
   const [follow, setFollow] = useState<TeamRun>(idleRun);
   const [followError, setFollowError] = useState<string | null>(null);
@@ -81,6 +86,15 @@ export function useAgentTeam({ venueId, hazards, plan, pending, mode, analysisMo
 
   const cancel = useCallback(() => { main.cancel(); side.cancel(); }, [main, side]);
 
+  // Auto start: only from idle (a new hazard set drops the old run to idle and the server supersedes it), so a finished,
+  // failed or cancelled run is never restarted by itself; the next hazard change starts the next one.
+  const autoReady = auto && !unavailable && run.status === 'idle';
+  useEffect(() => {
+    if (!autoReady) return;
+    const timer = setTimeout(ask, AUTO_START_MS);
+    return () => clearTimeout(timer);
+  }, [autoReady, ask, key]);
+
   const suggestions = useMemo(() => followUpSuggestions(run), [run]);
   const followUnavailableReason = followUpUnavailable(run) ?? (isActive(follow) ? 'The follow-up is working' : null);
 
@@ -103,9 +117,9 @@ export function useAgentTeam({ venueId, hazards, plan, pending, mode, analysisMo
 
   const cancelFollowUp = useCallback(() => side.cancel(), [side]);
   return useMemo(() => ({
-    run, follow, now, analysisMode, unavailable, followUnavailable: followUnavailableReason, suggestions, followError,
+    run, follow, now, analysisMode, auto, unavailable, followUnavailable: followUnavailableReason, suggestions, followError,
     ask, cancel, askFollowUp, cancelFollowUp,
-  }), [run, follow, now, analysisMode, unavailable, followUnavailableReason, suggestions, followError, ask, cancel, askFollowUp, cancelFollowUp]);
+  }), [run, follow, now, analysisMode, auto, unavailable, followUnavailableReason, suggestions, followError, ask, cancel, askFollowUp, cancelFollowUp]);
 }
 
 export type AgentTeamController = ReturnType<typeof useAgentTeam>;

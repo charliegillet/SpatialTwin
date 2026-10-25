@@ -39,7 +39,7 @@ from backend.app.incident.events import now_iso
 from backend.app.incident.manager import IncidentManager
 from backend.app.signs.guard import cookie_values, forwarded_from_remote, is_loopback_host
 from backend.app.signs.models import (
-    HAZARD_TYPES, LanInfo, MintRequest, MintResponse, ProposalLimits, ProposalPublic, ProposalRequest, ProposerState,
+    HAZARD_TYPES, LanInfo, MintRequest, MintResponse, ProposalLimits, Plan, ProposalPublic, ProposalRequest, ProposerState,
     Room, SignState,
 )
 from backend.app.signs.network import DEFAULT_PORT, env_base_url, parse_base_url
@@ -47,7 +47,7 @@ from backend.app.signs.proposals import MAX_PENDING_PER_DEVICE, MIN_INTERVAL_SEC
 from backend.app.signs.qr import qr_svg
 from backend.app.signs.service import SignsService, default_service
 from backend.app.signs.tokens import COOKIE_NAMES, EXIT_ID_PATTERN, SignClaims, TokenError
-from backend.app.signs.views import interior_point, sign_state, venue_name
+from backend.app.signs.views import interior_point, plan_geometry, sign_state, venue_name, zone_at
 from backend.app.venues.model import VENUE_ID_PATTERN, VenueV2, get_venue
 from backend.app.venues.schemas import HazardInput
 
@@ -286,8 +286,10 @@ def build_signs_router(incident: Optional[Callable[[], IncidentManager]] = None,
         if venue is None or active_venue_id() != proposal.venue_id:
             raise _error(409, "venue_not_active")
         point = interior_point(venue, proposal.zone_id)
-        if point is None:
+        if point is None and proposal.position is None:
             raise _error(422, "room_has_no_interior_point")
+        if proposal.position is not None:  # the judge's exact tap wins over the room's interior point
+            point = proposal.position
         hazard = HazardInput(id=f"phone-{proposal.proposal_id[3:]}", type=proposal.type,
                              position={"x": point[0], "y": point[1]}, zone_id=proposal.zone_id, source="simulated",
                              untenable_s=None, proposal_id=proposal.proposal_id)
@@ -373,7 +375,8 @@ def build_signs_router(incident: Optional[Callable[[], IncidentManager]] = None,
         queue = svc().proposals
         state = ProposerState(
             venue_id=venue.venue_id, venue_name=venue_name(venue), active=active_venue_id() == venue.venue_id,
-            rooms=[Room(id=z.id, name=z.name) for z in venue.zones], hazard_types=HAZARD_TYPES,
+            rooms=[Room(id=z.id, name=z.name) for z in venue.zones], plan=Plan(**plan_geometry(venue)),
+            hazard_types=HAZARD_TYPES,
             mine=[ProposalPublic(**p.public()) for p in queue.mine(claims.device_id)],
             limits=ProposalLimits(min_interval_seconds=MIN_INTERVAL_SECONDS,
                                   max_pending_per_phone=MAX_PENDING_PER_DEVICE),
@@ -386,13 +389,23 @@ def build_signs_router(incident: Optional[Callable[[], IncidentManager]] = None,
         venue = venue_or_404(claims.venue_id)
         if active_venue_id() != venue.venue_id:
             raise _error(409, "venue_not_active")
-        zone = next((z for z in venue.zones if z.id == body.zone_id), None)
-        if zone is None:
-            raise _error(422, "unknown_room")
+        position = None
+        if body.position is not None:
+            position = (round(body.position.x, 2), round(body.position.y, 2))
+            found = zone_at(venue, *position)
+            if found is None:
+                raise _error(422, "outside_building")
+            if body.zone_id is not None and body.zone_id != found:
+                raise _error(422, "zone_mismatch")
+            zone = next(z for z in venue.zones if z.id == found)
+        else:
+            zone = next((z for z in venue.zones if z.id == body.zone_id), None)
+            if zone is None:
+                raise _error(422, "unknown_room")
         try:
             proposal = svc().proposals.submit(venue_id=venue.venue_id, hazard_type=body.type, zone_id=zone.id,
                                               room_name=zone.name, device_id=claims.device_id,
-                                              invite_id=claims.invite_id)
+                                              invite_id=claims.invite_id, position=position)
         except ProposalError as error:
             headers = {"Retry-After": str(error.retry_after)} if error.retry_after else None
             raise _error(error.status, error.code, headers=headers, retry_after_seconds=error.retry_after) from None

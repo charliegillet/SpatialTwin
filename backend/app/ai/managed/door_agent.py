@@ -530,8 +530,9 @@ def lane_input(lane: str, toolbox: DoorToolbox, checked_plan: Dict[str, Any], sc
                 "claims for that scenario. " + SCENARIO_HELP)
     return (f"Declared hazards: {hazards}. Horizon {plan.chosen.horizon_seconds} s. The checked best is "
             f"{format_states(toolbox.best.door_states)} with {plan.chosen.completed_crossings} of "
-            f"{plan.chosen.initial_population} modeled crossings. Sweep its single failures and the alternatives "
-            "that tie it, then submit.")
+            f"{plan.chosen.initial_population} modeled crossings. Sweep its single failures "
+            "(`cd /workspace/kit && python3 -m spatialtwin_kit.sweep --only-single`) and those of the alternatives "
+            "that tie it (add `--candidate D4=open,D9=open` style), then submit.")
 
 
 @dataclass

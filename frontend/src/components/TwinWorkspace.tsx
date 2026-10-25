@@ -29,7 +29,8 @@ export function TwinWorkspace({ twin, notice, mode, calibrateTick, imageFile, an
   const pending = flow.status === 'pending';
   const building = mode === 'build';
   const hazardInputs = toHazardInputs(twin.hazards);
-  const team = useAgentTeam({ hazards: hazardInputs, plan, pending, mode, analysisMode, venueId: twin.venueId });
+  // Live by default: the team starts by itself once the planner has a checked plan for the judge's hazards.
+  const team = useAgentTeam({ hazards: hazardInputs, plan, pending, mode, analysisMode, venueId: twin.venueId, auto: !building });
   // One incident mirror per mount (one EventSource, one hazard sync); idle while a floor plan is being read.
   const incident = useIncident(twin.venueId, hazardInputs, { enabled: !building });
   const [seed, setSeed] = useState<'live' | 'fixture' | null>(null);

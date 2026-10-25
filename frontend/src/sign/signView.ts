@@ -166,10 +166,16 @@ export function connectionNote(connection: Connection, lastMessageAt: number | n
 // -- hazard proposals -----------------------------------------------------------------------------------------
 
 export type ProposalStatus = 'pending' | 'confirmed' | 'rejected' | 'expired';
-export interface ProposalPublic { proposal_id: string; type: HazardType; room: string; status: ProposalStatus; created_at: string; decided_at: string | null; }
+export interface Spot { x: number; y: number; }
+export interface ProposalPublic { proposal_id: string; type: HazardType; room: string; position: Spot | null; status: ProposalStatus; created_at: string; decided_at: string | null; }
 export interface Room { id: string; name: string; }
+export type Pt = [number, number];
+export interface PlanRoom { id: string; name: string; polygon: Pt[]; }
+export interface PlanDoor { id: string; position: Pt; width: number; }
+export interface PlanExit { id: string; name: string; position: Pt; kind: 'door' | 'stair' | 'window'; }
+export interface Plan { extent: Pt; rooms: PlanRoom[]; doors: PlanDoor[]; exits: PlanExit[]; }
 export interface ProposerState {
-  simulated: true; venue_id: string; venue_name: string; active: boolean; rooms: Room[]; hazard_types: HazardType[];
+  simulated: true; venue_id: string; venue_name: string; active: boolean; rooms: Room[]; plan: Plan; hazard_types: HazardType[];
   mine: ProposalPublic[]; limits: { min_interval_seconds: number; max_pending_per_phone: number }; expires_at: string; server_time: string;
 }
 
@@ -188,9 +194,111 @@ export function proposeErrorMessage(status: number, code: string | null, retryAf
   if (code === 'proposal_queue_full') return 'The operator has too many proposals waiting. Try again shortly.';
   if (code === 'venue_not_active') return 'This building is not on the presenter screen right now.';
   if (code === 'unknown_room') return 'That room is not in this building.';
+  if (code === 'outside_building' || code === 'zone_mismatch') return 'That spot is outside the building. Tap inside a room.';
   return 'The proposal could not be sent. Try again.';
 }
 
-export function canSend(type: HazardType | null, roomId: string | null, busy: boolean, active: boolean): boolean {
-  return type !== null && roomId !== null && !busy && active;
+/** A spot (a tapped pin) is all a proposal needs; the server resolves the room and may still refuse it. */
+/** A spot (a tapped pin) is all a proposal needs; the server resolves the room and may still refuse it. */
+export function canSend(type: HazardType | null, spot: unknown, busy: boolean, active: boolean): boolean {
+  return type !== null && spot !== null && spot !== undefined && !busy && active;
+}
+
+export const HAZARD_INFO: Record<HazardType, { label: string; colour: string; meaning: string }> = {
+  FIRE: { label: 'Fire', colour: '#ef6a4c', meaning: 'No entry. Exits next to it are blocked.' },
+  SMOKE: { label: 'Smoke', colour: '#9aa5a8', meaning: 'Slows people, then becomes untenable.' },
+  GAS: { label: 'Gas', colour: '#e8c547', meaning: 'Nothing is switched nearby. Doors are locked.' },
+  CHEMICAL: { label: 'Chemical', colour: '#b28cf0', meaning: 'No entry. Exits next to it are blocked.' },
+  WATER: { label: 'Water', colour: '#5aa9e6', meaning: 'Slows people crossing it.' },
+};
+
+export const MAP_PAD_M = 1.5;
+
+/** Even-odd ray cast in metres (edge points are the server's call; it is stricter and may still refuse). */
+export function pointInPolygon(x: number, y: number, polygon: readonly Pt[]): boolean {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const [xi, yi] = polygon[i];
+    const [xj, yj] = polygon[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+export function roomAt(plan: Plan, x: number, y: number): PlanRoom | null {
+  return plan.rooms.find(room => pointInPolygon(x, y, room.polygon)) ?? null;
+}
+
+/** The SVG viewBox in metres (y grows downward on screen) and the aspect ratio the element must have. */
+export function mapViewBox(plan: Plan): { box: string; aspect: number } {
+  const w = plan.extent[0] + 2 * MAP_PAD_M;
+  const h = plan.extent[1] + 2 * MAP_PAD_M;
+  return { box: `${-MAP_PAD_M} ${-MAP_PAD_M} ${w} ${h}`, aspect: w / h };
+}
+
+/** Client pixels inside the map element -> venue metres (the element's box has the viewBox's aspect ratio). */
+export function tapToMetres(plan: Plan, rect: { left: number; top: number; width: number; height: number }, clientX: number, clientY: number): Spot {
+  const w = plan.extent[0] + 2 * MAP_PAD_M;
+  const h = plan.extent[1] + 2 * MAP_PAD_M;
+  return {
+    x: Math.round(((clientX - rect.left) / rect.width * w - MAP_PAD_M) * 100) / 100,
+    y: Math.round(((clientY - rect.top) / rect.height * h - MAP_PAD_M) * 100) / 100,
+  };
+}
+
+/** Which way the wall under a door runs, so the door is drawn as a gap in it. */
+export function doorAxis(plan: Plan, position: Pt): 'vertical' | 'horizontal' {
+  const [x, y] = position;
+  for (const room of plan.rooms) {
+    for (let i = 0; i < room.polygon.length; i++) {
+      const [ax, ay] = room.polygon[i];
+      const [bx, by] = room.polygon[(i + 1) % room.polygon.length];
+      if (ax === bx && Math.abs(x - ax) < 1e-6 && y >= Math.min(ay, by) - 1e-6 && y <= Math.max(ay, by) + 1e-6) return 'vertical';
+    }
+  }
+  return 'horizontal';
+}
+
+export function parsePlan(raw: unknown): Plan | null {
+  const plan = raw as Plan | null;
+  const pair = (value: unknown) => Array.isArray(value) && value.length === 2 && value.every(n => typeof n === 'number' && Number.isFinite(n));
+  if (!plan || !pair(plan.extent) || !Array.isArray(plan.rooms) || !Array.isArray(plan.doors) || !Array.isArray(plan.exits)) return null;
+  if (!plan.rooms.every(r => typeof r.id === 'string' && Array.isArray(r.polygon) && r.polygon.length >= 3 && r.polygon.every(pair))) return null;
+  if (!plan.doors.every(d => pair(d.position)) || !plan.exits.every(x => pair(x.position))) return null;
+  return plan;
+}
+
+/** A point inside the room for its name: the middle of the widest span over a few horizontal scanlines (L-shapes safe). */
+export function labelPoint(polygon: readonly Pt[]): Pt {
+  const ys = polygon.map(p => p[1]);
+  const xsAll = polygon.map(p => p[0]);
+  const lo = Math.min(...ys);
+  const hi = Math.max(...ys);
+  let best: Pt = [(Math.min(...xsAll) + Math.max(...xsAll)) / 2, (lo + hi) / 2];
+  let bestWidth = -1;
+  for (const fraction of [0.5, 0.35, 0.65, 0.2, 0.8]) {
+    const y = lo + (hi - lo) * fraction;
+    const xs: number[] = [];
+    for (let i = 0; i < polygon.length; i++) {
+      const [x0, y0] = polygon[i];
+      const [x1, y1] = polygon[(i + 1) % polygon.length];
+      if ((y0 > y) !== (y1 > y)) xs.push(x0 + ((y - y0) * (x1 - x0)) / (y1 - y0));
+    }
+    xs.sort((a, b) => a - b);
+    for (let i = 0; i + 1 < xs.length; i += 2) {
+      if (xs[i + 1] - xs[i] > bestWidth) { bestWidth = xs[i + 1] - xs[i]; best = [(xs[i] + xs[i + 1]) / 2, y]; }
+    }
+  }
+  return best;
+}
+
+/** Split a room name over at most two lines so it fits a narrow room. */
+export function nameLines(name: string): string[] {
+  const words = name.trim().split(/\s+/);
+  const cut = (line: string) => (line.length > 14 ? `${line.slice(0, 13)}…` : line);
+  if (name.length <= 9 || words.length < 2) return [cut(name)];
+  const gap = (at: number) => Math.abs(words.slice(0, at).join(' ').length - words.slice(at).join(' ').length);
+  let split = 1;
+  for (let i = 2; i < words.length; i++) if (gap(i) < gap(split)) split = i;
+  return [cut(words.slice(0, split).join(' ')), cut(words.slice(split).join(' '))];
 }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  canSend, connectionNote, exitDisplay, hazardSummary, overviewDisplays, parseSignState, proposeErrorMessage, routedLabel,
+  canSend, connectionNote, doorAxis, mapViewBox, parsePlan, roomAt, tapToMetres, exitDisplay, hazardSummary, overviewDisplays, parseSignState, proposeErrorMessage, routedLabel,
   signDisplay, STALE_AFTER_MS,
 } from './signView.ts';
 
@@ -106,4 +106,35 @@ test('labels and helpers', () => {
   assert.equal(canSend('FIRE', null, false, true), false);
   assert.equal(canSend('FIRE', 'LOBBY', false, false), false);
   assert.equal(exitDisplay(state(), state().exits[0]).announce, 'E1 · South exit: DO NOT USE. Hazard: Fire · Lobby');
+});
+
+const PLAN = {
+  extent: [40, 24],
+  rooms: [
+    { id: 'HALL', name: 'Hall', polygon: [[12, 8], [28, 8], [28, 20], [12, 20]] },
+    { id: 'LOBBY', name: 'Lobby', polygon: [[12, 0], [28, 0], [28, 8], [12, 8]] },
+  ],
+  doors: [{ id: 'D1', position: [20, 8], width: 2 }, { id: 'D2', position: [12, 14], width: 1 }],
+  exits: [{ id: 'E1', name: 'South exit', position: [20, 0], kind: 'door' }],
+};
+
+test('a tap maps to venue metres and to its room', () => {
+  const rect = { left: 10, top: 100, width: 430, height: 270 };  // 43 x 27 m with 1.5 m padding: 10 px per metre
+  assert.deepEqual(tapToMetres(PLAN, rect, 10 + 215, 100 + 135), { x: 20, y: 12 });
+  assert.deepEqual(tapToMetres(PLAN, rect, 10 + 15, 100 + 15), { x: 0, y: 0 });
+  assert.equal(roomAt(PLAN, 20, 12).id, 'HALL');
+  assert.equal(roomAt(PLAN, 20, 4).id, 'LOBBY');
+  assert.equal(roomAt(PLAN, 5, 4), null);
+  assert.equal(mapViewBox(PLAN).box, '-1.5 -1.5 43 27');
+});
+
+test('doors sit in the wall they are on; the plan is validated', () => {
+  assert.equal(doorAxis(PLAN, [12, 14]), 'vertical');
+  assert.equal(doorAxis(PLAN, [20, 8]), 'horizontal');
+  assert.ok(parsePlan(PLAN));
+  assert.equal(parsePlan({ ...PLAN, extent: [40] }), null);
+  assert.equal(parsePlan({ ...PLAN, rooms: [{ id: 'X', name: 'x', polygon: [[0, 0]] }] }), null);
+  assert.equal(canSend('FIRE', { x: 1, y: 2 }, false, true), true);
+  assert.equal(canSend('FIRE', null, false, true), false);
+  assert.match(proposeErrorMessage(422, 'outside_building', null), /outside the building/);
 });

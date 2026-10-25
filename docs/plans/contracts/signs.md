@@ -70,9 +70,9 @@ open SSE streams (re-verified on every incident event or 10 s ping).
 | `POST /api/signs/tokens` | `{scope: "sign:read"\|"hazard:propose", venue_id?, exit_id?, ttl_seconds?, base_url?}` → `{token_id, scope, venue_id, exit_id, exit_name, url, qr_svg, expires_at, ttl_seconds, lan: {base_url, source: request\|env\|detected\|fallback, listening_on_lan: bool\|null, warning}}`. `venue_id` defaults to the incident's venue; `exit_id` omitted = an all-exits sign. 404 `unknown_venue`, 422 `unknown_exit` / `exit_not_allowed_for_scope` / `invalid_base_url`, 503 `sign_secret_too_short` |
 | `POST /api/signs/revoke` | → `{revoked_before}`; every phone link issued so far stops (in memory; rotate the secret to revoke across restarts) |
 | `GET /api/signs/status` | → `{sign_streams, by_sign: {"building-v2/E1": 2}, tokens_minted, pending_proposals, secret_source, disabled_reason, simulated}` (preflight: "N phones connected") |
-| `GET /api/signs/proposals` | → `{version, pending: [P], recent: [P]}`, `P = {proposal_id, type, room, status, created_at, decided_at, venue_id, zone_id, phone, hazard_id, source: "phone_proposal"}` |
+| `GET /api/signs/proposals` | → `{version, pending: [P], recent: [P]}`, `P = {proposal_id, type, room, position: {x, y} | null, status, created_at, decided_at, venue_id, zone_id, phone, hazard_id, source: "phone_proposal"}` |
 | `GET /api/signs/proposals/events` | SSE `proposals` (same body) on every change, `: ping` every 10 s |
-| `POST /api/signs/proposals/{id}/confirm` | → `{proposal, hazard, note}`; `hazard` is a `HazardInput` (`source: "simulated"`, `id: "phone-…"`, `zone_id`, interior `position`, `proposal_id`). 404 `unknown_proposal`, 409 `proposal_not_pending` (+`status`), 409 `venue_not_active` |
+| `POST /api/signs/proposals/{id}/confirm` | → `{proposal, hazard, note}`; `hazard` is a `HazardInput` (`source: "simulated"`, `id: "phone-…"`, `zone_id`, `position`, `proposal_id`); `position` is the judge's **exact tapped point** when the proposal carried one, else the room's interior point. 404 `unknown_proposal`, 409 `proposal_not_pending` (+`status`), 409 `venue_not_active` |
 | `POST /api/signs/proposals/{id}/reject` | → `{proposal}` |
 
 Confirm does **not** touch the incident: the twin owns its hazards and syncs them (`useIncident`), so the presenter adds
@@ -100,11 +100,19 @@ leaves the server. Errors: 403 `sign_link_required` / `sign_link_wrong_venue`, 4
 (`{server_time}`, ~10 s when idle), `expired` (`{code}`, then the stream ends), `sign_error` (`unknown_exit`).
 503 `too_many_signs` beyond 64 streams.
 
-`GET /api/public/hazard-proposals` → `{venue_id, venue_name, active, rooms: [{id, name}], hazard_types, mine: [{proposal_id,
-type, room, status, created_at, decided_at}], limits, expires_at, server_time}`. `POST` `{type, zone_id}` → 201; venue
-comes from the token only. 422 `unknown_room`, 409 `venue_not_active`, 429 `rate_limited` (`retry_after_seconds`,
-`Retry-After`) / `too_many_pending`, 503 `proposal_queue_full`. Limits: 1 per phone per 10 s, 2 pending per phone,
-20 per QR per 10 min, 12 pending overall, pending expires after 10 min.
+`GET /api/public/hazard-proposals` → `{venue_id, venue_name, active, rooms: [{id, name}], plan, hazard_types, mine: [{proposal_id,
+type, room, position, status, created_at, decided_at}], limits, expires_at, server_time}`. `plan` is venue geometry only, for
+drawing the phone's floor plan (no door states, plan, occupants, reasons or hashes):
+`{extent: [w, h], rooms: [{id, name, polygon: [[x, y], …]}], doors: [{id, position: [x, y], width}], exits: [{id, name, position: [x, y], kind: "door"|"stair"|"window"}]}`
+in metres (an exit without a kind is reported as `door`; `stair` = an interior exit stair). `mine[].position` is this phone's own tap (null for a room-list proposal).
+
+`POST` `{type, position: {x, y}}` and/or `{type, zone_id}` (at least one) → 201; venue comes from the token only. `position` is in
+metres, bounded to ±1000 and rounded to 2 decimals; the server resolves the room that holds the point **strictly inside** (a point on
+a wall is refused, shared walls are never guessed). 422 `outside_building` (no room holds the point), 422 `zone_mismatch`
+(`zone_id` and `position` name different rooms), 422 `unknown_room`, 409 `venue_not_active`, 429 `rate_limited`
+(`retry_after_seconds`, `Retry-After`) / `too_many_pending`, 503 `proposal_queue_full`. Limits (unchanged): 1 per phone per
+10 s, 2 pending per phone, 20 per QR per 10 min, 12 pending overall, pending expires after 10 min. The guard allowlist and
+cookie scoping are unchanged.
 
 ## Presenter UI recipe
 
@@ -124,7 +132,7 @@ CHECKED PLAN · follow staff instructions"; `inactive`: grey "SIGN IDLE". No eve
 (never a stale arrow); 403/410 → "LINK EXPIRED · scan the new QR". SSE with auto-retry, polling fallback every 3 s,
 backoff to 15 s, reconnect on visibility. Wake Lock is requested but needs a secure context, so on plain-http LAN it is a
 no-op (set the phone's auto-lock to Never). "Full screen" button where the Fullscreen API exists (not iPhone Safari).
-`?mode=propose` is the proposer: type + room buttons, send, and the status of this phone's own proposals.
+`?mode=propose` is the proposer ("Drop a hazard"): five hazard types with icon, colour and a one-line meaning (fire/chemical: no entry; smoke: slows, then untenable; gas: nothing switched nearby; water: slows), a 2D SVG floor plan of the venue (rooms with names, doors as wall gaps, exits as green marks, interior stairs as green squares marked S) fitted to the phone width, tap anywhere in a room to place a pin (taps outside a room are refused locally; the server re-checks), Send, and this phone's proposals as pins on the map (dashed = waiting, solid = confirmed, faded = rejected/expired) and as a list with status. Plain DOM + SVG, no three.js. The operator still confirms on the laptop; the confirmed hazard sits at the exact tapped point.
 
 ## Known limits and caveats
 

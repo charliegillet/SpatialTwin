@@ -36,6 +36,7 @@ export function AgentTeamPanel({ team }: { team: AgentTeamController }) {
       {(active || followBusy) && <button type="button" className="btn" onClick={team.cancel}><X size={14} aria-hidden="true" />Cancel</button>}
     </div>
     {unavailable && !active && <p className="twin-quiet">{unavailable}.</p>}
+    {team.auto && idle && !unavailable && <p className="twin-quiet" role="status">The team starts by itself in a moment for these hazards.</p>}
     {!idle && <p className="agent-status" role="status">{run.status === 'starting' ? 'Starting the team…' : run.status === 'cancelled' ? 'Cancelled.' : statusLine}</p>}
     {run.notice && <p className="twin-quiet">{run.notice}</p>}
     {connection && <p className="twin-quiet">{connection}</p>}
