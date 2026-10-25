@@ -469,7 +469,7 @@ async def test_prepare_environment_caches(tmp_path):
     client = FakeClient([{"status": "completed", "environment_id": "env-prep",
                           "steps": [text_step("installed")]}])
     cache = tmp_path / "agent_env.json"
-    env_id = await agent.prepare_environment(client, cache_path=cache, poll_s=0.001)
+    env_id = await agent.prepare_environment(client, runtime_root=tmp_path, poll_s=0.001)
     assert env_id == "env-prep"
     req = client.requests[0]
     env = req["environment"]
@@ -483,8 +483,181 @@ async def test_prepare_environment_caches(tmp_path):
     assert "pip install networkx pydantic" in req["input"]
     assert req["agent_config"]["model"] == "gemini-4-argon"
     # Cached: second call makes no request.
-    again = await agent.prepare_environment(FakeClient(), cache_path=cache)
+    again = await agent.prepare_environment(FakeClient(), runtime_root=tmp_path)
     assert again == "env-prep"
+    assert cache.exists()
+
+
+def _prep_script(env="env-prep"):
+    return [{"status": "completed", "environment_id": env, "steps": [text_step("ok")]}]
+
+
+async def test_env_cache_keyed_on_api_key_hash(tmp_path, monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "key-one")
+    c1 = FakeClient(_prep_script("env-1"))
+    assert await agent.prepare_environment(c1, runtime_root=tmp_path, poll_s=0.001) == "env-1"
+    cached = json.loads((tmp_path / "agent_env.json").read_text())
+    assert cached["key_hash"] == agent.key_hash("key-one")
+    assert "key-one" not in json.dumps(cached)
+    # same key: cache hit, no request
+    assert await agent.prepare_environment(FakeClient(), runtime_root=tmp_path) == "env-1"
+    # different key: cache miss, re-prepares
+    monkeypatch.setenv("GEMINI_API_KEY", "key-two")
+    c2 = FakeClient(_prep_script("env-2"))
+    assert await agent.prepare_environment(c2, runtime_root=tmp_path, poll_s=0.001) == "env-2"
+    assert len(c2.requests) == 1
+
+
+async def test_env_cache_default_root_is_runtime(monkeypatch, tmp_path):
+    monkeypatch.setattr(agent, "RUNTIME_DIR", tmp_path / "rt")
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    await agent.prepare_environment(FakeClient(_prep_script()), poll_s=0.001)
+    assert (tmp_path / "rt" / "agent_env.json").exists()
+
+
+class _NotFound(Exception):
+    code = 404
+
+
+class _StaleEnvClient(FakeClient):
+    """First interactions.create (on the stale environment) raises a 404."""
+
+    def __init__(self, *scripts):
+        super().__init__(*scripts)
+        real = self.aio.interactions.create
+        self.calls = 0
+
+        async def create(**kw):
+            self.calls += 1
+            if self.calls == 1:
+                raise _NotFound("404 unknown environment env-stale")
+            return await real(**kw)
+        self.aio.interactions.create = create
+
+
+async def test_stale_environment_404_invalidates_and_reprepares_once(
+        graph58, png, tmp_path, monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    (tmp_path / "agent_env.json").write_text(json.dumps(
+        {"environment_id": "env-stale", "key_hash": agent.key_hash("k"),
+         "mount_digest": "x"}))
+    client = _StaleEnvClient(
+        _prep_script("env-fresh"),
+        [requires_action(submit("OPEN:D5", 58), env="env-fresh")],
+        [completed(env="env-fresh")])
+    inv = await agent.investigate(
+        client, graph58, FIRE_D2, P60, environment_id="env-stale", topdown_png=png,
+        poll_s=0.001, sessions_dir=tmp_path / "sessions", runtime_root=tmp_path)
+    assert inv.status == "completed"
+    assert inv.environment_id == "env-fresh"
+    assert client.requests[1]["environment"]["environment_id"] == "env-fresh"
+    assert json.loads((tmp_path / "agent_env.json").read_text())[
+        "environment_id"] == "env-fresh"
+
+
+async def test_non_404_error_does_not_reprepare(graph58, png, tmp_path):
+    class Boom(FakeClient):
+        def __init__(self):
+            super().__init__()
+
+            async def create(**kw):
+                raise RuntimeError("500 backend down")
+            self.aio.interactions.create = create
+    inv = await agent.investigate(
+        Boom(), graph58, FIRE_D2, P60, environment_id="env-1", topdown_png=png,
+        poll_s=0.001, sessions_dir=tmp_path / "sessions", runtime_root=tmp_path)
+    assert inv.status == "failed" and "500" in inv.error
+
+
+# --- empty allowed list (M2) ------------------------------------------------------
+
+
+async def test_empty_allowed_makes_no_provider_call(graph58, png, tmp_path, monkeypatch):
+    monkeypatch.setattr(agent, "allowed_interventions", lambda g, s: [])
+    client = FakeClient()  # any create() would raise (no script left)
+    inv = await run(client, graph58, FIRE_D2, png, tmp_path)
+    assert client.requests == []
+    assert inv.status == "completed" and inv.best is None
+    assert inv.error == "no_allowed_interventions"
+    assert inv.verdict == agent.NO_IMPROVEMENT
+    assert inv.recommendation is None and inv.receipt is None
+
+
+# --- copy flags (D5) ----------------------------------------------------------------
+
+
+def _flags(rationale="", caveats=()):
+    sess = _bare_session()
+    sess.submit_recommendation({"intervention_id": None, "rationale": rationale,
+                                "caveats": list(caveats)})
+    return sess.recommendation.copy_flags
+
+
+def _bare_session():
+    return agent._Session.__new__(agent._Session)
+
+
+@pytest.mark.parametrize("text, flags", [
+    ("This is safe.", ["safe"]),
+    ("SAFE and Compliant", ["safe", "compliant"]),
+    ("people survive and are evacuated", ["survive", "evacuated"]),
+    ("unsafe layout", []),               # not a word-boundary match
+    ("safely routed", []),               # inflections are not flagged (exact words only)
+    ("a safeguard", []),
+    ("non-compliant", ["compliant"]),    # hyphen is a boundary
+    ("safe, safe, safe", ["safe"]),      # deduplicated
+    ("nothing banned here", []),
+])
+def test_copy_flags_in_rationale(text, flags):
+    assert _flags(rationale=text) == flags
+
+
+def test_copy_flags_cover_caveats_and_keep_text_unedited():
+    sess = _bare_session()
+    sess.submit_recommendation({"intervention_id": "OPEN:D5",
+                                "rationale": "Opening D5 is Safe.",
+                                "caveats": ["not compliant", "declared parameters"]})
+    rec = sess.recommendation
+    assert rec.copy_flags == ["safe", "compliant"]
+    assert rec.rationale == "Opening D5 is Safe."
+    assert rec.caveats == ["not compliant", "declared parameters"]
+
+
+async def test_copy_flags_end_to_end(graph58, png, tmp_path):
+    sub = function_call_step("submit_recommendation", {
+        "intervention_id": "OPEN:D5", "claimed_reached_exit": 58,
+        "rationale": "This is safe.", "caveats": []}, id="fc-sub")
+    client = FakeClient(["in_progress", requires_action(evaluate(["OPEN:D5"]))],
+                        [requires_action(sub)], [completed()])
+    inv = await run(client, graph58, FIRE_D2, png, tmp_path)
+    assert inv.recommendation.copy_flags == ["safe"]
+
+
+# --- solver off the event loop (M1) -------------------------------------------------
+
+
+async def test_solve_and_check_run_off_the_event_loop(graph58, png, tmp_path, monkeypatch):
+    import threading
+    main = threading.get_ident()
+    seen = []
+    real_solve, real_check = flow.solve, agent.check_run
+
+    def solve(*a, **k):
+        seen.append(("solve", threading.get_ident()))
+        return real_solve(*a, **k)
+
+    def check(*a, **k):
+        seen.append(("check", threading.get_ident()))
+        return real_check(*a, **k)
+    monkeypatch.setattr(flow, "solve", solve)
+    monkeypatch.setattr(agent, "check_run", check)
+    client = FakeClient(["in_progress", requires_action(evaluate(["OPEN:D5"]))],
+                        [requires_action(submit("OPEN:D5", 58))], [completed()])
+    await run(client, graph58, FIRE_D2, png, tmp_path)
+    # baseline (before the loop) + the evaluated intervention
+    assert len(seen) >= 4
+    evaluated = seen[2:]
+    assert evaluated and all(t != main for _, t in evaluated)
 
 
 # --- audit hook -------------------------------------------------------------------
