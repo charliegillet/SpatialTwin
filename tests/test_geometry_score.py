@@ -227,8 +227,8 @@ def test_is_regression():
     assert is_regression(base, _score(n_cross=2, support=0.77, within=0.60))
     assert not is_regression(base, _score(n_cross=2, support=0.80, within=0.56))   # within 0.05
     assert is_regression(base, _score(n_cross=2, support=0.80, within=0.54))
-    # edge alignment is compared only when both sides have it
-    assert not is_regression(base, _score(n_cross=2, support=0.80, within=None))
+    # losing the edge measurement is a regression; gaining one is not
+    assert is_regression(base, _score(n_cross=2, support=0.80, within=None))
     assert not is_regression(_score(within=None), _score(within=0.0))
 
 
@@ -399,3 +399,192 @@ def test_select_heldout_t_s():
         Keyframe(t_s=6.0, zone_id="Z1", x=1, y=1, heading_deg=0.0)])
     sfm = _sfm([(t, 1.0, 1.0) for t in np.arange(0, 9.5, 0.5)])
     assert select_heldout_t_s(sfm, graph) == [0.0, 0.5, 3.5, 4.0, 4.5, 7.5, 8.0, 8.5, 9.0]
+
+
+# ------------------------------------------------------------- fix round 1
+
+
+EXIT_ROOM = [_zone("Z1", (0, 0, 4, 4))]
+EXIT_DOOR = _door("D1", "Z1", "OUTSIDE", (2.0, 4.0), width=1.2)  # gap x in [1.4, 2.6] on y = 4
+
+
+def test_exit_through_door_is_not_a_crossing():
+    sfm = _sfm([(0, 2, 2), (1, 2, 3.5), (2, 2, 5), (3, 2, 6)])
+    assert score_geometry(_graph(EXIT_ROOM, [EXIT_DOOR]), sfm, ALIGN).illegal_crossings == []
+    # an exit is any door with an OUTSIDE side, either way round, of any kind
+    rev = Door(**{**EXIT_DOOR.model_dump(), "a": "OUTSIDE", "b": "Z1", "kind": "opening"})
+    assert score_geometry(_graph(EXIT_ROOM, [rev]), sfm, ALIGN).illegal_crossings == []
+
+
+def test_exit_through_wall_is_one_crossing():
+    sfm = _sfm([(0, 3.5, 2), (1, 3.5, 3.5), (2, 3.5, 5), (3, 3.5, 6)])  # 0.9 m from the gap
+    cs = score_geometry(_graph(EXIT_ROOM, [EXIT_DOOR]), sfm, ALIGN).illegal_crossings
+    assert [(c.edge, c.t_s) for c in cs] == [("outside", 1.5)]
+    # a non-exit door there does not make leaving legal
+    inner = _door("D1", "Z1", "Z2", (2.0, 4.0), width=1.2)
+    cs = score_geometry(_graph(EXIT_ROOM, [inner]), _sfm([(0, 2, 2), (1, 2, 5)]), ALIGN).illegal_crossings
+    assert [c.edge for c in cs] == ["outside"]
+
+
+def test_reentry_through_wall_is_a_crossing():
+    # out through the exit door, back in through the east wall
+    sfm = _sfm([(0, 2, 2), (1, 2, 5), (2, 5, 5), (3, 5, 2), (4, 3, 2)])
+    cs = score_geometry(_graph(EXIT_ROOM, [EXIT_DOOR]), sfm, ALIGN).illegal_crossings
+    assert [(c.edge, c.t_s) for c in cs] == [("outside", 0.5)]
+
+
+def test_wall_jitter_is_not_a_crossing():
+    # 5 cm of SfM noise across an exterior wall, far from any door
+    jitter = _sfm([(0, 3.9, 2), (1, 4.05, 2), (2, 3.9, 2), (3, 4.05, 2), (4, 3.5, 2)])
+    assert score_geometry(_graph(EXIT_ROOM), jitter, ALIGN).illegal_crossings == []
+    # and along an interior wall
+    along = _sfm([(t, 3.95 if t % 2 else 4.05, 0.5 + 0.5 * t) for t in range(6)])
+    assert score_geometry(_graph(TWO_ROOMS), along, ALIGN).illegal_crossings == []
+
+
+def test_real_crossing_survives_hysteresis():
+    # confident Z1 side, a few frames within the depth band, confident Z2 side
+    sfm = _sfm([(0, 2, 2), (1, 3.9, 2), (2, 4.05, 2), (3, 4.1, 2), (4, 6, 2)])
+    cs = score_geometry(_graph(TWO_ROOMS), sfm, ALIGN).illegal_crossings
+    assert [(c.edge, c.t_s) for c in cs] == [("Z1.east", 1.5)]
+    assert (cs[0].x, cs[0].y) == pytest.approx((4.0, 2.0))
+    # in and straight back out counts both times
+    back = _sfm([(0, 2, 2), (1, 6, 2), (2, 2, 2)])
+    assert len(score_geometry(_graph(TWO_ROOMS), back, ALIGN).illegal_crossings) == 2
+
+
+def test_corner_door_does_not_cut_perpendicular_wall():
+    # door on Z1's north wall right at the NE corner: the shared east wall stays solid
+    graph = _graph(TWO_ROOMS, [_door("D1", "Z1", "OUTSIDE", (3.8, 4.0), width=0.9)])
+    sfm = _sfm([(0, 2, 3.6), (1, 6, 3.6)])
+    assert [c.edge for c in score_geometry(graph, sfm, ALIGN).illegal_crossings] == ["Z1.east"]
+    assert all(y == 4.0 for _, y in gs._jambs(graph))  # jambs only on the north wall
+
+
+def test_phantom_occluder_counts_as_misses(fake_frames):
+    good = score_geometry(_room_graph(), _room_sfm(), ALIGN, video=VIDEO, heldout_t_s=[5.0])
+    assert good.edge_samples_projected > 100
+    assert good.edge_samples_kept == good.edge_samples_projected
+    # a doorless phantom zone right in front of the camera hides every modelled edge
+    phantom = _graph([_zone("Z1", ROOM), _zone("Z9", (3.0, 1.5, 2.0, 0.5))],
+                     [_door("D1", "Z1", "OUTSIDE", (4.0, 10.0), width=1.2)],
+                     _room_graph().keyframes)
+    bad = score_geometry(phantom, _room_sfm(), ALIGN, video=VIDEO, heldout_t_s=[5.0])
+    assert bad.edge_samples_projected > 100 and bad.edge_samples_kept == 0
+    assert bad.edge_within_5px == 0.0  # culled samples are misses, never dropped
+    assert bad.edge_chamfer_px is None
+    assert is_regression(good, bad)
+
+
+def _edge_score(within, projected=None, kept=None) -> GeometryScore:
+    return GeometryScore(alignment_hash="a-test", illegal_crossings=[], wall_support=0.8,
+                         unexplained_points=0.0, edge_chamfer_px=None if within is None else 2.0,
+                         edge_within_5px=within, heldout_t_s=[],
+                         edge_samples_projected=projected, edge_samples_kept=kept)
+
+
+def test_is_regression_on_lost_edges_not_on_culling():
+    base = _edge_score(0.8, 300, 300)
+    assert is_regression(base, _edge_score(None, 0, 0))          # metrics lost
+    # culling alone is not a regression (R32): within already counts culled as misses
+    assert not is_regression(base, _edge_score(0.8, 300, 150))
+    assert not is_regression(_edge_score(None), _edge_score(0.5, 300, 300))
+
+
+def test_heldout_records_only_contributing_frames(fake_frames):
+    s = score_geometry(_room_graph(), _room_sfm(), ALIGN, video=VIDEO, heldout_t_s=[5.0, 7.0])
+    assert s.heldout_t_s == [5.0]  # 7.0 matches no SfM frame
+
+
+def test_heldout_frames_capped_and_spread(fake_frames):
+    frames = [_frame(float(t), *CAM, heading_deg=90.0) for t in range(2, 102)]
+    sfm = SfmResult("completed", frames, [], 1.0, 0, None)
+    s = score_geometry(_room_graph(), sfm, ALIGN, video=VIDEO, heldout_t_s=[f.t_s for f in frames])
+    calls = fake_frames["calls"]
+    assert len(calls) == gs.MAX_HELDOUT_FRAMES == 24
+    assert calls[0] == 2.0 and calls[-1] == 101.0 and calls == sorted(set(calls))
+    assert s.heldout_t_s == calls
+
+
+# ------------------------------------------------------------- fix round 2
+
+
+def _cs(graph, path):
+    return [(c.edge, round(c.t_s, 2)) for c in score_geometry(graph, _sfm(path), ALIGN).illegal_crossings]
+
+
+EXIT_GRAPH = _graph(EXIT_ROOM, [EXIT_DOOR])
+
+
+def test_exit_excusal_uses_the_boundary_point():
+    # B: out through the wall at x ~ 0.58 via a band frame, then an outside step toward the gap
+    assert _cs(EXIT_GRAPH, [(0, 0.5, 3.5), (1, 0.6, 4.1), (2, 1.3, 4.3), (3, 2, 5), (4, 2, 3)]) == [("outside", 1.5)]
+    # C: a shallow leaving segment crossing y = 4 at x ~ 0.46, 0.94 m from the gap
+    assert _cs(EXIT_GRAPH, [(0, 0.2, 3.95), (1, 2.0, 4.3), (2, 2, 5), (3, 2, 3)]) == [("outside", 0.5)]
+    assert _cs(EXIT_GRAPH, [(0, 0.2, 3.95), (1, 2.0, 4.3), (2, 2, 5)]) == [("outside", 0.5)]
+    # D: out at x = 0.3 (1.1 m from the gap) via a band frame, then outside near the gap
+    assert _cs(EXIT_GRAPH, [(0, 0.3, 3.5), (1, 0.3, 4.12), (2, 1.2, 4.35), (3, 2, 5), (4, 2, 3)]) == [("outside", 1.5)]
+    # through the door, lingering in the doorway band, is still legal both ways
+    assert _cs(EXIT_GRAPH, [(0, 2, 3.5), (1, 2.1, 4.1), (2, 2, 5), (3, 1.9, 4.1), (4, 2, 3)]) == []
+    # out through the door, back in through the east wall
+    assert _cs(EXIT_GRAPH, [(0, 2, 3), (1, 2, 5), (2, 4.6, 2), (3, 3, 2)]) == [("outside", 0.5)]
+
+
+def test_correct_partition_is_not_a_regression(monkeypatch):
+    truth = _render_room(rect=(0, 0, 8, 5), gap=(3.4, 4.6))  # the room really ends at y = 5
+    monkeypatch.setattr(gs, "extract_frame", lambda v, t, o: (cv2.imwrite(str(o), truth), o)[1])
+    before = _room_graph()  # model misses the partition
+    after = _graph([_zone("Z1", (0, 0, 8, 5)), _zone("Z2", (0, 5, 8, 5))],
+                   [_door("D1", "Z1", "Z2", (4.0, 5.0), width=1.2),
+                    _door("D2", "Z2", "OUTSIDE", (4.0, 10.0), width=1.2)], before.keyframes)
+    sb = score_geometry(before, _room_sfm(), ALIGN, video=VIDEO, heldout_t_s=[5.0])
+    sa = score_geometry(after, _room_sfm(), ALIGN, video=VIDEO, heldout_t_s=[5.0])
+    assert sa.edge_samples_kept < sa.edge_samples_projected  # the new wall hides the old one
+    assert sa.edge_within_5px > sb.edge_within_5px + 0.3
+    assert is_regression(sb, sa) is False
+
+
+def test_door_just_inside_near_corner_does_not_cut_perpendicular_wall():
+    for pos in ((3.8, 3.95), (3.8, 4.0), (3.8, 4.05)):
+        graph = _graph(TWO_ROOMS, [_door("D1", "Z1", "OUTSIDE", pos, width=0.9)])
+        assert _cs(graph, [(0, 2, 3.6), (1, 6, 3.6)]) == [("Z1.east", 0.5)], pos
+
+
+def test_junction_door_cuts_both_collinear_edges():
+    graph = _graph([_zone("Z1", (0, 0, 4, 4)), _zone("Z3", (4, 0, 4, 4))],
+                   [_door("D1", "Z1", "OUTSIDE", (4.0, 4.0), width=1.2)])
+    for x in (3.6, 4.0, 4.4):  # out through either half of the door
+        assert _cs(graph, [(0, x, 2), (1, x, 5)]) == [], x
+    assert sorted(gs._jambs(graph)) == [(3.4, 4.0), (4.6, 4.0)]
+    # the perpendicular shared wall x = 4 stays solid up to the corner
+    assert _cs(graph, [(0, 2, 3.8), (1, 6, 3.8)]) == [("Z1.east", 0.5)]
+
+
+# ------------------------------------------------------------- fix round 3
+
+
+def test_band_split_outside_runs_merge_into_one_legal_exit():
+    # J: out the door, doorstep jitter across the 0.15 m band
+    assert _cs(EXIT_GRAPH, [(0, 2, 3), (1, 2, 3.9), (2, 2, 4.2), (3, 2, 4.1), (4, 2, 4.5), (5, 2, 6)]) == []
+    # K: out the door, back onto the doorstep band, away again
+    assert _cs(EXIT_GRAPH, [(0, 2, 3), (1, 2, 5), (2, 2.1, 4.1), (3, 2, 5.5)]) == []
+    # L: as K, then back in through the door
+    assert _cs(EXIT_GRAPH, [(0, 2, 3), (1, 2, 5), (2, 2.1, 4.1), (3, 2, 5.5), (4, 2, 3)]) == []
+    # M: out the door, along the facade within the band, then away
+    assert len(_cs(EXIT_GRAPH, [(0, 2, 3), (1, 2, 4.5), (2, 3, 4.1), (3, 3.5, 4.12), (4, 3.5, 5)])) <= 1
+    # a band-split run that came out through a wall is still one crossing
+    assert _cs(EXIT_GRAPH, [(0, 0.5, 3), (1, 0.5, 4.5), (2, 0.6, 4.1), (3, 0.5, 5)]) == [("outside", 0.5)]
+
+
+def test_exit_door_prefers_exterior_edge_over_interior_partition():
+    # exit door 5 cm below the NE corner of Z1, right on the Z1/Z3 partition line
+    graph = _graph([_zone("Z1", (0, 0, 4, 4)), _zone("Z3", (4, 0, 4, 4))],
+                   [_door("D1", "Z1", "OUTSIDE", (4.0, 3.95), width=1.2)])
+    edges = gs._rect_edges(graph)
+    assert [edges[k].name for k in gs._door_edges(edges, (4.0, 3.95), exit_door=True)] == ["Z1.north", "Z3.north"]
+    # the interior wall stays solid; walking out north through the door is legal
+    assert _cs(graph, [(0, 2, 3.6), (1, 6, 3.6)]) == [("Z1.east", 0.5)]
+    assert _cs(graph, [(0, 4.0, 2), (1, 4.0, 5)]) == []
+    # a non-exit door at the same spot still goes to its nearest edge, the partition
+    inner = _graph(graph.zones, [_door("D1", "Z1", "Z3", (4.0, 3.95), width=1.2)])
+    assert _cs(inner, [(0, 2, 3.6), (1, 6, 3.6)]) == []
