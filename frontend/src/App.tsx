@@ -16,6 +16,7 @@ import {
   fetchScenarioMatrix,
 } from './api/client';
 import { Header } from './components/Header';
+import { LiveChangeTicker } from './components/LiveChangeTicker';
 import { CameraFeedPanel } from './components/CameraFeedPanel';
 import { BuildingTwin3D } from './components/BuildingTwin3D';
 import { TerminalConsole, LogEntry } from './components/TerminalConsole';
@@ -341,6 +342,9 @@ export const App: React.FC = () => {
 
       {/* Main Mission Control Layout */}
       <main className="flex-1 p-3.5 lg:p-5 max-w-[1680px] mx-auto w-full space-y-4">
+        {/* Real-time State & Delta Ticker */}
+        <LiveChangeTicker snapshot={snapshot} />
+
         {/* TOP ROW: Camera 1 Viewport (Left) & 3D Building Twin (Right) - Matching Reference Photo */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
           {/* Top-Left: Camera 1 Panel */}

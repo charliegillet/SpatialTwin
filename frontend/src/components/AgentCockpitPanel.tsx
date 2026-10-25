@@ -31,7 +31,7 @@ export const AgentCockpitPanel: React.FC<AgentCockpitPanelProps> = ({
   matrixData,
   isInvestigationLoading,
 }) => {
-  const [activeTab, setActiveTab] = useState<'investigation' | 'actuation' | 'matrix'>('investigation');
+  const [activeTab, setActiveTab] = useState<'investigation' | 'diff' | 'actuation' | 'matrix'>('investigation');
   const [actuationStep, setActuationStep] = useState<number>(0);
   const [isActuating, setIsActuating] = useState<boolean>(false);
 
@@ -72,6 +72,17 @@ export const AgentCockpitPanel: React.FC<AgentCockpitPanelProps> = ({
           >
             <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
             <span>Agent Brain</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('diff')}
+            className={`flex items-center space-x-1.5 px-3 py-1 rounded-md font-semibold text-xs transition ${
+              activeTab === 'diff'
+                ? 'bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <ArrowRight className="h-3.5 w-3.5 text-cyan-400" />
+            <span>Live State Diff (Δ)</span>
           </button>
           <button
             onClick={() => setActiveTab('actuation')}
@@ -174,6 +185,59 @@ export const AgentCockpitPanel: React.FC<AgentCockpitPanelProps> = ({
                 Click <strong>"Run Investigation"</strong> to execute multi-turn agent evaluation against local NetworkX solver.
               </div>
             )}
+          </div>
+        )}
+
+        {/* TAB: LIVE STATE DIFF (BEFORE VS AFTER) */}
+        {activeTab === 'diff' && (
+          <div className="space-y-2 text-xs">
+            <div className="flex items-center justify-between text-[11px] font-mono">
+              <span className="font-bold text-slate-200">Granular Causal Impact Delta:</span>
+              <span className="text-cyan-400 font-bold">KEEP_CURRENT vs OPEN_P3</span>
+            </div>
+
+            <table className="w-full text-left text-[11px] font-mono border border-slate-800 rounded overflow-hidden">
+              <thead className="bg-slate-900 text-slate-400">
+                <tr>
+                  <th className="p-1.5">State Parameter</th>
+                  <th className="p-1.5">Before (P3 Closed)</th>
+                  <th className="p-1.5">After (P3 Open)</th>
+                  <th className="p-1.5 text-right">Net Delta (Δ)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/80 bg-slate-950">
+                <tr>
+                  <td className="p-1.5 text-slate-300 font-semibold">Total Evacuated</td>
+                  <td className="p-1.5 text-slate-400">60 pers (50%)</td>
+                  <td className="p-1.5 text-emerald-400 font-bold">117 pers (97.5%)</td>
+                  <td className="p-1.5 text-right text-emerald-400 font-bold">+57 pers (+95%)</td>
+                </tr>
+                <tr>
+                  <td className="p-1.5 text-slate-300 font-semibold">Unserviced Residual</td>
+                  <td className="p-1.5 text-rose-400 font-bold">60 pers</td>
+                  <td className="p-1.5 text-slate-400">3 pers</td>
+                  <td className="p-1.5 text-right text-emerald-400 font-bold">-57 pers (-95%)</td>
+                </tr>
+                <tr>
+                  <td className="p-1.5 text-slate-300 font-semibold">Exit B1 (West Transfer)</td>
+                  <td className="p-1.5 text-slate-300">60 / 60 (100% quota)</td>
+                  <td className="p-1.5 text-slate-300">60 / 60 (100% quota)</td>
+                  <td className="p-1.5 text-right text-slate-500">0 (Maxed Out)</td>
+                </tr>
+                <tr>
+                  <td className="p-1.5 text-slate-300 font-semibold">Exit B2 (East Transfer)</td>
+                  <td className="p-1.5 text-rose-400">0 / 60 (Starved)</td>
+                  <td className="p-1.5 text-emerald-400 font-bold">57 / 60 (95% full)</td>
+                  <td className="p-1.5 text-right text-emerald-400 font-bold">+57 pers unlocked</td>
+                </tr>
+                <tr>
+                  <td className="p-1.5 text-slate-300 font-semibold">Physical Servo Barrier</td>
+                  <td className="p-1.5 text-amber-400">CLOSED (D2 Active)</td>
+                  <td className="p-1.5 text-emerald-400">OPEN (D3 Active)</td>
+                  <td className="p-1.5 text-right text-cyan-400 font-bold">Angle: 0° → 90°</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         )}
 

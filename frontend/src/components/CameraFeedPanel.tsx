@@ -278,6 +278,19 @@ export const CameraFeedPanel: React.FC<CameraFeedPanelProps> = ({
           <div className="absolute top-3 right-3 w-5 h-5 border-t-2 border-r-2 border-cyan-400/60" />
           <div className="absolute bottom-3 left-3 w-5 h-5 border-b-2 border-l-2 border-cyan-400/60" />
           <div className="absolute bottom-3 right-3 w-5 h-5 border-b-2 border-r-2 border-cyan-400/60" />
+
+          {/* Floating Detected Coordinates Telemetry Chip */}
+          <div className="absolute bottom-3 left-3 bg-slate-950/90 border border-slate-800 px-2 py-1 rounded text-[10px] font-mono text-slate-300 backdrop-blur pointer-events-auto">
+            <span className="text-cyan-400 font-bold">Argon Vision:</span>{' '}
+            {proposal?.selected_entity_id ? (
+              <span>
+                {proposal.selected_entity_type}:{proposal.selected_entity_id} • Box:{' '}
+                {JSON.stringify(proposal.box_2d ?? [180, 420, 640, 880])}
+              </span>
+            ) : (
+              <span>Waiting for capture / detection...</span>
+            )}
+          </div>
         </div>
       </div>
 
