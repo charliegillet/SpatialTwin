@@ -257,9 +257,9 @@ export function Twin({ snap, act, pending, seek, stale, videoRef }: ScreenProps 
                   ))}
                 </div>
               ) : geo ? <p className="muted">No illegal crossings measured on this revision.</p>
-                : <p className="muted">Geometry not measured for this revision.</p>}
+                : <p className="muted">{snap.geometry_unavailable_reason ? `Geometry unavailable: ${snap.geometry_unavailable_reason}` : 'Geometry not measured for this revision.'}</p>}
             </>
-          ) : <p className="muted">No SfM path for this session.</p>}
+          ) : <p className="muted">{snap.geometry_unavailable_reason ? `Geometry unavailable: ${snap.geometry_unavailable_reason}` : 'No SfM path for this session.'}</p>}
         </div>
         {shownRun && (
           <p className="declared"><Tag kind="declared">declared</Tag> dt {shownRun.params.dt_s} s · horizon {shownRun.params.horizon_s} s · {shownRun.params.specific_flow_p_per_m_s} p/m/s on effective width (minus {shownRun.params.boundary_layer_m} m each side) · walk {shownRun.params.walk_speed_m_s} m/s</p>

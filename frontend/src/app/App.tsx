@@ -28,7 +28,7 @@ export default function App() {
     window.addEventListener('hashchange', on)
     return () => window.removeEventListener('hashchange', on)
   }, [])
-  const { snap, error, refresh, markMutated, stale } = useSession(id)
+  const { snap, error, refresh, markMutated, stale, staleBanner } = useSession(id)
   const [chosen, setChosen] = useState<StepId | null>(null)
   const [pending, setPending] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -91,7 +91,7 @@ export default function App() {
       {pending && <div className="status" role="status">{pending}…</div>}
       {notice && <div className="notice" role="alert">{notice} <button className="link" onClick={() => setNotice(null)}>dismiss</button></div>}
       {error && <div className="notice" role="alert">Could not load the session: {error}</div>}
-      {stale && snap && (
+      {staleBanner && (
         <div className="notice" role="alert">
           Showing an older copy of this session: Accept, Approve and the checked badge are paused until a reload succeeds.{' '}
           <button className="link" onClick={() => void refresh()}>Reload now</button>

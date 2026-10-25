@@ -93,8 +93,11 @@ class Offline:
                                 receipt=None, mode=mode, agentic_observed=None,
                                 video_uri="files/fixture-video", error=None)
 
-    async def refine(self, client, graph, video, extraction, *, sfm, alignment, base_url,
-                     max_iterations=4, deadline_s):
+    # mirrors walktwin.loop.refine_graph
+    async def refine(self, client, graph: VenueGraph, video: PreparedVideo,
+                     extraction: ExtractionResult, *, sfm, alignment, base_url: str,
+                     max_iterations: int = 4, deadline_s: float, zoom_enabled: bool = False,
+                     work_dir: Path | None = None):
         g1 = graph.model_copy(update={"zones": [
             z.model_copy(update={"furniture_seen": True}) if z.id == "Z4" else z for z in graph.zones]})
         g2 = g1.model_copy(update={"doors": [
@@ -137,8 +140,11 @@ class Offline:
         p.write_bytes(b"\x89PNG\r\n\x1a\n")
         return p
 
-    async def investigate(self, client, graph, scenario, params: FlowParams, *, environment_id,
-                          topdown_png, deadline_s=180, max_rounds=4) -> Investigation:
+    # mirrors walktwin.agent.investigate
+    async def investigate(self, client, graph: VenueGraph, scenario: Scenario, params: FlowParams, *,
+                          environment_id: str, topdown_png: Path, deadline_s: float = 180,
+                          max_rounds: int = 4, poll_s: float = 3.0, sessions_dir: Path | None = None,
+                          investigation_id: str | None = None, network=None) -> Investigation:
         await asyncio.sleep(0.01)
         base = solve(graph, scenario, params)
         results = []

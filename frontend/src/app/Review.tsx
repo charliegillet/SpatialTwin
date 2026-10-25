@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { acceptBlockers, api, ApiError, draftRevision } from '../api'
+import { acceptBlockers, api, ApiError, dedupeFindings, draftRevision } from '../api'
 import type { Finding } from '../apiTypes'
 import { ghostFlashes, ghostPath, latestGeometry } from '../twin/ghostWalker'
 import type { Door, Evidence, VenueGraph } from '../types'
@@ -83,7 +83,7 @@ export function Review({ snap, act, pending, seek, stale, videoTime, onAccepted 
   // findings from a 422 on Accept apply only to the revision they were returned for
   const [rejectedFor, setRejected] = useState<{ rev: string | null; findings: Finding[] }>({ rev: null, findings: [] })
   const rejected = rejectedFor.rev === rev ? rejectedFor.findings : []
-  const findings = [...snap.findings, ...rejected]
+  const findings = dedupeFindings([...snap.findings, ...rejected])
   const errorIds = new Set(findings.filter((f) => f.severity === 'error' && f.element_id).map((f) => f.element_id!))
   const blockers = [...acceptBlockers(snap, rejected), ...(stale ? ['reload needed'] : [])]
 
@@ -110,7 +110,7 @@ export function Review({ snap, act, pending, seek, stale, videoTime, onAccepted 
         <PlanView graph={graph} path={ghostPath(snap)} flashes={geo ? ghostFlashes(geo) : []} hazards={[]} selected={selected}
           errorIds={errorIds} editable={!busy && !!rev} onSelect={setSelected} onSeek={seek}
           onRectCommit={(id, rect) => commit({ ...graph, zones: graph.zones.map((z) => (z.id === id ? { ...z, rect } : z)) }, `Moving ${id}`)}
-          label={`${rev ? 'Drag a room to move it, drag its corner dot to resize. Click a door to edit it.' : 'Revision unknown: editing is off until a reload.'} ${geo ? `Walker path measured on this revision: ${geo.illegal_crossings.length} illegal crossings.` : 'Geometry not measured for this revision.'}`} />
+          label={`${rev ? 'Drag a room to move it, drag its corner dot to resize. Click a door to edit it.' : 'Revision unknown: editing is off until a reload.'} ${geo ? `Walker path measured on this revision: ${geo.illegal_crossings.length} illegal crossings.` : (snap.geometry_unavailable_reason ? `Geometry unavailable: ${snap.geometry_unavailable_reason}` : 'Geometry not measured for this revision.')}`} />
         <Timeline graph={graph} duration={snap.video.duration_s} videoTime={videoTime} selected={selected}
           onPick={(id, ev) => { setSelected(id); seek(ev.start_s) }} />
       </div>

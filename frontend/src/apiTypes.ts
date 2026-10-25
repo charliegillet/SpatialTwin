@@ -107,8 +107,11 @@ export interface InterventionResult {
   intervention_id: string; run_id: string; reached_exit: number; total: number
   delta_vs_current: number; check_ok: boolean; limiting_doors: string[]
 }
+/** One sandbox variant the agent reports exploring. Never checker verified. */
+export interface SweepClaim { intervention_id: string; claimed_reached_exit: number; label: 'sandbox, unverified' }
 export interface Recommendation {
   intervention_id: string | null; claimed_reached_exit: number | null; rationale: string; caveats: string[]
+  sweep_summary?: SweepClaim[]
 }
 export interface LedgerEntry {
   call_id: string; kind: 'client_function' | 'sandbox_step'; name: string
@@ -130,6 +133,8 @@ export interface Investigation {
   hook_denials: number
   receipt: Receipt | null
   error?: string | null
+  /** effective sandbox network: "disabled" | "allowlist:pypi" */
+  network_mode?: string | null
 }
 
 export interface Approval {
@@ -151,6 +156,8 @@ export interface Snapshot {
   sfm: SfmSummary | null
   alignment: Alignment | null
   alignment_error: string | null
+  /** why the loop ran without measured geometry (sfm/alignment failure, scale disagrees) */
+  geometry_unavailable_reason: string | null
   ghost_path: GhostPoint[]
   extraction: ExtractionResult | null
   draft_graph: VenueGraph | null

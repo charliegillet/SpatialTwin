@@ -51,6 +51,7 @@ function Case({ inv, props }: { inv: Investigation; props: ScreenProps }) {
         <span className={inv.status === 'completed' ? '' : 'fail'}>status {inv.status}{inv.error ? `: ${inv.error}` : ''}</span>
         <span>{inv.sandbox_runs} sandbox runs, unverified</span>
         <span>{inv.hook_denials} audit hook denials</span>
+        {inv.network_mode && <span>sandbox network: {inv.network_mode}</span>}
       </div>
       <h3>Evidence</h3>
       {inv.ledger.length ? <ol className="ledger">{inv.ledger.map((e) => <Step key={e.call_id} e={e} />)}</ol> : <p className="muted">No steps recorded yet.</p>}
@@ -94,6 +95,12 @@ function Case({ inv, props }: { inv: Investigation; props: ScreenProps }) {
           <h3>Agent's explanation</h3>
           <p>{rec.rationale}</p>
           {rec.caveats.length > 0 && <ul>{rec.caveats.map((c, i) => <li key={i}>{c}</li>)}</ul>}
+          {(rec.sweep_summary?.length ?? 0) > 0 && (
+            <>
+              <h3>Sandbox sweep <Tag kind="model">sandbox, unverified</Tag></h3>
+              <ul className="small">{rec.sweep_summary!.map((c, i) => <li key={i}>{c.intervention_id}: claimed {c.claimed_reached_exit}</li>)}</ul>
+            </>
+          )}
         </div>
       )}
 

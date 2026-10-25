@@ -97,6 +97,7 @@
   "hash": "a-fixture"
  },
  "alignment_error": null,
+ "geometry_unavailable_reason": null,
  "ghost_path": [
   {
    "t_s": 0.0,
@@ -2574,7 +2575,8 @@
       "rationale": "With that exit under fire the hall drains through fewer doors. Opening the locked exit adds a direct way out of the hall.",
       "caveats": [
        "Door widths are estimated, not tape-measured"
-      ]
+      ],
+      "sweep_summary": []
      },
      "result": {
       "ok": true
@@ -2605,7 +2607,8 @@
     "rationale": "With that exit under fire the hall drains through fewer doors. Opening the locked exit adds a direct way out of the hall.",
     "caveats": [
      "Door widths are estimated, not tape-measured"
-    ]
+    ],
+    "sweep_summary": []
    },
    "best": {
     "intervention_id": "OPEN:D5",
@@ -2624,7 +2627,8 @@
    "disagreement": "Agent claimed 128 for OPEN:D5; checker computed 130",
    "hook_denials": 0,
    "receipt": null,
-   "error": null
+   "error": null,
+   "network_mode": null
   },
   {
    "investigation_id": "inv-s-78a9399e037b",
@@ -2685,7 +2689,8 @@
       "rationale": "With that exit under fire the hall drains through fewer doors. Opening the locked exit adds a direct way out of the hall.",
       "caveats": [
        "Door widths are estimated, not tape-measured"
-      ]
+      ],
+      "sweep_summary": []
      },
      "result": {
       "ok": true
@@ -2716,13 +2721,15 @@
     "rationale": "With that exit under fire the hall drains through fewer doors. Opening the locked exit adds a direct way out of the hall.",
     "caveats": [
      "Door widths are estimated, not tape-measured"
-    ]
+    ],
+    "sweep_summary": []
    },
    "best": null,
    "disagreement": null,
    "hook_denials": 0,
    "receipt": null,
-   "error": null
+   "error": null,
+   "network_mode": null
   },
   {
    "investigation_id": "inv-s-70cd18286e12",
@@ -2766,7 +2773,8 @@
       "rationale": "With that exit under fire the hall drains through fewer doors. Opening the locked exit adds a direct way out of the hall.",
       "caveats": [
        "Door widths are estimated, not tape-measured"
-      ]
+      ],
+      "sweep_summary": []
      },
      "result": {
       "ok": true
@@ -2782,13 +2790,15 @@
     "rationale": "With that exit under fire the hall drains through fewer doors. Opening the locked exit adds a direct way out of the hall.",
     "caveats": [
      "Door widths are estimated, not tape-measured"
-    ]
+    ],
+    "sweep_summary": []
    },
    "best": null,
    "disagreement": null,
    "hook_denials": 0,
    "receipt": null,
-   "error": null
+   "error": null,
+   "network_mode": null
   }
  ],
  "ready_investigation_id": "inv-s-1e343dbd4611",

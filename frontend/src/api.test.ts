@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import fixture from './__fixtures__/snapshot.json'
 import {
   ApiShapeError, acceptBlockers, approvable, checkedRun, currentRevision, currentRun, currentScenarioHash,
-  draftRevision, investigationsInProgress, isCurrent, localDisagreement, parseReport, parseSnapshot,
-  readyInvestigations, snapshotIsStale,
+  dedupeFindings, draftRevision, investigationsInProgress, isCurrent, localDisagreement, parseReport, parseSnapshot,
+  readyInvestigations, snapshotIsStale, staleBannerVisible,
 } from './api'
 import type { Snapshot } from './apiTypes'
 
@@ -152,5 +152,37 @@ describe('parseReport', () => {
     }
     expect(parseReport(rep).requirements).toHaveLength(1)
     expect(() => parseReport({ ...rep, verdict: 'great' })).toThrow(ApiShapeError)
+  })
+})
+
+describe('staleBannerVisible', () => {
+  it('waits for a failed reload or a reload slower than 2 s', () => {
+    expect(staleBannerVisible({ okAt: 1, errorAt: 0, mutatedAt: 2 }, 0)).toBe(false) // reload in flight, < 2 s
+    expect(staleBannerVisible({ okAt: 1, errorAt: 0, mutatedAt: 2 }, 2)).toBe(true) // that reload passed 2 s
+    expect(staleBannerVisible({ okAt: 1, errorAt: 0, mutatedAt: 4 }, 2)).toBe(false) // slow flag was for an older mutation
+    expect(staleBannerVisible({ okAt: 1, errorAt: 3, mutatedAt: 2 }, 0)).toBe(true) // the reload failed
+    expect(staleBannerVisible({ okAt: 5, errorAt: 3, mutatedAt: 2 }, 2)).toBe(false) // a later reload succeeded
+    expect(staleBannerVisible({ okAt: 0, errorAt: 1, mutatedAt: 0 }, 0)).toBe(false) // never loaded: the load error shows instead
+  })
+})
+
+describe('findings', () => {
+  it('dedupes by (code, element_id) so a 422 does not double-count', () => {
+    const a = { code: 'ZONE_OVERLAP', severity: 'error' as const, element_id: 'Z1', message: 'from snapshot' }
+    const b = { ...a, message: 'from the 422' }
+    const c = { ...a, element_id: 'Z2' }
+    const d = { ...a, element_id: null }
+    expect(dedupeFindings([a, b, c, d, { ...d }])).toEqual([a, c, d])
+    const r = raw(); r.findings = [a]
+    expect(acceptBlockers(parseSnapshot(r), [b])).toEqual(['1 error finding to fix'])
+  })
+})
+
+describe('geometry_unavailable_reason', () => {
+  it('is read from the snapshot', () => {
+    const r = raw(); r.geometry_unavailable_reason = 'sfm failed: no_reconstruction'
+    expect(parseSnapshot(r).geometry_unavailable_reason).toBe('sfm failed: no_reconstruction')
+    const bad = raw(); bad.geometry_unavailable_reason = 7
+    expect(() => parseSnapshot(bad)).toThrow(ApiShapeError)
   })
 })
