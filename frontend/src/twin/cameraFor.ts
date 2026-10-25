@@ -1,21 +1,21 @@
 import * as THREE from 'three'
+import { graphToScene } from './graphToScene'
 import type { Keyframe, VenueGraph } from '../types'
 
 export const EYE_HEIGHT_M = 1.6
 
 /**
- * Graph (x, y) on the floor maps to three.js (x, 0, y), Y up.
- * heading_deg 0 looks along +y in graph space (three +z); angles increase
- * clockwise when the graph is viewed from above (y up), so 90 looks along +x.
- * Direction in three space = (sin h, 0, cos h).
- * Note: because (x,y)->(x,0,y) is a reflection of the right-handed floor plan,
- * on-screen the perspective view turns left as heading grows.
+ * Graph (x, y) on the floor maps to three.js (x, 0, -y), Y up (right-handed,
+ * no mirroring). heading_deg 0 looks along graph +y (three -z); angles increase
+ * clockwise viewed from above (y up), so 90 looks along graph +x.
+ * Direction in three space = (sin h, 0, -cos h). Facing +y, graph +x is on
+ * screen-right.
  */
 export function cameraFor(k: Keyframe): THREE.PerspectiveCamera {
   const cam = new THREE.PerspectiveCamera(65, 1280 / 720, 0.05, 200)
-  cam.position.set(k.x, EYE_HEIGHT_M, k.y)
+  cam.position.copy(graphToScene(k.x, k.y, EYE_HEIGHT_M))
   const h = (k.heading_deg * Math.PI) / 180
-  cam.lookAt(k.x + Math.sin(h), EYE_HEIGHT_M, k.y + Math.cos(h))
+  cam.lookAt(graphToScene(k.x + Math.sin(h), k.y + Math.cos(h), EYE_HEIGHT_M))
   cam.updateMatrixWorld(true)
   return cam
 }
@@ -36,9 +36,9 @@ export function topDownCamera(graph: VenueGraph): THREE.OrthographicCamera {
   if (halfW / halfH < aspect) halfW = halfH * aspect
   else halfH = halfW / aspect
   const cam = new THREE.OrthographicCamera(-halfW, halfW, halfH, -halfH, 0.1, 100)
-  cam.position.set(cx, 50, cy)
-  cam.up.set(0, 0, -1) // screen right = +x, screen down = +y (image convention)
-  cam.lookAt(cx, 0, cy)
+  cam.position.copy(graphToScene(cx, cy, 50))
+  cam.up.set(0, 0, -1) // screen right = graph +x, screen up = graph +y
+  cam.lookAt(graphToScene(cx, cy))
   cam.updateMatrixWorld(true)
   return cam
 }
