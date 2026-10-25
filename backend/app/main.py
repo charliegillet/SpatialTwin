@@ -42,6 +42,7 @@ from backend.app.ai.receipts import last_live_receipt
 from backend.app.hazard.model import HazardToolError, ToolContext
 from backend.app.hazard.tools import execute_hazard_tool
 from backend.app.incident import build_incident_router
+from backend.app.signs import build_signs_router, forwarded_from_remote, scoped_access
 from backend.app.review.routes import build_review_router
 from backend.app.venues.camera import build_camera_router
 from backend.app.venues.routes import router as venues_router
@@ -148,6 +149,10 @@ class NetworkGuard:
 
     Applies to every route, SSE and the static frontend. With the variable unset, remote clients are
     always rejected. The peer address is used as is: X-Forwarded-For is deliberately not trusted.
+
+    Two narrow additions for phone exit signs (docs/plans/contracts/signs.md): a phone holding a scoped sign or proposal
+    cookie reaches only its allowlist (``scoped_access``), and a loopback peer whose own headers name a LAN browser or
+    proxy (``vite --host``) is treated as remote, so a proxy can never lend a phone operator authority.
     """
 
     def __init__(self, inner):
@@ -165,7 +170,8 @@ class NetworkGuard:
     async def __call__(self, scope, receive, send):
         if scope["type"] in ("http", "websocket"):
             client = scope.get("client")
-            if not (client and is_loopback_client(client[0])) and not self._token_ok(scope):
+            local = bool(client and is_loopback_client(client[0])) and not forwarded_from_remote(scope)
+            if not local and not self._token_ok(scope) and scoped_access(scope) is None:
                 if scope["type"] == "websocket":
                     await send({"type": "websocket.close", "code": 1008})
                 else:
@@ -251,6 +257,8 @@ app.include_router(real2sim_router)
 app.include_router(build_door_agent_router(managed_agent_adapter, _investigation_slots, fixtures_enabled))
 # Server-side incident mirror and the virtual door controller (no hardware): local only, no provider calls.
 app.include_router(build_incident_router())
+# Phone exit signs and hazard proposals (scoped cookies; operator routes loopback only). Before the "/" static mount.
+app.include_router(build_signs_router())
 
 
 @app.get("/api/ai/capabilities")

@@ -1,0 +1,14 @@
+.signs > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; }
+.signs > summary::-webkit-details-marker { display: none; }
+.signs > summary .chip { margin-left: auto; }
+.signs > summary .chip + .chip { margin-left: 0; }
+.signs-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.signs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-top: 8px; }
+.signs-grid figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+/* QR codes need a white quiet zone whatever the theme, or phone cameras miss them. */
+.signs-grid img { width: 100%; max-width: 240px; height: auto; aspect-ratio: 1; background: #fff; padding: 8px; border-radius: 6px; image-rendering: pixelated; }
+.signs-grid figcaption { font-size: 0.85rem; text-align: center; }
+.signs-proposals { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 6px; }
+.signs-proposals li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.signs-proposals li > span { flex: 1 1 auto; }
+@media (max-width: 600px) { .signs-actions .btn, .signs-proposals .btn { min-height: 44px; } }

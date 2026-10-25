@@ -65,10 +65,16 @@ If the reading is slow or fails, say so and open a **saved run** (labelled as su
    it closed and the whole twin switches to that **fallback** (hero "fallback · D9 stuck · −10 vs the plan", routes,
    lamps and door list). The fallback needs a fresh human approval.
 
-Live team run on 26 October (building-v2, fire in the lobby): strategist 38 s, 2/2 claims reproduced, about $0.02;
-robustness 86 s, 12/12 sandbox claims reproduced, about $0.10. The strategist chose D4 closed + D9 open (125 of 125);
-the robustness lane chose D4 open + D9 open, also 125, which held under 18 of 18 single failures against 8 of 16 for the
-strategist's choice. The checker's own best is D4 closed + D9 open; the panel states both, and they tie.
+Live team runs on 26 October (building-v2, fire in the lobby, four runs):
+
+- Strategist: 27–38 s every time, 2/2 claims reproduced, about $0.02.
+- Robustness: 86 s, about 150 s and 172 s when it completed (12/12 claims reproduced, about $0.10; in the last run all
+  12 numbers appeared in the sandbox's own code output). Once it missed its then 150 s deadline and the panel showed
+  the labelled local fallback instead. The deadline is now 210 s, and nothing in Act 3 waits on this lane: approve and
+  jam the doors while it streams.
+- The strategist chose D4 closed + D9 open (125 of 125). The robustness lane chose D4 open + D9 open, also 125, which
+  held under 18 of 18 single failures against 8 of 16 for the strategist's choice. The checker's own best is D4 closed
+  + D9 open; the panel states both, and they tie.
 
 ## Close (15 s)
 

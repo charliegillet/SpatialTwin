@@ -12,6 +12,7 @@ import { DoorPlanBar } from './DoorPlanBar';
 import { HazardToolbar } from './HazardToolbar';
 import { IncidentPanel } from './IncidentPanel';
 import { Real2SimPanel } from './Real2SimPanel';
+import { SignsPanel } from './SignsPanel';
 import { LightsPanel } from './LightsPanel';
 import { TwinHeroView } from './TwinHero';
 import { TwinStage } from './TwinStage';
@@ -65,6 +66,7 @@ export function TwinWorkspace({ twin, notice, mode, calibrateTick, imageFile, an
       <DoorPlanBar plan={drawn} pending={pending} team={team} gates={incident.state.gates}
         executing={summary ? `Fallback plan r${summary.plan_revision}: the doors now follow it (${summary.stuck_doors.join(', ')} stuck closed).` : null} />
       <IncidentPanel incident={incident} />
+      <SignsPanel venue={venue} onConfirmed={hazard => twin.addCamera([hazard])} />
       <LightsPanel venue={venue} plan={drawn} reducedMotion={reducedMotion} />
       <ZoneList venue={venue} hazards={twin.hazards} armed={twin.armed} onPlaceInZone={twin.placeInZone} />
     </div>
