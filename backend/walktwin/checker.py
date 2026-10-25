@@ -11,11 +11,29 @@ import hashlib
 import json
 import math
 from dataclasses import dataclass, field
+from typing import Protocol
 
 from .contracts import Door, FlowParams, Scenario, VenueGraph
 
 _OUT = "OUTSIDE"
 _EPS = 1e-9
+
+
+class RunLike(Protocol):
+    """Structural shape of a solver run (see flow.FlowRun); avoids importing the solver."""
+
+    run_id: str
+    graph_revision: str
+    scenario_hash: str
+    params: FlowParams
+    total: int
+    reached_exit: int
+    remaining_by_zone: dict[str, int]
+    in_transit_end: int
+    door_flows: dict[str, list[int]]
+    zone_occupancy: list[dict[str, int]]
+    transit_by_step: list[int]
+    reached_by_step: list[int]
 
 
 @dataclass(frozen=True)
@@ -52,7 +70,7 @@ def _expected_run_id(revision: str, s_hash: str, p: FlowParams) -> str:
     return "r-" + hashlib.sha256((revision + s_hash + pj).encode("utf-8")).hexdigest()[:12]
 
 
-def check_run(graph: VenueGraph, scenario: Scenario, params: FlowParams, run) -> CheckResult:
+def check_run(graph: VenueGraph, scenario: Scenario, params: FlowParams, run: RunLike) -> CheckResult:
     v: list[str] = []
     K = params.horizon_s // params.dt_s
 
@@ -160,13 +178,15 @@ def check_run(graph: VenueGraph, scenario: Scenario, params: FlowParams, run) ->
             reached += sink[k]
             rep = run.zone_occupancy[k]
             for z in zids:
-                if rep.get(z) is not None and rep[z] < 0:
-                    v.append(f"zone {z}: conservation, negative occupancy {rep[z]} at step {k}")
-                if occ[z] < 0:
-                    v.append(f"zone {z}: conservation, flows imply negative occupancy at step {k}")
-                if rep.get(z) != occ[z]:
+                if occ[z] < 0 or (rep.get(z) is not None and rep[z] < 0):
+                    v.append(f"zone {z}: conservation, negative occupancy "
+                             f"(reported {rep.get(z)}, recomputed {occ[z]}) at step {k}")
+                elif rep.get(z) != occ[z]:
                     v.append(f"zone {z}: conservation, occupancy {rep.get(z)} at step {k} "
                              f"!= recomputed {occ[z]}")
+                if occ[z] >= 0 and dep[z][k] > occ[z]:
+                    v.append(f"zone {z}: conservation, departs {dep[z][k]} at step {k} "
+                             f"but only {occ[z]} present")
             for z in rep:
                 if z not in zones:
                     v.append(f"zone {z}: conservation, unknown zone in occupancy at step {k}")
