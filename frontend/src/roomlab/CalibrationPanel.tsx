@@ -220,6 +220,27 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({
           </label>
         </div>
 
+        <div className="rl-preset-row" aria-label="Standard reference sizes">
+          {(
+            [
+              { label: "Stool (0.40m)", val: "0.40" },
+              { label: "Counter Depth (0.90m)", val: "0.90" },
+              { label: "Std Door (0.91m)", val: "0.91" },
+              { label: "Double Door (1.83m)", val: "1.83" },
+            ] as const
+          ).map((ref) => (
+            <button
+              key={ref.label}
+              type="button"
+              className={`rl-pill ${measuredM === ref.val ? "rl-pill--active" : ""}`}
+              onClick={() => setMeasuredM(ref.val)}
+              title="Prefill standard reference dimension (replace with tape measurement when available)"
+            >
+              <span>{ref.label}</span>
+            </button>
+          ))}
+        </div>
+
         <label className="rl-checkbox-row">
           <input
             type="checkbox"

@@ -1,4 +1,5 @@
 import React from "react";
+import { RoomBrand } from "./RoomBrand";
 import {
   Upload,
   Sparkles,
@@ -23,6 +24,7 @@ import type { ViewMode } from "./editorState";
 
 interface RoomToolbarProps {
   onInspect: () => void;
+  onOpenRooms: () => void;
   config: Config | null;
   sceneName: string;
   sceneRevision: number | null;
@@ -73,17 +75,10 @@ export const RoomToolbar: React.FC<RoomToolbarProps> = (p) => {
   return (
     <>
       <header className="rl-toolbar" role="banner">
-        <div className="rl-toolbar-brand">
-          <div className="rl-logo-badge">
-            <ScanLine size={23} strokeWidth={1.7} />
-          </div>
-          <div>
-            <h1 className="rl-title">
-              RoomLab <ChevronDown size={13} />
-            </h1>
-            <span className="rl-brand-note">A new perspective.</span>
-          </div>
-        </div>
+        <RoomBrand />
+        <button className="rl-workspace-crumb" onClick={p.onOpenRooms}>
+          Workspace <span>/</span> My rooms <span>↗</span>
+        </button>
         <div className="rl-document-title">
           <span>{p.sceneName || "Untitled room"}</span>
           <small>

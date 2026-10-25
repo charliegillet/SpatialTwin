@@ -115,24 +115,31 @@ export const ClearancePanel: React.FC<ClearancePanelProps> = ({
       <div className="rl-preset-row">
         <button
           type="button"
-          className={`rl-pill ${Math.abs(agentDiameterM - 0.55) < 0.02 ? "rl-pill--active" : ""}`}
-          onClick={() => onChangeAgentDiameter(0.55)}
+          className={`rl-pill ${Math.abs(agentDiameterM - 0.6) < 0.02 ? "rl-pill--active" : ""}`}
+          onClick={() => onChangeAgentDiameter(0.6)}
         >
-          <span>Walking Person (0.55m)</span>
+          <span>Walking Person (0.60m)</span>
         </button>
         <button
           type="button"
-          className={`rl-pill ${Math.abs(agentDiameterM - 0.75) < 0.02 ? "rl-pill--active" : ""}`}
-          onClick={() => onChangeAgentDiameter(0.75)}
+          className={`rl-pill ${Math.abs(agentDiameterM - 0.8) < 0.02 ? "rl-pill--active" : ""}`}
+          onClick={() => onChangeAgentDiameter(0.8)}
         >
-          <span>Rolling Cart (0.75m)</span>
+          <span>Baby Stroller (0.80m)</span>
         </button>
         <button
           type="button"
-          className={`rl-pill ${Math.abs(agentDiameterM - 0.9) < 0.02 ? "rl-pill--active" : ""}`}
-          onClick={() => onChangeAgentDiameter(0.9)}
+          className={`rl-pill ${Math.abs(agentDiameterM - 0.92) < 0.02 ? "rl-pill--active" : ""}`}
+          onClick={() => onChangeAgentDiameter(0.92)}
         >
-          <span>Wide Carrier (0.90m)</span>
+          <span>ADA Wheelchair (0.92m)</span>
+        </button>
+        <button
+          type="button"
+          className={`rl-pill ${Math.abs(agentDiameterM - 1.05) < 0.02 ? "rl-pill--active" : ""}`}
+          onClick={() => onChangeAgentDiameter(1.05)}
+        >
+          <span>Moving Sofa (1.05m)</span>
         </button>
       </div>
 

@@ -265,11 +265,14 @@ export function addObjectToScene(scene: RoomSceneV1, category = 'table'): { scen
   while (existingIds.has(`obj-${idx}`)) idx += 1;
   const newId = `obj-${idx}`;
 
-  const presets: Record<string, { label: string; w: number; d: number; h: number; movable: boolean }> = {
-    table: { label: `Table ${idx}`, w: 1.4, d: 0.8, h: 0.75, movable: true },
-    chair: { label: `Chair ${idx}`, w: 0.55, d: 0.55, h: 0.82, movable: true },
-    sofa: { label: `Sofa ${idx}`, w: 1.9, d: 0.9, h: 0.85, movable: true },
-    pillar: { label: `Column ${idx}`, w: 0.45, d: 0.45, h: 2.7, movable: false },
+  const presets: Record<string, { label: string; w: number; d: number; h: number; movable: boolean; color: string; material: 'wood' | 'fabric' | 'foliage' | 'concrete' }> = {
+    table: { label: `Table ${idx}`, w: 1.4, d: 0.8, h: 0.75, movable: true, color: '#a8743f', material: 'wood' },
+    chair: { label: `Chair ${idx}`, w: 0.55, d: 0.55, h: 0.82, movable: true, color: '#5d6875', material: 'fabric' },
+    sofa: { label: `Sofa ${idx}`, w: 1.9, d: 0.9, h: 0.85, movable: true, color: '#6f7f8e', material: 'fabric' },
+    counter: { label: `Desk ${idx}`, w: 1.5, d: 0.75, h: 0.76, movable: true, color: '#a8743f', material: 'wood' },
+    stool: { label: `Stool ${idx}`, w: 0.42, d: 0.42, h: 0.48, movable: true, color: '#cbb696', material: 'wood' },
+    plant: { label: `Potted Plant ${idx}`, w: 0.65, d: 0.65, h: 1.5, movable: true, color: '#4a8a3e', material: 'foliage' },
+    pillar: { label: `Column ${idx}`, w: 0.45, d: 0.45, h: 2.7, movable: false, color: '#a3a29d', material: 'concrete' },
   };
   const spec = presets[category] ?? presets.table;
 
@@ -285,6 +288,16 @@ export function addObjectToScene(scene: RoomSceneV1, category = 'table'): { scen
     movable: spec.movable,
     resize_allowed: true,
     uncertainty_radius_m: 0.05,
+    appearance: {
+      color: spec.color,
+      material: spec.material,
+      provenance: {
+        source: 'heuristic_fallback',
+        evidence_frame_ids: [],
+        note: 'Default preset appearance for user-added object.',
+      },
+      user_override: null,
+    },
     provenance: {
       source: 'user_edit',
       visibility: 'observed',

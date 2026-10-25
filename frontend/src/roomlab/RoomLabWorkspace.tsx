@@ -30,6 +30,7 @@ import type {
   OptimizeResult,
   RoomObject,
   RoomSceneV1,
+  RoomSubmission,
   SolveRequest,
   SolveResult,
   ValidationReport,
@@ -49,6 +50,7 @@ import {
   type SelectionTarget,
   type ViewMode,
 } from "./editorState";
+import { MyRooms } from "./MyRooms";
 import { OverlapRepairPanel } from "./OverlapRepairPanel";
 import { VisualReviewPanel } from "./VisualReviewPanel";
 import type { RepairResult } from "./contracts.generated";
@@ -68,6 +70,11 @@ export default function RoomLabWorkspace() {
     createInitialHistory(null),
   );
 
+  const [libraryOpen, setLibraryOpen] = useState(true);
+  const [openingRoom, setOpeningRoom] = useState(false);
+  const [startingRoom, setStartingRoom] = useState(false);
+  const navigationEpoch = useRef(0);
+  const followJob = useRef<{ id: string; epoch: number } | null>(null);
   const [selectedTarget, setSelectedTarget] = useState<SelectionTarget>(null);
   const [activeFrameId, setActiveFrameId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("orbit");
@@ -77,7 +84,10 @@ export default function RoomLabWorkspace() {
   >("source");
   const selectTarget = useCallback((target: SelectionTarget) => {
     setSelectedTarget(target);
-    if (target) setSidebarTab("scene");
+    if (target) {
+      setSidebarTab("scene");
+      setLibraryOpen(false);
+    }
   }, []);
 
   const [startPoint, setStartPoint] = useState<[number, number]>([-1.5, -1.0]);
@@ -123,6 +133,8 @@ export default function RoomLabWorkspace() {
     if (!items?.some((item) => item.id === selectedTarget.id))
       setSelectedTarget(null);
   }, [scene, selectedTarget]);
+  const historyRef = useRef(history);
+  historyRef.current = history;
   const sceneRef = useRef(scene);
   sceneRef.current = scene;
 
@@ -221,12 +233,19 @@ export default function RoomLabWorkspace() {
           setIsExtracting(false);
           const extractedScene = await getScene(nextJob.scene_id);
           if (!cancelled) {
-            applyNewAuthoritativeScene(
-              extractedScene,
-              `Extracted estimated room '${extractedScene.name ?? extractedScene.scene_id}' (Rev ${
-                extractedScene.scene_revision ?? 1
-              }).`,
-            );
+            if (
+              !historyRef.current.dirty &&
+              followJob.current?.id === nextJob.job_id &&
+              followJob.current.epoch === navigationEpoch.current
+            ) {
+              applyNewAuthoritativeScene(
+                extractedScene,
+                `Your room is ready: ${extractedScene.name}.`,
+              );
+            } else
+              setBannerInfo(
+                "Your new room is ready in My rooms. Your current view and edits were preserved.",
+              );
             setJob(nextJob);
           }
         } else if (
@@ -258,6 +277,82 @@ export default function RoomLabWorkspace() {
       }
     };
   }, [job?.job_id, job?.status, applyNewAuthoritativeScene]);
+
+  const requireCleanRoom = () => {
+    if (!historyRef.current.dirty) return true;
+    setLibraryOpen(false);
+    setSidebarTab("scene");
+    setBannerError(
+      "Save or discard your current edits before opening another walkthrough. Your edits are preserved.",
+    );
+    return false;
+  };
+  const openLibraryRoom = async (
+    entry: RoomSubmission,
+    requestedSceneId?: string,
+  ) => {
+    if (!requireCleanRoom()) return;
+    const token = ++navigationEpoch.current;
+    setOpeningRoom(true);
+    setBannerError(null);
+    try {
+      const id = requestedSceneId ?? entry.scene_id;
+      const loaded = id ? await getScene(id) : null;
+      const restoredMedia = entry.media_id
+        ? await getMedia(entry.media_id).catch(() => null)
+        : null;
+      if (token !== navigationEpoch.current || !requireCleanRoom()) return;
+      setSelectedTarget(null);
+      setActiveFrameId(null);
+      setMedia(restoredMedia);
+      setJob(null);
+      followJob.current = null;
+      if (loaded) applyNewAuthoritativeScene(loaded);
+      else {
+        if (entry.job_id && entry.status === "processing") {
+          const current = await getJob(entry.job_id);
+          if (token !== navigationEpoch.current) return;
+          followJob.current = { id: current.job_id, epoch: token };
+          setJob(current);
+        }
+        setLibraryOpen(false);
+        setSidebarTab("source");
+      }
+    } catch (e) {
+      setBannerError(
+        e instanceof Error ? e.message : "Could not open this room.",
+      );
+    } finally {
+      setOpeningRoom(false);
+    }
+  };
+  const buildLibraryRoom = async (entry: RoomSubmission) => {
+    if (!entry.media_id || !requireCleanRoom()) return;
+    const token = ++navigationEpoch.current;
+    setStartingRoom(true);
+    setBannerError(null);
+    try {
+      const record = await getMedia(entry.media_id);
+      const started = await extractRoom(entry.media_id);
+      if (token !== navigationEpoch.current) return;
+      setMedia(record);
+      followJob.current = { id: started.job_id, epoch: token };
+      setJob(started);
+    } catch (e) {
+      setBannerError(
+        e instanceof Error ? e.message : "Could not start room building.",
+      );
+    } finally {
+      setStartingRoom(false);
+    }
+  };
+  const uploadFromLibrary = (file: File) => {
+    if (!requireCleanRoom()) return;
+    navigationEpoch.current++;
+    setLibraryOpen(false);
+    setSidebarTab("source");
+    void handleSelectVideoFile(file);
+  };
 
   const handleSelectVideoFile = async (file: File) => {
     setBannerError(null);
@@ -310,6 +405,10 @@ export default function RoomLabWorkspace() {
     setIsExtracting(true);
     try {
       const startedJob = await extractRoom(media.media_id);
+      followJob.current = {
+        id: startedJob.job_id,
+        epoch: navigationEpoch.current,
+      };
       setJob(startedJob);
     } catch (err) {
       setIsExtracting(false);
@@ -523,6 +622,7 @@ export default function RoomLabWorkspace() {
 
   const handleAddObject = useCallback(
     (category: string) => {
+      setLibraryOpen(false);
       setSidebarTab("scene");
       setHistory((prev) => {
         if (!prev.present) return prev;
@@ -599,251 +699,270 @@ export default function RoomLabWorkspace() {
 
       <main className="rl-main-grid">
         <aside className="rl-sidebar" aria-label="Room workspace">
-          <RoomToolbar
-            config={config}
-            sceneName={scene?.name ?? ""}
-            sceneRevision={scene?.scene_revision ?? null}
-            geometrySource={scene?.geometry_source ?? null}
-            isConfigured={Boolean(config?.gemini_configured)}
-            dirty={history.dirty}
-            canUndo={history.past.length > 0}
-            canRedo={history.future.length > 0}
-            isUploading={isUploading}
-            isExtracting={isExtracting}
-            isSaving={isSaving}
-            viewMode={viewMode}
-            showCSpace={showCSpace}
-            onInspect={() => setSidebarTab("scene")}
-            onSelectVideoFile={(file) => {
-              setSidebarTab("source");
-              handleSelectVideoFile(file);
-            }}
-            onUseSampleVideo={() => {
-              setSidebarTab("source");
-              handleUseSampleVideo();
-            }}
-            onUndo={() => {
-              setHistory(undoSceneEdit);
-              clearAnalysisOverlays();
-            }}
-            onRedo={() => {
-              setHistory(redoSceneEdit);
-              clearAnalysisOverlays();
-            }}
-            onDiscardEdits={() => {
-              setHistory(discardUnsavedEdits);
-              clearAnalysisOverlays();
-            }}
-            onSaveScene={handleSaveScene}
-            onExportJson={handleExportJson}
-            onImportJsonFile={handleImportJsonFile}
-            onAddObject={handleAddObject}
-            onChangeViewMode={setViewMode}
-            onToggleCSpace={() => setShowCSpace((v) => !v)}
-          />
-          <nav
-            className="rl-tabs"
-            aria-label="Workspace sections"
-            role="tablist"
-            onKeyDown={(e) => {
-              const keys = ["source", "scene", "scale", "analysis"] as const;
-              let i = keys.indexOf(sidebarTab);
-              if (e.key === "ArrowRight") i = (i + 1) % 4;
-              else if (e.key === "ArrowLeft") i = (i + 3) % 4;
-              else if (e.key === "Home") i = 0;
-              else if (e.key === "End") i = 3;
-              else return;
-              e.preventDefault();
-              setSidebarTab(keys[i]);
-              document.getElementById("tab-" + keys[i])?.focus();
-            }}
-          >
-            {(
-              [
-                { id: "source", label: "Source", icon: Film },
-                { id: "scene", label: "Objects", icon: Layers3 },
-                { id: "scale", label: "Scale", icon: Ruler },
-                { id: "analysis", label: "Analysis", icon: Route },
-              ] as const
-            ).map((t) => (
-              <button
-                key={t.id}
-                id={"tab-" + t.id}
-                role="tab"
-                tabIndex={sidebarTab === t.id ? 0 : -1}
-                aria-selected={sidebarTab === t.id}
-                aria-controls={"panel-" + t.id}
-                onClick={() => setSidebarTab(t.id)}
+          {libraryOpen && (
+            <MyRooms
+              sceneId={scene?.scene_id ?? null}
+              refreshToken={`${scene?.scene_id}:${scene?.scene_revision}:${media?.media_id}:${job?.job_id}:${job?.status}`}
+              busy={isUploading || openingRoom || startingRoom}
+              onOpen={openLibraryRoom}
+              onBuild={buildLibraryRoom}
+              onUpload={uploadFromLibrary}
+              onBack={() => {navigationEpoch.current++;setLibraryOpen(false);}}
+            />
+          )}
+          <div className="rl-editor-panel" hidden={libraryOpen}>
+            <RoomToolbar
+              onOpenRooms={() => setLibraryOpen(true)}
+              config={config}
+              sceneName={scene?.name ?? ""}
+              sceneRevision={scene?.scene_revision ?? null}
+              geometrySource={scene?.geometry_source ?? null}
+              isConfigured={Boolean(config?.gemini_configured)}
+              dirty={history.dirty}
+              canUndo={history.past.length > 0}
+              canRedo={history.future.length > 0}
+              isUploading={isUploading}
+              isExtracting={isExtracting}
+              isSaving={isSaving}
+              viewMode={viewMode}
+              showCSpace={showCSpace}
+              onInspect={() => {
+                setLibraryOpen(false);
+                setSidebarTab("scene");
+              }}
+              onSelectVideoFile={(file) => {
+                if (!requireCleanRoom()) return;
+                navigationEpoch.current++;
+                setSidebarTab("source");
+                handleSelectVideoFile(file);
+              }}
+              onUseSampleVideo={() => {
+                setSidebarTab("source");
+                handleUseSampleVideo();
+              }}
+              onUndo={() => {
+                setHistory(undoSceneEdit);
+                clearAnalysisOverlays();
+              }}
+              onRedo={() => {
+                setHistory(redoSceneEdit);
+                clearAnalysisOverlays();
+              }}
+              onDiscardEdits={() => {
+                setHistory(discardUnsavedEdits);
+                clearAnalysisOverlays();
+              }}
+              onSaveScene={handleSaveScene}
+              onExportJson={handleExportJson}
+              onImportJsonFile={handleImportJsonFile}
+              onAddObject={handleAddObject}
+              onChangeViewMode={setViewMode}
+              onToggleCSpace={() => setShowCSpace((v) => !v)}
+            />
+            <nav
+              className="rl-tabs"
+              aria-label="Workspace sections"
+              role="tablist"
+              onKeyDown={(e) => {
+                const keys = ["source", "scene", "scale", "analysis"] as const;
+                let i = keys.indexOf(sidebarTab);
+                if (e.key === "ArrowRight") i = (i + 1) % 4;
+                else if (e.key === "ArrowLeft") i = (i + 3) % 4;
+                else if (e.key === "Home") i = 0;
+                else if (e.key === "End") i = 3;
+                else return;
+                e.preventDefault();
+                setSidebarTab(keys[i]);
+                document.getElementById("tab-" + keys[i])?.focus();
+              }}
+            >
+              {(
+                [
+                  { id: "source", label: "Source", icon: Film },
+                  { id: "scene", label: "Objects", icon: Layers3 },
+                  { id: "scale", label: "Scale", icon: Ruler },
+                  { id: "analysis", label: "Analysis", icon: Route },
+                ] as const
+              ).map((t) => (
+                <button
+                  key={t.id}
+                  id={"tab-" + t.id}
+                  role="tab"
+                  tabIndex={sidebarTab === t.id ? 0 : -1}
+                  aria-selected={sidebarTab === t.id}
+                  aria-controls={"panel-" + t.id}
+                  onClick={() => setSidebarTab(t.id)}
+                >
+                  <t.icon size={15} />
+                  {t.label}
+                </button>
+              ))}
+            </nav>
+            <div className="rl-sidebar-content">
+              <div
+                id="panel-source"
+                role="tabpanel"
+                aria-labelledby="tab-source"
+                hidden={sidebarTab !== "source"}
               >
-                <t.icon size={15} />
-                {t.label}
-              </button>
-            ))}
-          </nav>
-          <div className="rl-sidebar-content">
-            <div
-              id="panel-source"
-              role="tabpanel"
-              aria-labelledby="tab-source"
-              hidden={sidebarTab !== "source"}
-            >
-              <RoomEvidencePanel
-                media={media}
-                job={job}
-                scene={scene}
-                selectedFrameIds={selectedEvidenceFrameIds}
-                activeFrameId={activeFrameId}
-                isExtracting={isExtracting}
-                onSelectFrame={setActiveFrameId}
-                onExtractRoom={handleExtractRoom}
-                onCancelJob={handleCancelJob}
-              />
+                <RoomEvidencePanel
+                  media={media}
+                  job={job}
+                  scene={scene}
+                  selectedFrameIds={selectedEvidenceFrameIds}
+                  activeFrameId={activeFrameId}
+                  isExtracting={isExtracting}
+                  onSelectFrame={setActiveFrameId}
+                  onExtractRoom={handleExtractRoom}
+                  onCancelJob={handleCancelJob}
+                />
+              </div>
+              <div
+                id="panel-scene"
+                role="tabpanel"
+                aria-labelledby="tab-scene"
+                hidden={sidebarTab !== "scene"}
+              >
+                {!scene && (
+                  <p className="rl-empty-card">
+                    Your objects will appear here after you create a room.
+                  </p>
+                )}
+                <RoomEditor
+                  scene={scene}
+                  dirty={history.dirty}
+                  selectedTarget={selectedTarget}
+                  validation={validation}
+                  isValidating={isValidating}
+                  onSelectTarget={selectTarget}
+                  onUpdateObject={handleUpdateObject}
+                  onDeleteObject={handleDeleteObject}
+                  onUpdateScene={(next) => {
+                    setHistory((prev) => pushSceneEdit(prev, next));
+                    clearAnalysisOverlays();
+                  }}
+                  onValidateScene={handleValidateScene}
+                />
+              </div>
+              <div
+                id="panel-scale"
+                role="tabpanel"
+                aria-labelledby="tab-scale"
+                hidden={sidebarTab !== "scale"}
+              >
+                {!scene && (
+                  <p className="rl-empty-card">
+                    Create a room, then add a real measurement to set its scale.
+                  </p>
+                )}
+                <CalibrationPanel
+                  scene={scene}
+                  selectedTarget={selectedTarget}
+                  dirty={history.dirty}
+                  isCalibrating={isCalibrating}
+                  onCalibrate={handleCalibrate}
+                />
+              </div>
+              <div
+                id="panel-analysis"
+                role="tabpanel"
+                aria-labelledby="tab-analysis"
+                hidden={sidebarTab !== "analysis"}
+              >
+                {!scene && (
+                  <p className="rl-empty-card">
+                    Create a room and set the scale to explore paths and
+                    clearance.
+                  </p>
+                )}
+                <ClearancePanel
+                  scene={scene}
+                  dirty={history.dirty}
+                  startPoint={startPoint}
+                  goalPoint={goalPoint}
+                  agentDiameterM={agentDiameterM}
+                  marginM={marginM}
+                  solveResult={solveResult}
+                  optimizeResult={optimizeResult}
+                  isSolving={isSolving}
+                  isOptimizing={isOptimizing}
+                  pickEndpointMode={pickEndpointMode}
+                  onChangeStart={(pt) => {
+                    setStartPoint(pt);
+                    clearAnalysisOverlays();
+                  }}
+                  onChangeGoal={(pt) => {
+                    setGoalPoint(pt);
+                    clearAnalysisOverlays();
+                  }}
+                  onChangeAgentDiameter={(d) => {
+                    setAgentDiameterM(d);
+                    clearAnalysisOverlays();
+                  }}
+                  onChangeMargin={(m) => {
+                    setMarginM(m);
+                    clearAnalysisOverlays();
+                  }}
+                  onTogglePickEndpoint={setPickEndpointMode}
+                  onRunSolve={handleRunSolve}
+                  onRunOptimize={handleRunOptimize}
+                  onApplyOptimizedScene={(candidateScene) => {
+                    setHistory((prev) => pushSceneEdit(prev, candidateScene));
+                    clearAnalysisOverlays();
+                    setBannerInfo(
+                      'Staged candidate layout change locally. Click "Save Revision" to commit and re-verify.',
+                    );
+                  }}
+                />
+                <OverlapRepairPanel
+                  scene={scene}
+                  dirty={history.dirty}
+                  result={repairResult}
+                  busy={isRepairing}
+                  onRun={handleRepair}
+                  onApply={applyCandidate}
+                  onDiscard={() => setRepairResult(null)}
+                />
+                <VisualReviewPanel
+                  scene={scene}
+                  dirty={history.dirty}
+                  onStartReview={() => {
+                    setRepairResult(null);
+                    setOptimizeResult(null);
+                  }}
+                  contextVersion={analysisEpoch.current}
+                  request={
+                    scene
+                      ? {
+                          expected_revision: scene.scene_revision ?? 1,
+                          start: startPoint,
+                          goal: goalPoint,
+                          agent_diameter_m: agentDiameterM,
+                          margin_m: marginM,
+                        }
+                      : null
+                  }
+                  focus={selectedTarget ? [selectedTarget.id] : []}
+                  onFrame={(id) => {
+                    setActiveFrameId(id);
+                    setSidebarTab("source");
+                  }}
+                />
+              </div>
             </div>
-            <div
-              id="panel-scene"
-              role="tabpanel"
-              aria-labelledby="tab-scene"
-              hidden={sidebarTab !== "scene"}
-            >
-              {!scene && (
-                <p className="rl-empty-card">
-                  Your objects will appear here after you create a room.
-                </p>
-              )}
-              <RoomEditor
-                scene={scene}
-                dirty={history.dirty}
-                selectedTarget={selectedTarget}
-                validation={validation}
-                isValidating={isValidating}
-                onSelectTarget={selectTarget}
-                onUpdateObject={handleUpdateObject}
-                onDeleteObject={handleDeleteObject}
-                onUpdateScene={(next) => {
-                  setHistory((prev) => pushSceneEdit(prev, next));
-                  clearAnalysisOverlays();
-                }}
-                onValidateScene={handleValidateScene}
-              />
+            <div className="rl-sidebar-footer">
+              <span className="rl-status-dot" />
+              <span>
+                {isExtracting
+                  ? "Building your room…"
+                  : scene
+                    ? "Evidence-linked · editable"
+                    : "Ready for your walkthrough"}
+              </span>
+              <span>
+                {scene?.scene_revision ? "v" + scene.scene_revision : ""}
+              </span>
             </div>
-            <div
-              id="panel-scale"
-              role="tabpanel"
-              aria-labelledby="tab-scale"
-              hidden={sidebarTab !== "scale"}
-            >
-              {!scene && (
-                <p className="rl-empty-card">
-                  Create a room, then add a real measurement to set its scale.
-                </p>
-              )}
-              <CalibrationPanel
-                scene={scene}
-                selectedTarget={selectedTarget}
-                dirty={history.dirty}
-                isCalibrating={isCalibrating}
-                onCalibrate={handleCalibrate}
-              />
-            </div>
-            <div
-              id="panel-analysis"
-              role="tabpanel"
-              aria-labelledby="tab-analysis"
-              hidden={sidebarTab !== "analysis"}
-            >
-              {!scene && (
-                <p className="rl-empty-card">
-                  Create a room and set the scale to explore paths and
-                  clearance.
-                </p>
-              )}
-              <ClearancePanel
-                scene={scene}
-                dirty={history.dirty}
-                startPoint={startPoint}
-                goalPoint={goalPoint}
-                agentDiameterM={agentDiameterM}
-                marginM={marginM}
-                solveResult={solveResult}
-                optimizeResult={optimizeResult}
-                isSolving={isSolving}
-                isOptimizing={isOptimizing}
-                pickEndpointMode={pickEndpointMode}
-                onChangeStart={(pt) => {
-                  setStartPoint(pt);
-                  clearAnalysisOverlays();
-                }}
-                onChangeGoal={(pt) => {
-                  setGoalPoint(pt);
-                  clearAnalysisOverlays();
-                }}
-                onChangeAgentDiameter={(d) => {
-                  setAgentDiameterM(d);
-                  clearAnalysisOverlays();
-                }}
-                onChangeMargin={(m) => {
-                  setMarginM(m);
-                  clearAnalysisOverlays();
-                }}
-                onTogglePickEndpoint={setPickEndpointMode}
-                onRunSolve={handleRunSolve}
-                onRunOptimize={handleRunOptimize}
-                onApplyOptimizedScene={(candidateScene) => {
-                  setHistory((prev) => pushSceneEdit(prev, candidateScene));
-                  clearAnalysisOverlays();
-                  setBannerInfo(
-                    'Staged candidate layout change locally. Click "Save Revision" to commit and re-verify.',
-                  );
-                }}
-              />
-              <OverlapRepairPanel
-                scene={scene}
-                dirty={history.dirty}
-                result={repairResult}
-                busy={isRepairing}
-                onRun={handleRepair}
-                onApply={applyCandidate}
-                onDiscard={() => setRepairResult(null)}
-              />
-              <VisualReviewPanel
-                scene={scene}
-                dirty={history.dirty}
-                onStartReview={() => {
-                  setRepairResult(null);
-                  setOptimizeResult(null);
-                }}
-                contextVersion={analysisEpoch.current}
-                request={
-                  scene
-                    ? {
-                        expected_revision: scene.scene_revision ?? 1,
-                        start: startPoint,
-                        goal: goalPoint,
-                        agent_diameter_m: agentDiameterM,
-                        margin_m: marginM,
-                      }
-                    : null
-                }
-                focus={selectedTarget ? [selectedTarget.id] : []}
-                onFrame={(id) => {
-                  setActiveFrameId(id);
-                  setSidebarTab("source");
-                }}
-              />
-            </div>
-          </div>
-          <div className="rl-sidebar-footer">
-            <span className="rl-status-dot" />
-            <span>
-              {isExtracting
-                ? "Building your room…"
-                : scene
-                  ? "Evidence-linked · editable"
-                  : "Ready for your walkthrough"}
-            </span>
-            <span>
-              {scene?.scene_revision ? "v" + scene.scene_revision : ""}
-            </span>
           </div>
         </aside>
         <section className="rl-center-stage" aria-label="3D Room Viewport">
@@ -851,7 +970,10 @@ export default function RoomLabWorkspace() {
             viewMode={viewMode}
             showCSpace={showCSpace}
             sceneRevision={scene?.scene_revision ?? null}
-            onInspect={() => setSidebarTab("scene")}
+            onInspect={() => {
+              setLibraryOpen(false);
+              setSidebarTab("scene");
+            }}
             onChangeViewMode={setViewMode}
             onToggleCSpace={() => setShowCSpace((v) => !v)}
             onAddObject={handleAddObject}

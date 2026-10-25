@@ -1942,5 +1942,187 @@
     ],
     "title": "RepairResult",
     "type": "object"
+  },
+  "SavedRoomSummary": {
+    "additionalProperties": false,
+    "properties": {
+      "scene_id": {
+        "title": "Scene Id",
+        "type": "string"
+      },
+      "name": {
+        "title": "Name",
+        "type": "string"
+      },
+      "scene_revision": {
+        "title": "Scene Revision",
+        "type": "integer"
+      },
+      "updated_at": {
+        "title": "Updated At",
+        "type": "number"
+      }
+    },
+    "required": [
+      "scene_id",
+      "name",
+      "scene_revision",
+      "updated_at"
+    ],
+    "title": "SavedRoomSummary",
+    "type": "object"
+  },
+  "RoomSubmission": {
+    "additionalProperties": false,
+    "properties": {
+      "submission_id": {
+        "title": "Submission Id",
+        "type": "string"
+      },
+      "media_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Media Id"
+      },
+      "scene_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Scene Id"
+      },
+      "title": {
+        "title": "Title",
+        "type": "string"
+      },
+      "filename": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Filename"
+      },
+      "thumbnail_url": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Thumbnail Url"
+      },
+      "submitted_at": {
+        "title": "Submitted At",
+        "type": "number"
+      },
+      "updated_at": {
+        "title": "Updated At",
+        "type": "number"
+      },
+      "status": {
+        "enum": [
+          "ready",
+          "processing",
+          "uploaded",
+          "needs_attention"
+        ],
+        "title": "Status",
+        "type": "string"
+      },
+      "job_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Job Id"
+      },
+      "error": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Error"
+      },
+      "duration_s": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Duration S"
+      },
+      "scenes": {
+        "items": {
+          "$ref": "#/$defs/SavedRoomSummary"
+        },
+        "title": "Scenes",
+        "type": "array"
+      }
+    },
+    "required": [
+      "submission_id",
+      "title",
+      "submitted_at",
+      "updated_at",
+      "status"
+    ],
+    "title": "RoomSubmission",
+    "type": "object"
+  },
+  "RoomLibrary": {
+    "additionalProperties": false,
+    "properties": {
+      "items": {
+        "items": {
+          "$ref": "#/$defs/RoomSubmission"
+        },
+        "title": "Items",
+        "type": "array"
+      },
+      "total_count": {
+        "title": "Total Count",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "items",
+      "total_count"
+    ],
+    "title": "RoomLibrary",
+    "type": "object"
   }
 }

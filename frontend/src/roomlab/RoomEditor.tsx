@@ -7,6 +7,7 @@ import type {
   ValidationReport,
 } from "./contracts.generated";
 import {
+  addObjectToScene,
   cloneScene,
   deriveWallsFromFloor,
   wallLengthMeters,
@@ -615,6 +616,36 @@ export const RoomEditor: React.FC<RoomEditorProps> = ({
 
       <div className="rl-element-list">
         <h4>Objects ({objects.length})</h4>
+        <div
+          className="rl-preset-row"
+          aria-label="Add everyday furniture presets"
+        >
+          {(
+            [
+              { cat: "sofa", label: "+ Sofa" },
+              { cat: "counter", label: "+ Desk" },
+              { cat: "table", label: "+ Table" },
+              { cat: "chair", label: "+ Chair" },
+              { cat: "plant", label: "+ Plant" },
+            ] as const
+          ).map((item) => (
+            <button
+              key={item.cat}
+              type="button"
+              className="rl-pill"
+              onClick={() => {
+                const { scene: nextScene, newId } = addObjectToScene(
+                  scene,
+                  item.cat,
+                );
+                onUpdateScene(nextScene);
+                onSelectTarget({ kind: "object", id: newId });
+              }}
+            >
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </div>
         <div className="rl-pill-list">
           {objects.map((o) => {
             const active =

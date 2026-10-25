@@ -105,3 +105,5 @@ export const proposeOverlapRepair = (
     "/scenes/" + encodeURIComponent(id) + "/repair-overlaps",
     json(body),
   );
+
+export const getRoomLibrary = () => request<import('./contracts.generated').RoomLibrary>('/rooms');

@@ -285,3 +285,29 @@ def render_hash(scene: RoomSceneV1) -> str:
                 'objects':[(o.id,o.appearance) for o in scene.objects]}
     def encode(value):return value.model_dump(mode='json') if isinstance(value,Contract) else value
     return hashlib.sha256(json.dumps(appearance,default=encode,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+
+
+class SavedRoomSummary(Contract):
+    scene_id: str
+    name: str
+    scene_revision: int
+    updated_at: Finite
+
+class RoomSubmission(Contract):
+    submission_id: str
+    media_id: str | None = None
+    scene_id: str | None = None
+    title: str
+    filename: str | None = None
+    thumbnail_url: str | None = None
+    submitted_at: Finite
+    updated_at: Finite
+    status: Literal['ready','processing','uploaded','needs_attention']
+    job_id: str | None = None
+    error: str | None = None
+    duration_s: Finite | None = None
+    scenes: list[SavedRoomSummary] = Field(default_factory=list)
+
+class RoomLibrary(Contract):
+    items: list[RoomSubmission]
+    total_count: int

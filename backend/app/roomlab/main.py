@@ -6,8 +6,9 @@ from pathlib import Path
 from fastapi import FastAPI,UploadFile,File,HTTPException,Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from .contracts import RoomSceneV1,RoomDraft,MediaRecord,JobRecord,ExtractRequest,EditSceneRequest,CalibrateRequest,SolveRequest,CritiqueRequest,RepairRequest,SceneReceipt,CritiqueJobRecord
+from .contracts import RoomSceneV1,RoomDraft,MediaRecord,JobRecord,ExtractRequest,EditSceneRequest,CalibrateRequest,SolveRequest,CritiqueRequest,RepairRequest,SceneReceipt,CritiqueJobRecord,RoomLibrary
 from .store import SceneStore,ConflictError
+from .library import ExtractionJournal,list_rooms
 from .validation import validate_scene
 from .reachability import solve
 from .optimizer import optimize
@@ -21,7 +22,8 @@ log=logging.getLogger('roomlab')
 def create_app(runtime:Path|None=None)->FastAPI:
     runtime=runtime or ROOT/'runtime/roomlab';runtime.mkdir(parents=True,exist_ok=True)
     media_root=runtime/'media';media_root.mkdir(exist_ok=True)
-    store=SceneStore(runtime/'scenes');jobs={};tasks={};limit=asyncio.Semaphore(1)
+    journal=ExtractionJournal(runtime/'extraction-jobs')
+    store=SceneStore(runtime/'scenes');jobs=journal.load();tasks={};limit=asyncio.Semaphore(1)
     critic=CritiqueService(store,media_root)
     @asynccontextmanager
     async def lifespan(_app):
@@ -95,7 +97,7 @@ def create_app(runtime:Path|None=None)->FastAPI:
     async def extract_job(job:JobRecord,media:MediaRecord):
         try:
             async with limit:
-                job.status='running'
+                job.status='running';journal.save(job)
                 from .video_extractor import propose_room
                 extractor=app.state.extractor or propose_room
                 result=await asyncio.wait_for(extractor(media,media_root,api_key=os.environ.get('GEMINI_API_KEY')),timeout=480)
@@ -104,13 +106,14 @@ def create_app(runtime:Path|None=None)->FastAPI:
                 report=validate_scene(scene)
                 job.warnings += [x.message for x in report.issues]
                 job.status='completed'
-        except asyncio.CancelledError:job.status='cancelled'
+        except asyncio.CancelledError:job.status='cancelled';job.error='Room building was cancelled. You can retry.'
         except asyncio.TimeoutError:job.status='failed';job.error='Extraction timed out. Your uploaded video is preserved; try a shorter clip.'
         except Exception as exc:
             job.status='failed'
             # Provider modules supply user-safe RuntimeError/ValueError messages. Never emit key-bearing raw SDK errors.
             job.error=str(exc)[:600] if isinstance(exc,(RuntimeError,ValueError)) else 'Room extraction failed. Try a clearer translated walkthrough.'
             log.warning('Extraction job failed: %s',type(exc).__name__)
+        finally:journal.save(job)
 
     @app.post('/api/roomlab/extractions',response_model=JobRecord,status_code=202)
     async def extract(request:ExtractRequest):
@@ -118,8 +121,10 @@ def create_app(runtime:Path|None=None)->FastAPI:
         if not request.media_id.startswith('media-') or '/' in request.media_id or '..' in request.media_id:raise HTTPException(404,'Media not found.')
         try:media=MediaRecord.model_validate_json((media_root/request.media_id/'record.json').read_text())
         except (ValueError,FileNotFoundError):raise HTTPException(404,'Media not found.')
+        active=next((j for j in jobs.values() if j.media_id==request.media_id and j.status in ('queued','running')),None)
+        if active:return active
         if sum(j.status in ('queued','running') for j in jobs.values())>=3:raise HTTPException(429,'Extraction queue is full. Wait or cancel a pending job.')
-        job=JobRecord(job_id='job-'+uuid.uuid4().hex,status='queued',media_id=request.media_id);jobs[job.job_id]=job
+        job=JobRecord(job_id='job-'+uuid.uuid4().hex,status='queued',media_id=request.media_id);jobs[job.job_id]=job;journal.save(job)
         tasks[job.job_id]=asyncio.create_task(extract_job(job,media));return job
 
     @app.get('/api/roomlab/jobs/{id}',response_model=JobRecord)
@@ -131,8 +136,11 @@ def create_app(runtime:Path|None=None)->FastAPI:
     async def cancel(id:str):
         value=job(id)
         if value.status in ('running','queued'):
-            tasks[id].cancel();value.status='cancelled'
+            tasks[id].cancel();value.status='cancelled';journal.save(value)
         return value
+
+    @app.get('/api/roomlab/rooms',response_model=RoomLibrary)
+    def room_library():return list_rooms(runtime,jobs)
 
     @app.get('/api/roomlab/scenes/{id}',response_model=RoomSceneV1)
     def scene(id:str):return get_scene(id)
