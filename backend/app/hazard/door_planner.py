@@ -465,7 +465,7 @@ def plan_doors(venue: VenueV2, request: DoorPlanRequest) -> DoorPlanResponse:
         advisories.insert(0, "No checked plan: every door state failed the independent checker, so no numbers are shown.")
     simulated = [d.id for d in venue.doors if d.actuation == "simulated_servo" and d.id in shown_opened]
     if simulated:
-        advisories.append(", ".join(simulated) + " is a simulated servo door; the physical gate is on the tabletop board.")
+        advisories.append(", ".join(simulated) + " is a simulated servo door, driven by the virtual door controller.")
     if chosen.remaining_population:
         for z in venue.zones:
             left = chosen.zone_remaining[z.id]

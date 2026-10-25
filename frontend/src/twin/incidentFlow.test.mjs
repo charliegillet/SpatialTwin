@@ -88,6 +88,7 @@ test('happy path: snapshot, plan, approval actuating, gate opening, observed ope
   assert.equal(d9.openSwitch, true);
   assert.equal(d9.epoch, 2);
   assert.equal(d9.moving, false);
+  assert.equal(d9.ack.label, 'Endpoint confirmed · open', 'arrival comes from the switch; the ACK chip stops saying "not arrived"');
   assert.equal(state.movingSince.D9, undefined);
 
   state = apply(state, ev('approval', 10, { approval: approval('applied') }));
