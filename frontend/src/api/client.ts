@@ -7,6 +7,16 @@ import {
 
 const API_BASE = '';
 
+async function readJson(res: Response, fallback: string) {
+  if (res.ok) return res.json();
+  let detail = '';
+  if (res.headers.get('content-type')?.includes('application/json')) {
+    try { const body = await res.json(); detail = typeof body.detail === 'string' ? body.detail : ''; }
+    catch { /* The status below still explains an unreadable error response. */ }
+  }
+  throw new Error(detail || `${fallback} (${res.status}). Please try again.`);
+}
+
 export async function fetchHealth(): Promise<HealthStatus> {
   const res = await fetch(`${API_BASE}/health`);
   if (!res.ok) throw new Error('Health check failed');
@@ -28,11 +38,7 @@ export async function sendCommand(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.detail || 'Command failed');
-  }
-  return res.json();
+  return readJson(res, 'The scenario change could not be applied');
 }
 
 export async function clearBlockage(
@@ -69,8 +75,7 @@ export async function interpretGrounding(
       thinking_level: options.thinkingLevel || 'low',
     }),
   });
-  if (!res.ok) throw new Error('Grounding perception request failed');
-  return res.json();
+  return readJson(res, 'The captured still could not be interpreted');
 }
 
 export async function fetchScenarioMatrix(scenarioId = 'facility-demo'): Promise<any> {
@@ -87,8 +92,7 @@ export async function investigateScenario(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({}),
   });
-  if (!res.ok) throw new Error('Managed investigation request failed');
-  return res.json();
+  return readJson(res, 'The comparison could not be completed');
 }
 
 export async function operatorApproveGate(
@@ -103,9 +107,5 @@ export async function operatorApproveGate(
       expected_scenario_revision: expectedRevision,
     }),
   });
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.detail || 'Operator approval command failed');
-  }
-  return res.json();
+  return readJson(res, 'The movement request was not accepted');
 }

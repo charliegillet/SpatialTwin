@@ -79,7 +79,9 @@ export const SpatialViewport: React.FC<SpatialViewportProps> = ({ snapshot, sele
     && plan.base_context.solver_version === context.solver_version
     && plan.alternative_id === 'KEEP_CURRENT');
   const gate = snapshot?.physical_gate_state ?? 'UNKNOWN';
-  const reserveConfirmed = gate === 'OPEN' && checked;
+  const hasEndpointReceipt = Boolean(snapshot?.last_hardware_boot_id && (snapshot.last_gate_epoch ?? 0) > 0);
+  const reserveConfirmed = gate === 'OPEN' && checked && hasEndpointReceipt;
+  const gateLabel = gate === 'OPEN' ? (reserveConfirmed ? 'OPEN · RECEIPT' : 'OPEN · REPORTED') : gate;
   const isBlocked = (id: SpatialTarget) => id === 'boundary:B2'
     ? Boolean(snapshot?.blocked_boundaries.includes('B2'))
     : Boolean(snapshot?.blocked_portals.includes(id.slice(7)));
@@ -116,7 +118,7 @@ export const SpatialViewport: React.FC<SpatialViewportProps> = ({ snapshot, sele
       <div className="spatial-scene-caption"><span className="spatial-eyebrow">MODEL VIEW / {flat ? '02' : '01'}</span><div>Illustrative floor plan <ChevronDown size={12} aria-hidden="true" /></div><span>4 modeled zones · synthetic population</span></div>
       <div className={`spatial-result-indicator ${checked ? 'is-checked' : ''}`}><span />{checked ? 'Checked result' : snapshot ? 'Result unverified' : 'Awaiting model'}</div>
 
-      <svg className="spatial-model-svg" viewBox="0 0 1060 690" aria-label="Illustrative event hall with west, east and reserve corridors. Select P1, P2 or B2 to review a scenario change.">
+      <svg className="spatial-model-svg" viewBox={flat ? '100 0 850 640' : '0 72 1060 520'} aria-label="Illustrative event hall with west, east and reserve corridors. Select P1, P2 or B2 to review a scenario change.">
         <defs>
           <linearGradient id={`${uid}-floor`} x1="0" y1="0" x2="1" y2="1"><stop stopColor="#303e3b" /><stop offset="1" stopColor="#1c2928" /></linearGradient>
           <linearGradient id={`${uid}-event`} x1="0" y1="0" x2="1" y2="1"><stop stopColor="#34433e" /><stop offset="1" stopColor="#293934" /></linearGradient>
@@ -156,8 +158,10 @@ export const SpatialViewport: React.FC<SpatialViewportProps> = ({ snapshot, sele
           </g>)}
 
           {WALLS.map((wall, index) => <WallPrism key={`wall-${index}`} wall={wall} project={project} flat={flat} />)}
-          {/* A closed miniature connector is represented as a physical leaf, never a route. */}
-          <WallPrism wall={reserveConfirmed ? [126, 201, 126, 222, 12] : [127, 202, 173, 202, 12]} project={project} flat={flat} />
+          {/* Reported position and checked route availability remain separate. */}
+          {(gate === 'OPEN' || gate === 'CLOSED')
+            ? <WallPrism wall={gate === 'OPEN' ? [126, 201, 126, 222, 12] : [127, 202, 173, 202, 12]} project={project} flat={flat} />
+            : <path d={line([[127, 202], [173, 202]])} className="spatial-reserve-path" />}
 
           {ZONES.map(zone => {
             const [x, y] = project(zone.label[0], zone.label[1]);
@@ -188,7 +192,7 @@ export const SpatialViewport: React.FC<SpatialViewportProps> = ({ snapshot, sele
           })}
 
           <g className={`spatial-gate-label ${reserveConfirmed ? 'is-confirmed' : ''}`} transform={`translate(${gatePosition[0] + (flat ? 48 : 36)} ${gatePosition[1] - (flat ? 0 : 34)})`}>
-            <circle cx="-8" cy="-3" r="2.5" /><text x="0" y="0">P3 · {gate === 'OPEN' && !checked ? 'UNVERIFIED' : gate}</text>
+            <circle cx="-8" cy="-3" r="2.5" /><text x="0" y="0">P3 · {gateLabel}</text>
           </g>
           <g className="spatial-boundary-label" transform={`translate(${project(60, 388)[0]} ${project(60, 388)[1] + 14})`}><text textAnchor="middle">B1 / WEST BOUNDARY</text></g>
           <g className="spatial-boundary-label" transform={`translate(${project(240, 398)[0]} ${project(240, 398)[1] + 18})`}><text textAnchor="middle">B2 / EAST BOUNDARY</text></g>

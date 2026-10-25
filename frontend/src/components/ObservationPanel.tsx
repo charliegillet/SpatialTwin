@@ -9,9 +9,12 @@ export interface ObservationPanelProps {
   isLoading: boolean;
   isApplying: boolean;
   isProposalCurrent: boolean;
+  isAvailable?: boolean;
+  appliedCaptureId?: string | null;
   error: string | null;
   onCapture: (imageBase64?: string, fixtureTarget?: 'P1' | 'P2' | 'B2') => Promise<void>;
   onApply: () => Promise<void>;
+  onClearProposal?: () => void;
 }
 
 type FixtureTarget = 'P1' | 'P2' | 'B2';
@@ -21,10 +24,20 @@ const fixtureNames: Record<FixtureTarget, string> = { P1: 'West passage', P2: 'E
 
 /** An illustrative tabletop, deliberately separate from camera or detection evidence. */
 function TabletopPreview({ target }: { target: FixtureTarget }) {
-  const point = (x: number, y: number, z = 0) => `${134 + x * .91 - y * .26},${53 + x * .055 + y * .55 - z * .8}`;
+  // The same four illustrative zone polygons and target positions as SpatialViewport,
+  // translated from venue/reviewed_venue.json. Projection has no metric authority.
+  const point = (x: number, y: number, z = 0) => `${210 + x * .93 - y * .23},${46 + x * .075 + y * .45 - z * .8}`;
   const face = (x: number, y: number, w: number, d: number, z = 0) => [point(x, y, z), point(x + w, y, z), point(x + w, y + d, z), point(x, y + d, z)].join(' ');
-  const walls = [[0, 0, 420, 6], [0, 0, 6, 288], [414, 0, 6, 288], [0, 282, 420, 6], [0, 108, 105, 5], [144, 108, 116, 5], [300, 108, 120, 5], [144, 0, 5, 108], [285, 108, 5, 106], [285, 252, 5, 36]];
-  const token = target === 'P1' ? [121, 108] : target === 'P2' ? [280, 108] : [398, 242];
+  const walls = [
+    [0, 0, 300, 5], [0, 0, 5, 200], [295, 0, 5, 200],
+    [0, 195, 35, 5], [85, 195, 40, 5], [175, 195, 40, 5], [265, 195, 35, 5],
+    [0, 220, 35, 5], [85, 220, 35, 5], [0, 220, 5, 150], [115, 220, 5, 150],
+    [0, 365, 38, 5], [82, 365, 38, 5],
+    [180, 220, 35, 5], [265, 220, 35, 5], [295, 220, 5, 150],
+    [180, 220, 5, 46], [180, 294, 5, 76], [180, 365, 38, 5], [262, 365, 38, 5],
+    [130, 210, 3, 120], [167, 210, 3, 56], [167, 294, 3, 36], [130, 327, 40, 3],
+  ];
+  const token = target === 'P1' ? [60, 210] : target === 'P2' ? [240, 210] : [240, 374];
   return (
     <svg className="observation-board" viewBox="0 0 600 275" role="img" aria-label={`Illustrative tabletop with a red blockage cube at ${target}. This is a diagram, not a camera image.`}>
       <defs>
@@ -32,20 +45,21 @@ function TabletopPreview({ target }: { target: FixtureTarget }) {
         <pattern id="observation-table-grid" width="28" height="28" patternUnits="userSpaceOnUse"><path d="M 28 0 L 0 0 0 28" fill="none" stroke="#263739" strokeWidth=".7" /></pattern>
       </defs>
       <ellipse cx="302" cy="235" rx="216" ry="19" fill="#000" opacity=".5" filter="url(#observation-board-shadow)" />
-      <polygon points={face(-15, -15, 450, 318, -8)} fill="#182325" stroke="#364345" />
-      <polygon points={face(-15, -15, 450, 318)} fill="#263032" stroke="#58615b" strokeWidth="1.3" />
-      <polygon points={face(0, 0, 420, 288)} fill="#343e37" />
-      <polygon points={face(0, 0, 420, 288)} fill="url(#observation-table-grid)" opacity=".7" />
-      <polygon points={face(149, 0, 265, 108)} fill="#444b3d" />
-      <polygon points={face(290, 113, 124, 169)} fill="#3d473a" />
-      <path d={`M${point(193, 224)} L${point(193, 150)} L${point(278, 150)} L${point(278, 111)} L${point(338, 75)}`} fill="none" stroke="#b7d68b" strokeWidth="2" strokeDasharray="5 6" opacity=".7" />
-      <path d={`M${point(193, 178)} L${point(122, 178)} L${point(122, 110)} L${point(71, 63)}`} fill="none" stroke="#b7d68b" strokeWidth="2" strokeDasharray="5 6" opacity=".7" />
-      {[[45, 158], [100, 215], [206, 217], [335, 165], [328, 30]].map(([x, y]) => <g key={`${x}-${y}`}><polygon points={face(x, y + 3, 38, 22)} fill="#202d29" /><polygon points={face(x, y, 38, 22, 7)} fill="#75806a" stroke="#92977f" strokeWidth=".6" /></g>)}
+      <polygon points={face(-15, -15, 330, 400, -8)} fill="#182325" stroke="#364345" />
+      <polygon points={face(-15, -15, 330, 400)} fill="#263032" stroke="#58615b" strokeWidth="1.3" />
+      <polygon points={face(0, 0, 300, 200)} fill="#444b3d" />
+      <polygon points={face(0, 220, 120, 150)} fill="#343e37" />
+      <polygon points={face(180, 220, 120, 150)} fill="#3d473a" />
+      <polygon points={face(130, 210, 40, 120)} fill="#46503d" />
+      <polygon points={face(-15, -15, 330, 400)} fill="url(#observation-table-grid)" opacity=".45" />
+      <path d={`M${point(210, 150)} L${point(240, 180)} L${point(240, 210)} L${point(240, 355)}`} fill="none" stroke="#b7d68b" strokeWidth="2" strokeDasharray="5 6" opacity=".7" />
+      <path d={`M${point(100, 150)} L${point(60, 180)} L${point(60, 210)} L${point(60, 355)}`} fill="none" stroke="#b7d68b" strokeWidth="2" strokeDasharray="5 6" opacity=".7" />
+      {[[30, 110], [105, 110], [230, 110], [30, 35], [230, 35]].map(([x, y]) => <g key={`${x}-${y}`}><polygon points={face(x, y + 3, 30, 20)} fill="#202d29" /><polygon points={face(x, y, 30, 20, 7)} fill="#75806a" stroke="#92977f" strokeWidth=".6" /></g>)}
       {walls.map(([x, y, w, d], index) => <g key={index}><polygon points={[point(x, y + d), point(x + w, y + d), point(x + w, y + d, 19), point(x, y + d, 19)].join(' ')} fill="#636c5c" /><polygon points={[point(x + w, y), point(x + w, y + d), point(x + w, y + d, 19), point(x + w, y, 19)].join(' ')} fill="#78816e" /><polygon points={face(x, y, w, d, 19)} fill="#a5ac94" /></g>)}
       <g className="observation-board-labels" fill="#cbd2ba" textAnchor="middle">
-        <text x={196} y={87}>WEST</text><text x={415} y={96}>EAST</text><text x={267} y={166}>EVENT HALL</text><text x={422} y={196}>RESERVE</text>
+        {[[150, 70, 'MAIN EVENT HALL'], [60, 285, 'WEST'], [240, 285, 'EAST'], [150, 286, 'RESERVE']].map(([x, y, label]) => <text key={label} x={Number(point(Number(x), Number(y)).split(',')[0])} y={Number(point(Number(x), Number(y)).split(',')[1])} fontSize={label === 'RESERVE' ? 5.5 : undefined}>{label}</text>)}
       </g>
-      {[['P1', 122, 126], ['P2', 280, 126], ['B2', 398, 264]].map(([label, x, y]) => <g key={label}><ellipse cx={Number(point(Number(x), Number(y)).split(',')[0])} cy={Number(point(Number(x), Number(y)).split(',')[1])} rx="13" ry="8" fill={target === label ? '#633c32' : '#243e35'} stroke={target === label ? '#f68c7c' : '#83a28b'} strokeWidth=".8" /><text x={Number(point(Number(x), Number(y)).split(',')[0])} y={Number(point(Number(x), Number(y)).split(',')[1]) + 2.5} fill={target === label ? '#ffb8a8' : '#bdcfb2'} textAnchor="middle" className="observation-board-pad">{label}</text></g>)}
+      {[['P1', 60, 230], ['P2', 240, 230], ['B2', 240, 386]].map(([label, x, y]) => <g key={label}><ellipse cx={Number(point(Number(x), Number(y)).split(',')[0])} cy={Number(point(Number(x), Number(y)).split(',')[1])} rx="13" ry="8" fill={target === label ? '#633c32' : '#243e35'} stroke={target === label ? '#f68c7c' : '#83a28b'} strokeWidth=".8" /><text x={Number(point(Number(x), Number(y)).split(',')[0])} y={Number(point(Number(x), Number(y)).split(',')[1]) + 2.5} fill={target === label ? '#ffb8a8' : '#bdcfb2'} textAnchor="middle" className="observation-board-pad">{label}</text></g>)}
       <g>
         <polygon points={[point(token[0] - 10, token[1] + 10), point(token[0] + 11, token[1] + 10), point(token[0] + 11, token[1] + 10, 22), point(token[0] - 10, token[1] + 10, 22)].join(' ')} fill="#b55442" />
         <polygon points={[point(token[0] + 11, token[1] - 10), point(token[0] + 11, token[1] + 10), point(token[0] + 11, token[1] + 10, 22), point(token[0] + 11, token[1] - 10, 22)].join(' ')} fill="#da6d57" />
@@ -55,7 +69,7 @@ function TabletopPreview({ target }: { target: FixtureTarget }) {
   );
 }
 
-export function ObservationPanel({ proposal, provenance, isLoading, isApplying, isProposalCurrent, error, onCapture, onApply }: ObservationPanelProps) {
+export function ObservationPanel({ proposal, provenance, isLoading, isApplying, isProposalCurrent, isAvailable = true, appliedCaptureId, error, onCapture, onApply, onClearProposal }: ObservationPanelProps) {
   const [source, setSource] = useState<'demo' | 'camera'>('demo');
   const [fixtureTarget, setFixtureTarget] = useState<FixtureTarget>('P2');
   const [cameraState, setCameraState] = useState<CameraState>('idle');
@@ -84,6 +98,7 @@ export function ObservationPanel({ proposal, provenance, isLoading, isApplying, 
   async function connectCamera() {
     stopCamera();
     setSnapshot(null);
+    onClearProposal?.();
     setCameraError(null);
     setCameraState('connecting');
     const request = requestRef.current;
@@ -121,6 +136,7 @@ export function ObservationPanel({ proposal, provenance, isLoading, isApplying, 
     setSnapshot(null);
     setCameraError(null);
     setActionError(null);
+    onClearProposal?.();
   }
 
   async function capture() {
@@ -143,9 +159,10 @@ export function ObservationPanel({ proposal, provenance, isLoading, isApplying, 
 
   const typedTarget = proposal?.selected_entity_type && proposal.selected_entity_id ? `${proposal.selected_entity_type}:${proposal.selected_entity_id}` : null;
   const validTarget = typedTarget !== null && ['portal:P1', 'portal:P2', 'boundary:B2'].includes(typedTarget) && !!proposal?.candidate_ids.includes(typedTarget);
-  const canApply = !!proposal && proposal.status === 'matched' && proposal.operation === 'SET_UNAVAILABLE' && validTarget && isProposalCurrent && !isLoading && !isApplying;
-  const reviewState = !proposal ? 'idle' : !isProposalCurrent ? 'stale' : proposal.status;
-  const reviewTitle = reviewState === 'stale' ? 'Scenario changed · capture again' : reviewState === 'matched' && validTarget ? `${typedTarget} · proposed closure` : reviewState === 'ambiguous' ? 'Needs your choice' : reviewState === 'no_match' ? 'No target matched' : proposal ? 'Invalid target · capture again' : 'Observe. Review. Apply.';
+  const isApplied = !!proposal && appliedCaptureId === proposal.capture_id && validTarget;
+  const canApply = !!proposal && proposal.status === 'matched' && proposal.operation === 'SET_UNAVAILABLE' && validTarget && isProposalCurrent && isAvailable && !isApplied && !isLoading && !isApplying;
+  const reviewState = !proposal ? 'idle' : isApplied ? 'applied' : !isProposalCurrent ? 'stale' : proposal.status;
+  const reviewTitle = reviewState === 'applied' ? `${typedTarget} · closure applied` : reviewState === 'stale' ? 'Scenario changed · capture again' : reviewState === 'matched' && validTarget ? `${typedTarget} · proposed closure` : reviewState === 'ambiguous' ? 'Needs your choice' : reviewState === 'no_match' ? 'No target matched' : proposal ? 'Invalid target · capture again' : 'Observe. Review. Apply.';
   const provenanceLabel = provenance === 'live' ? 'Live model result' : provenance === 'fixture' ? 'Fixture result' : provenance;
   const visibleError = actionError || error;
 
@@ -162,20 +179,20 @@ export function ObservationPanel({ proposal, provenance, isLoading, isApplying, 
           <video ref={videoRef} autoPlay muted playsInline className={`observation-video ${cameraState !== 'connected' || snapshot ? 'observation-media-hidden' : ''}`} onLoadedData={() => setFrameReady(true)} />
           {snapshot && <img className="observation-captured-image" src={snapshot} alt="Captured tabletop still submitted for review" />}
           {!snapshot && cameraState !== 'connected' && <div className="observation-camera-empty"><span className="observation-empty-icon"><Video size={23} strokeWidth={1.4} /></span><strong>{cameraState === 'connecting' ? 'Connecting your camera' : cameraState === 'error' ? 'Camera unavailable' : 'Bring your tabletop into view'}</strong><p>{cameraError || 'Connect a camera to preview the board, then choose a still to interpret.'}</p><button className="observation-connect-button" type="button" onClick={connectCamera} disabled={cameraState === 'connecting'}>{cameraState === 'connecting' ? <LoaderCircle size={13} className="observation-spin" /> : <Camera size={13} />}{cameraState === 'connecting' ? 'Waiting for permission…' : 'Connect camera'}</button></div>}
-          {(cameraState === 'connected' || snapshot) && <div className="observation-camera-controls">{snapshot && <button type="button" onClick={() => setSnapshot(null)}>Return to preview</button>}{cameraState === 'connected' ? <button type="button" onClick={() => { stopCamera(); setSnapshot(null); }}><Unplug size={11} />Disconnect</button> : <button type="button" onClick={connectCamera}><Camera size={11} />Reconnect</button>}</div>}
+          {(cameraState === 'connected' || snapshot) && <div className="observation-camera-controls">{snapshot && <button type="button" onClick={() => { setSnapshot(null); onClearProposal?.(); }}>Return to preview</button>}{cameraState === 'connected' ? <button type="button" onClick={() => { stopCamera(); setSnapshot(null); onClearProposal?.(); }}><Unplug size={11} />Disconnect</button> : <button type="button" onClick={connectCamera}><Camera size={11} />Reconnect</button>}</div>}
         </>}
       </div>
 
       <div className="observation-capture-bar">
-        {source === 'demo' ? <label className="observation-fixture-select"><span>DEMO TARGET</span><select value={fixtureTarget} onChange={event => setFixtureTarget(event.target.value as FixtureTarget)} disabled={isLoading}><option value="P1">P1 · {fixtureNames.P1}</option><option value="P2">P2 · {fixtureNames.P2}</option><option value="B2">B2 · {fixtureNames.B2}</option></select></label> : <p className="observation-capture-hint">{snapshot ? 'Captured image held for review' : 'Only the selected still is analyzed'}</p>}
-        <button className="observation-capture-button" type="button" onClick={capture} disabled={isLoading || isApplying || (source === 'camera' && (!frameReady || cameraState !== 'connected'))}>{isLoading ? <LoaderCircle size={14} className="observation-spin" /> : <ScanLine size={14} />}{isLoading ? 'Interpreting…' : source === 'demo' ? 'Load demo proposal' : 'Capture & interpret'}{!isLoading && <ArrowUpRight size={13} />}</button>
+        {source === 'demo' ? <label className="observation-fixture-select"><span>DEMO TARGET</span><select value={fixtureTarget} onChange={event => { setFixtureTarget(event.target.value as FixtureTarget); setActionError(null); onClearProposal?.(); }} disabled={isLoading}><option value="P1">P1 · {fixtureNames.P1}</option><option value="P2">P2 · {fixtureNames.P2}</option><option value="B2">B2 · {fixtureNames.B2}</option></select></label> : <p className="observation-capture-hint">{snapshot ? 'Captured image held for review' : 'Only the selected still is analyzed'}</p>}
+        <button className="observation-capture-button" type="button" onClick={capture} disabled={!isAvailable || isLoading || isApplying || (source === 'camera' && (!frameReady || cameraState !== 'connected'))}>{isLoading ? <LoaderCircle size={14} className="observation-spin" /> : <ScanLine size={14} />}{!isAvailable ? 'Backend offline' : isLoading ? 'Interpreting…' : source === 'demo' ? 'Load demo proposal' : 'Capture & interpret'}{!isLoading && <ArrowUpRight size={13} />}</button>
       </div>
 
       {visibleError && <div className="observation-error" role="alert"><CircleAlert size={13} /><span>{visibleError}</span></div>}
       <div className={`observation-review observation-review-${reviewState}`} aria-live="polite" aria-busy={isLoading || isApplying}>
-        <span className="observation-review-icon">{canApply ? <Check size={14} /> : reviewState === 'idle' ? <ScanLine size={14} /> : <CircleAlert size={14} />}</span>
+        <span className="observation-review-icon">{canApply || isApplied ? <Check size={14} /> : reviewState === 'idle' ? <ScanLine size={14} /> : <CircleAlert size={14} />}</span>
         <div className="observation-review-content"><div className="observation-review-title">{reviewTitle}{proposal && provenanceLabel && <span className="observation-provenance">{provenanceLabel}</span>}</div><p>{proposal ? proposal.evidence : 'A proposal changes the scenario only after your approval.'}</p></div>
-        <button className="observation-apply-button" type="button" onClick={async () => { setActionError(null); try { await onApply(); } catch (cause) { setActionError(cause instanceof Error ? cause.message : 'The proposal could not be applied.'); } }} disabled={!canApply}>{isApplying ? <LoaderCircle size={12} className="observation-spin" /> : <Check size={12} />}{isApplying ? 'Applying…' : 'Apply closure'}</button>
+        <button className="observation-apply-button" type="button" onClick={async () => { setActionError(null); try { await onApply(); } catch (cause) { setActionError(cause instanceof Error ? cause.message : 'The proposal could not be applied.'); } }} disabled={!canApply}>{isApplying ? <LoaderCircle size={12} className="observation-spin" /> : <Check size={12} />}{isApplied ? 'Applied' : isApplying ? 'Applying…' : 'Apply closure'}</button>
       </div>
     </section>
   );

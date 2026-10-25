@@ -8,74 +8,565 @@
   border-radius: 10px;
   overflow: hidden;
   min-width: 0;
+  container-type: inline-size;
+  container-name: observation;
 }
-.observation-panel button, .observation-panel select { font: inherit; }
-.observation-panel button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; cursor: pointer; transition: background .16s, color .16s, border-color .16s; }
-.observation-panel button:disabled { opacity: .42; cursor: not-allowed; }
-.observation-panel button:focus-visible, .observation-panel select:focus-visible { outline: 2px solid #bcf582; outline-offset: 3px; }
-.observation-header { min-height: 72px; padding: 16px 18px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border-bottom: 1px solid var(--observation-line); }
-.observation-heading { display: flex; align-items: center; gap: 11px; min-width: 0; }
-.observation-camera-icon { display: grid; place-items: center; width: 31px; height: 31px; border: 1px solid #35413c; border-radius: 7px; background: #18211d; color: #b7ccac; flex: 0 0 auto; }
-.observation-heading h2 { font-size: 13px; font-weight: 600; line-height: 1.4; margin: 0; letter-spacing: -.15px; }
-.observation-heading h2 span { color: #8f9b95; font-weight: 400; padding-left: 5px; }
-.observation-heading p { font-size: 10px; color: var(--observation-muted); margin: 4px 0 0; }
-.observation-source-switch { display: flex; padding: 3px; border: 1px solid #263234; background: #0a1012; border-radius: 6px; flex: 0 0 auto; gap: 2px; }
-.observation-source-switch button { padding: 6px 9px; border: 0; border-radius: 4px; background: transparent; color: #86958f; font-size: 10px; white-space: nowrap; }
-.observation-source-switch button[aria-pressed="true"] { color: #e0e8dc; background: #26312d; box-shadow: inset 0 0 0 1px #3a453d; }
-.observation-source-switch button:hover { color: #e0e8dc; }
-.observation-viewport { position: relative; min-height: 246px; height: 246px; isolation: isolate; overflow: hidden; background: #0b1113; }
-.observation-viewport-demo { background-image: radial-gradient(ellipse at 50% 73%, #273328 0%, transparent 67%), linear-gradient(#ffffff02 1px, transparent 1px), linear-gradient(90deg, #ffffff02 1px, transparent 1px); background-size: auto, 28px 28px, 28px 28px; }
-.observation-viewport-top { position: absolute; inset: 14px 16px auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; pointer-events: none; z-index: 3; }
-.observation-source-badge { display: inline-flex; align-items: center; gap: 6px; color: #b8c3ba; background: #0c1314c9; border: 1px solid #344039; border-radius: 4px; padding: 4px 7px; font-size: 9px; line-height: 1.2; letter-spacing: .1px; backdrop-filter: blur(8px); }
-.observation-source-badge i { width: 4px; height: 4px; border-radius: 50%; background: #8c9989; }
-.observation-source-connected i { background: #82e3b1; }
-.observation-view-label { font-family: 'IBM Plex Mono', monospace; font-size: 8px; letter-spacing: 1.3px; color: #73827b; }
-.observation-board { width: 100%; height: 100%; display: block; padding-top: 10px; }
-.observation-board-labels { font-family: 'IBM Plex Mono', monospace; font-size: 7.5px; letter-spacing: 1.4px; opacity: .7; }
-.observation-board-pad { font-family: 'IBM Plex Mono', monospace; font-size: 7px; }
-.observation-demo-caption { position: absolute; bottom: 13px; left: 18px; display: flex; gap: 6px; align-items: center; font-size: 9px; color: #c6cfc1; }
-.observation-demo-caption > span:last-child { color: #7c8b80; }
-.observation-cube-key { width: 6px; height: 6px; display: inline-block; background: #f68c7c; border-radius: 1px; transform: rotate(-12deg); }
-.observation-video, .observation-captured-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #080e0f; }
-.observation-media-hidden { visibility: hidden; }
-.observation-camera-empty { position: absolute; inset: 40px 28px 13px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
-.observation-empty-icon { width: 42px; height: 42px; border-radius: 11px; display: grid; place-items: center; background: #141e1e; color: #8aa08e; border: 1px solid #293731; margin-bottom: 10px; }
-.observation-camera-empty strong { font-size: 13px; font-weight: 500; }
-.observation-camera-empty p { max-width: 310px; font-size: 11px; line-height: 1.6; margin: 6px 0 12px; color: #899a92; }
-.observation-connect-button { border: 1px solid #435340; color: #d2e7c5; background: #1c2a20; border-radius: 5px; padding: 7px 11px; font-size: 10px !important; }
-.observation-connect-button:hover { background: #2b3d29; }
-.observation-camera-controls { position: absolute; bottom: 12px; right: 12px; display: flex; gap: 6px; z-index: 4; }
-.observation-camera-controls button { background: #0b1214e8; border: 1px solid #3d4a42; color: #c5d0c6; padding: 5px 7px; border-radius: 4px; font-size: 9px; }
-.observation-capture-bar { min-height: 62px; padding: 11px 17px; border-top: 1px solid var(--observation-line); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.observation-fixture-select { display: flex; flex-direction: column; gap: 4px; }
-.observation-fixture-select > span { color: #708177; font: 8px 'IBM Plex Mono', monospace; letter-spacing: 1px; }
-.observation-fixture-select select { border: 0; background: transparent; color: #c2cfc0; padding: 0 20px 0 0; font-size: 11px; cursor: pointer; max-width: 190px; color-scheme: dark; }
-.observation-fixture-select select option { background: #0e1517; }
-.observation-capture-button { min-height: 32px; border: 1px solid #b6e97d; border-radius: 5px; padding: 7px 10px; background: var(--observation-lime); color: #1b2917; font-size: 10px !important; font-weight: 600 !important; white-space: nowrap; box-shadow: 0 1px 0 #ffffff14 inset; }
-.observation-capture-button:hover:not(:disabled) { background: #d0ffa4; }
-.observation-capture-hint { color: #82938a; margin: 0; font-size: 10px; }
-.observation-review { display: flex; align-items: center; gap: 10px; min-height: 72px; padding: 13px 17px; border-top: 1px solid var(--observation-line); background: #10191a; }
-.observation-review-icon { display: grid; place-items: center; width: 26px; height: 26px; border: 1px solid #35413b; color: #96aa98; border-radius: 50%; flex: 0 0 auto; }
-.observation-review-matched .observation-review-icon { color: #a7d88b; background: #203020; border-color: #3f5637; }
-.observation-review-ambiguous .observation-review-icon, .observation-review-stale .observation-review-icon { color: #d2bd85; border-color: #554c33; background: #28271c; }
-.observation-review-content { flex: 1; min-width: 0; }
-.observation-review-title { font-size: 10px; font-weight: 500; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; line-height: 1.5; }
-.observation-review-content p { font-size: 9px; line-height: 1.6; color: #8b9a91; margin: 4px 0 0; overflow-wrap: anywhere; }
-.observation-provenance { border: 1px solid #354338; border-radius: 3px; font: 7px 'IBM Plex Mono', monospace; color: #b5c9a5; padding: 2px 4px; white-space: nowrap; }
-.observation-apply-button { border: 1px solid #42533b; color: #c0e59d; background: #202d1f; padding: 6px 8px; border-radius: 5px; font-size: 9px !important; white-space: nowrap; flex: 0 0 auto; }
-.observation-apply-button:hover:not(:disabled) { background: #2e4327; }
-.observation-error { display: flex; gap: 7px; align-items: flex-start; color: #f6b3a5; background: #2b1d1b; border-top: 1px solid #50332b; padding: 10px 17px; font-size: 10px; line-height: 1.5; }
-.observation-error svg { flex: 0 0 auto; margin-top: 1px; }
-.observation-spin { animation: observation-spin 1s linear infinite; }
-@keyframes observation-spin { to { transform: rotate(360deg); } }
+
+.observation-panel button, .observation-panel select {
+  font: inherit;
+}
+
+.observation-panel button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  cursor: pointer;
+  transition: background .16s, color .16s, border-color .16s;
+}
+
+.observation-panel button:disabled {
+  opacity: .42;
+  cursor: not-allowed;
+}
+
+.observation-panel button:focus-visible, .observation-panel select:focus-visible {
+  outline: 2px solid #bcf582;
+  outline-offset: 3px;
+}
+
+.observation-header {
+  min-height: 72px;
+  padding: 16px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid var(--observation-line);
+}
+
+.observation-heading {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+
+.observation-camera-icon {
+  display: grid;
+  place-items: center;
+  width: 31px;
+  height: 31px;
+  border: 1px solid #35413c;
+  border-radius: 7px;
+  background: #18211d;
+  color: #b7ccac;
+  flex: 0 0 auto;
+}
+
+.observation-heading h2 {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  margin: 0;
+  letter-spacing: -.15px;
+}
+
+.observation-heading h2 span {
+  color: #8f9b95;
+  font-weight: 400;
+  padding-left: 5px;
+}
+
+.observation-heading p {
+  font-size: 10px;
+  color: var(--observation-muted);
+  margin: 4px 0 0;
+}
+
+.observation-source-switch {
+  display: flex;
+  padding: 3px;
+  border: 1px solid #263234;
+  background: #0a1012;
+  border-radius: 6px;
+  flex: 0 0 auto;
+  gap: 2px;
+}
+
+.observation-source-switch button {
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #86958f;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.observation-source-switch button[aria-pressed="true"] {
+  color: #e0e8dc;
+  background: #26312d;
+  box-shadow: inset 0 0 0 1px #3a453d;
+}
+
+.observation-source-switch button:hover {
+  color: #e0e8dc;
+}
+
+.observation-viewport {
+  position: relative;
+  min-height: 246px;
+  height: 246px;
+  isolation: isolate;
+  overflow: hidden;
+  background: #0b1113;
+}
+
+.observation-viewport-demo {
+  background-image: radial-gradient(ellipse at 50% 73%, #273328 0%, transparent 67%), linear-gradient(#ffffff02 1px, transparent 1px), linear-gradient(90deg, #ffffff02 1px, transparent 1px);
+  background-size: auto, 28px 28px, 28px 28px;
+}
+
+.observation-viewport-top {
+  position: absolute;
+  inset: 14px 16px auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.observation-source-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #b8c3ba;
+  background: #0c1314c9;
+  border: 1px solid #344039;
+  border-radius: 4px;
+  padding: 4px 7px;
+  font-size: 9px;
+  line-height: 1.2;
+  letter-spacing: .1px;
+  backdrop-filter: blur(8px);
+}
+
+.observation-source-badge i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #8c9989;
+}
+
+.observation-source-connected i {
+  background: #82e3b1;
+}
+
+.observation-view-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 8px;
+  letter-spacing: 1.3px;
+  color: #73827b;
+}
+
+.observation-board {
+  width: 100%;
+  height: 100%;
+  display: block;
+  padding-top: 10px;
+}
+
+.observation-board-labels {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 7.5px;
+  letter-spacing: 1.4px;
+  opacity: .7;
+}
+
+.observation-board-pad {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 7px;
+}
+
+.observation-demo-caption {
+  position: absolute;
+  bottom: 13px;
+  left: 18px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 9px;
+  color: #c6cfc1;
+}
+
+.observation-demo-caption > span:last-child {
+  color: #7c8b80;
+}
+
+.observation-cube-key {
+  width: 6px;
+  height: 6px;
+  display: inline-block;
+  background: #f68c7c;
+  border-radius: 1px;
+  transform: rotate(-12deg);
+}
+
+.observation-video, .observation-captured-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #080e0f;
+}
+
+.observation-media-hidden {
+  visibility: hidden;
+}
+
+.observation-camera-empty {
+  position: absolute;
+  inset: 40px 28px 13px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+
+.observation-empty-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  background: #141e1e;
+  color: #8aa08e;
+  border: 1px solid #293731;
+  margin-bottom: 10px;
+}
+
+.observation-camera-empty strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.observation-camera-empty p {
+  max-width: 310px;
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 6px 0 12px;
+  color: #899a92;
+}
+
+.observation-connect-button {
+  border: 1px solid #435340;
+  color: #d2e7c5;
+  background: #1c2a20;
+  border-radius: 5px;
+  padding: 7px 11px;
+  font-size: 10px !important;
+}
+
+.observation-connect-button:hover {
+  background: #2b3d29;
+}
+
+.observation-camera-controls {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  display: flex;
+  gap: 6px;
+  z-index: 4;
+}
+
+.observation-camera-controls button {
+  background: #0b1214e8;
+  border: 1px solid #3d4a42;
+  color: #c5d0c6;
+  padding: 5px 7px;
+  border-radius: 4px;
+  font-size: 9px;
+}
+
+.observation-capture-bar {
+  min-height: 62px;
+  padding: 11px 17px;
+  border-top: 1px solid var(--observation-line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.observation-fixture-select {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.observation-fixture-select > span {
+  color: #708177;
+  font: 8px 'IBM Plex Mono', monospace;
+  letter-spacing: 1px;
+}
+
+.observation-fixture-select select {
+  border: 0;
+  background: transparent;
+  color: #c2cfc0;
+  padding: 0 20px 0 0;
+  font-size: 11px;
+  cursor: pointer;
+  max-width: 190px;
+  color-scheme: dark;
+}
+
+.observation-fixture-select select option {
+  background: #0e1517;
+}
+
+.observation-capture-button {
+  min-height: 32px;
+  border: 1px solid #b6e97d;
+  border-radius: 5px;
+  padding: 7px 10px;
+  background: var(--observation-lime);
+  color: #1b2917;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  white-space: nowrap;
+  box-shadow: 0 1px 0 #ffffff14 inset;
+}
+
+.observation-capture-button:hover:not(:disabled) {
+  background: #d0ffa4;
+}
+
+.observation-capture-hint {
+  color: #82938a;
+  margin: 0;
+  font-size: 10px;
+}
+
+.observation-review {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 72px;
+  padding: 13px 17px;
+  border-top: 1px solid var(--observation-line);
+  background: #10191a;
+}
+
+.observation-review-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid #35413b;
+  color: #96aa98;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.observation-review-matched .observation-review-icon, .observation-review-applied .observation-review-icon {
+  color: #a7d88b;
+  background: #203020;
+  border-color: #3f5637;
+}
+
+.observation-review-ambiguous .observation-review-icon, .observation-review-stale .observation-review-icon {
+  color: #d2bd85;
+  border-color: #554c33;
+  background: #28271c;
+}
+
+.observation-review-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.observation-review-title {
+  font-size: 10px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  line-height: 1.5;
+}
+
+.observation-review-content p {
+  font-size: 9px;
+  line-height: 1.6;
+  color: #8b9a91;
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.observation-provenance {
+  border: 1px solid #354338;
+  border-radius: 3px;
+  font: 7px 'IBM Plex Mono', monospace;
+  color: #b5c9a5;
+  padding: 2px 4px;
+  white-space: nowrap;
+}
+
+.observation-apply-button {
+  border: 1px solid #42533b;
+  color: #c0e59d;
+  background: #202d1f;
+  padding: 6px 8px;
+  border-radius: 5px;
+  font-size: 9px !important;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.observation-apply-button:hover:not(:disabled) {
+  background: #2e4327;
+}
+
+.observation-error {
+  display: flex;
+  gap: 7px;
+  align-items: flex-start;
+  color: #f6b3a5;
+  background: #2b1d1b;
+  border-top: 1px solid #50332b;
+  padding: 10px 17px;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.observation-error svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.observation-spin {
+  animation: observation-spin 1s linear infinite;
+}
+
+@keyframes observation-spin {
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @media (max-width: 620px) {
-  .observation-header { flex-wrap: wrap; padding: 13px 14px; gap: 12px; }
-  .observation-source-switch { margin-left: 42px; }
-  .observation-viewport { height: 246px; }
-  .observation-review { flex-wrap: wrap; padding: 12px 14px; }
-  .observation-review-content { flex-basis: calc(100% - 42px); }
-  .observation-apply-button { margin-left: 36px; }
-  .observation-capture-bar { padding: 11px 14px; }
-  .observation-capture-button { font-size: 9px !important; padding: 7px 8px; }
+
+  .observation-header {
+    flex-wrap: wrap;
+    padding: 13px 14px;
+    gap: 12px;
+  }
+
+  .observation-source-switch {
+    margin-left: 42px;
+  }
+
+  .observation-viewport {
+    height: 246px;
+  }
+
+  .observation-review {
+    flex-wrap: wrap;
+    padding: 12px 14px;
+  }
+
+  .observation-review-content {
+    flex-basis: calc(100% - 42px);
+  }
+
+  .observation-apply-button {
+    margin-left: 36px;
+  }
+
+  .observation-capture-bar {
+    padding: 11px 14px;
+  }
+
+  .observation-capture-button {
+    font-size: 9px !important;
+    padding: 7px 8px;
+  }
 }
-@media (prefers-reduced-motion: reduce) { .observation-panel button { transition: none; } .observation-spin { animation-duration: 2s; } }
+
+@container observation (max-width: 440px) {
+
+  .observation-header {
+    flex-wrap: wrap;
+    padding: 13px 14px;
+    gap: 12px;
+  }
+
+  .observation-source-switch {
+    margin-left: 42px;
+  }
+
+  .observation-capture-bar {
+    flex-wrap: wrap;
+    padding: 12px 14px;
+    gap: 10px;
+  }
+
+  .observation-fixture-select {
+    width: 100%;
+  }
+
+  .observation-fixture-select select {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .observation-capture-button {
+    width: 100%;
+  }
+
+  .observation-review {
+    flex-wrap: wrap;
+    padding: 12px 14px;
+  }
+
+  .observation-review-content {
+    flex-basis: calc(100% - 42px);
+  }
+
+  .observation-apply-button {
+    margin-left: 36px;
+  }
+}
+
+@container observation (max-width: 320px) {
+
+  .observation-view-label {
+    display: none;
+  }
+
+  .observation-heading h2 span {
+    display: block;
+    padding: 2px 0 0;
+    font-size: 11px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  .observation-panel button {
+    transition: none;
+  }
+
+  .observation-spin {
+    animation-duration: 2s;
+  }
+}
