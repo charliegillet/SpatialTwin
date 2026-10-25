@@ -11,6 +11,7 @@ from walktwin.sfm import (
     fit_alignment,
     height_above_floor_m,
     run_sfm,
+    scale_alignment,
     scale_badge,
     to_graph_xy,
 )
@@ -105,6 +106,28 @@ def test_no_floor_points_raises_no_floor_plane():
         fit_alignment(sfm, graph)
 
 
+@pytest.mark.parametrize("seed", range(5))
+@pytest.mark.parametrize("n_floor,noise_m", [(300, 0.03), (1500, 0.07)])
+def test_noisy_low_texture_floor_still_found(n_floor, noise_m, seed):
+    # I5: real phone floors are sparse and noisy. 12 x 8 m room, every point
+    # (floor, walls, ceiling) with sigma noise in metres; the floor must be found.
+    sfm, graph = make_scene(n_floor=n_floor, noise_m=noise_m, seed=seed)
+    al = fit_alignment(sfm, graph)
+    assert abs(al.floor_offset - (-0.8)) * 0.37 < 0.05  # within 5 cm in metres
+    assert np.dot(al.floor_normal, (0, 0, 1)) > 0.995
+    assert abs(al.eye_height_m - 1.5) < 0.05
+    assert scale_badge(al) == "agrees"
+
+
+@pytest.mark.parametrize("seed", range(5))
+@pytest.mark.parametrize("noise_m", [0.01, 0.03, 0.07])
+def test_no_floor_points_raises_no_floor_plane_at_any_noise(noise_m, seed):
+    # wall dominance with no floor points: never accept a slice along the wall feet
+    sfm, graph = make_scene(n_floor=0, n_ceiling=300, noise_m=noise_m, seed=seed)
+    with pytest.raises(ValueError, match="no_floor_plane"):
+        fit_alignment(sfm, graph)
+
+
 def test_keyframe_between_frames_is_interpolated():
     # keyframes at t + 0.25 s fall halfway between 2 fps frames; interpolating the
     # bracketing centres keeps the fit exact (nearest-frame would be 0.3 m off)
@@ -130,6 +153,38 @@ def test_alignment_hash_stable():
     assert len(a1.hash) == 64 and all(c in "0123456789abcdef" for c in a1.hash)
     sfm_b, graph_b = make_scene(shift=(2.5, -1.0))
     assert fit_alignment(sfm_b, graph_b).hash != a1.hash
+
+
+def test_scale_alignment_scales_graph_xy_and_eye_height():
+    # D3: the anchored (accepted-frame) alignment is the unanchored one times f
+    sfm, graph = make_scene()
+    al = fit_alignment(sfm, graph)
+    f = 1.27
+    sc = scale_alignment(al, f)
+    assert sc.scale == pytest.approx(al.scale * f)
+    assert (sc.tx, sc.ty) == pytest.approx((al.tx * f, al.ty * f))
+    assert sc.eye_height_m == pytest.approx(al.eye_height_m * f)
+    assert sc.residual_m == pytest.approx(al.residual_m * f)
+    assert sc.yaw_rad == al.yaw_rad and sc.floor_normal == al.floor_normal
+    assert sc.floor_offset == al.floor_offset and sc._reflected == al._reflected
+    for fr in sfm.frames[::5]:
+        x0, y0 = to_graph_xy(al, fr.center)
+        x1, y1 = to_graph_xy(sc, fr.center)
+        assert (x1, y1) == pytest.approx((f * x0, f * y0), abs=1e-9)
+        assert height_above_floor_m(sc, fr.center) == pytest.approx(f * height_above_floor_m(al, fr.center))
+    assert sc.hash != al.hash and len(sc.hash) == 64
+    assert scale_alignment(al, f).hash == sc.hash  # deterministic
+    assert scale_alignment(al, 1.0).hash == al.hash  # same recipe as fit_alignment
+
+
+def test_scale_alignment_keeps_reflection_and_rejects_bad_factor():
+    mirrored = fit_alignment(*make_scene(mirror=True))
+    sc = scale_alignment(mirrored, 0.9)
+    assert sc._reflected and scale_badge(sc) == "disagrees"
+    assert sc.hash != scale_alignment(dataclasses.replace(mirrored, _reflected=False), 0.9).hash
+    for bad in (0.0, -1.0, float("nan"), float("inf")):
+        with pytest.raises(ValueError):
+            scale_alignment(mirrored, bad)
 
 
 def test_scale_badge_disagrees_when_eye_height_off():
@@ -163,10 +218,34 @@ def test_run_sfm_fails_without_floor(monkeypatch, tmp_path):
     bogus = media.PreparedVideo(tmp_path / "x.mp4", "0" * 64, 5.0, 320, 240)
     res = run_sfm(bogus, tmp_path / "sfm")
     assert res.status == "failed" and res.error.startswith("no_floor_plane")
+    # M11: the registered camera path is kept, so the walk can still be previewed
+    assert res.frames == wall_only.frames
+    assert res.registered_fraction == pytest.approx(1.0)
     with_floor, _ = make_scene()
     monkeypatch.setattr(sfm_mod, "_reconstruct",
                         lambda video, work_dir, fps: (with_floor.frames, with_floor.points, len(with_floor.frames)))
     assert run_sfm(bogus, tmp_path / "sfm").status == "completed"
+
+
+def test_run_sfm_floor_failure_keeps_real_registered_fraction(monkeypatch, tmp_path):
+    from walktwin import sfm as sfm_mod
+    wall_only, _ = make_scene(n_floor=0, n_ceiling=300)
+    n_sampled = 2 * len(wall_only.frames)  # half the sampled frames registered
+    monkeypatch.setattr(sfm_mod, "_reconstruct",
+                        lambda video, work_dir, fps: (wall_only.frames, wall_only.points, n_sampled))
+    bogus = media.PreparedVideo(tmp_path / "x.mp4", "0" * 64, 5.0, 320, 240)
+    res = run_sfm(bogus, tmp_path / "sfm")
+    assert res.status == "failed" and res.error.startswith("no_floor_plane")
+    assert len(res.frames) == len(wall_only.frames)
+    assert res.registered_fraction == pytest.approx(0.5)
+    assert res.elapsed_ms >= 0
+
+
+def test_from_graph_xyz_defined_before_main_block():
+    import inspect
+    from walktwin import sfm as sfm_mod
+    src = inspect.getsource(sfm_mod)
+    assert src.index("def from_graph_xyz") < src.index('if __name__ == "__main__":')
 
 
 def test_run_sfm_default_fps_is_4():

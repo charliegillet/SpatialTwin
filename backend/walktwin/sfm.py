@@ -62,7 +62,10 @@ _DOWN_MAX_COS = -0.5         # camera "down" (image +y) must point at the floor
 _BELOW_MAX_FRAC = 0.03       # points clearly (> 2 bands) below a floor candidate
 _MIN_FLOOR_INLIERS = 50
 _MIN_FLOOR_FRAC = 0.02
-_TIGHT_MIN_FRAC = 0.6       # inliers within a third of the band
+_TIGHT_MIN_FRAC = 0.6        # inliers within a third of the band
+_MAD_TO_SIGMA = 1.4826       # Gaussian sigma from the median absolute deviation
+_NOISE_BAND_SIGMAS = 3.0     # noise-sized band: a Gaussian surface has ~0.68 within a third
+_NOISE_BAND_MAX = 3.0        # the noise-sized band is at most this many declared bands
 _LOW_SAMPLE_FRAC = 0.3       # half the triples come from the lowest 30% of points
 _REFLECT_MIN_LATERAL_M = 0.5  # lateral spread needed before a mirror fit is considered
 
@@ -161,11 +164,68 @@ def _floor_candidates(pts: np.ndarray, rng: np.random.Generator, k: int,
     return normals[valid], offsets[valid]
 
 
+def _ransac_floor(pts: np.ndarray, centers: np.ndarray, down: np.ndarray, low: np.ndarray,
+                  thresh: float, below_cut: float, min_support: float
+                  ) -> tuple[tuple[np.ndarray, float] | None, tuple[np.ndarray, float] | None]:
+    """One RANSAC pass with inlier band `thresh`; points more than `below_cut`
+    below a candidate count against it. Returns (floor, best_supported): the
+    best plane passing every guard including the concentration test (or None),
+    and the best plane passing every guard except it (or None)."""
+    rng = np.random.default_rng(_RANSAC_SEED)
+    best_count, n, d = 0, None, 0.0
+    sup_count, sup = 0, None
+    done, needed = 0, _RANSAC_MAX_ITERS
+    while done < min(needed, _RANSAC_MAX_ITERS):
+        cand = _floor_candidates(pts, rng, _RANSAC_CHUNK, centers, down, low)
+        done += _RANSAC_CHUNK
+        if cand is None:
+            continue
+        normals, offsets = cand
+        sd = pts @ normals.T + offsets
+        counts = (np.abs(sd) < thresh).sum(axis=0)
+        # tight/band share: a real floor's inliers cluster on the plane; a slice
+        # through walls (or along wall feet) fills the band uniformly
+        tight = (np.abs(sd) < thresh / 3).sum(axis=0) / np.maximum(counts, 1)
+        below = (sd < -below_cut).mean(axis=0)
+        counts = np.where((below <= _BELOW_MAX_FRAC) & (counts >= min_support), counts, 0)
+        j = int(np.argmax(counts))
+        if counts[j] > sup_count:
+            sup_count, sup = int(counts[j]), (normals[j], float(offsets[j]))
+        counts = np.where(tight >= _TIGHT_MIN_FRAC, counts, 0)
+        i = int(np.argmax(counts))
+        if counts[i] > best_count:
+            best_count, n, d = int(counts[i]), normals[i], float(offsets[i])
+            w = best_count / len(pts)  # adaptive stop: 99.9% chance of one clean sample
+            needed = int(math.ceil(math.log(1e-3) / math.log(max(1 - w ** 3, 1e-12))))
+    return (None if n is None else (n, d)), sup
+
+
+def _noise_sigma(pts: np.ndarray, n: np.ndarray, d: float, band: float) -> float:
+    """Robust noise estimate of a plane's support: refit the points within `band`
+    by least squares (a 3-point sample is tilted by the noise), then
+    1.4826 * MAD of their residuals."""
+    inl = pts[np.abs(pts @ n + d) < band]
+    if len(inl) < 3:
+        return 0.0
+    n2, d2 = _fit_plane_lsq(inl)
+    r = inl @ n2 + d2
+    return _MAD_TO_SIGMA * float(np.median(np.abs(r - np.median(r))))
+
+
 def _fit_floor_plane(points: np.ndarray, centers: np.ndarray, downs: np.ndarray) -> tuple[np.ndarray, float]:
     """RANSAC the floor: the plane that the cameras sit above at a consistent
-    height, whose normal opposes the cameras' image-down direction, with the most
-    inliers. Returns (unit normal oriented toward the cameras, offset d) with
-    n.p + d = height above the floor in SfM units."""
+    height, whose normal opposes the cameras' image-down direction, whose
+    support is concentrated on the plane, with the most inliers. Returns (unit
+    normal oriented toward the cameras, offset d) with n.p + d = height above
+    the floor in SfM units.
+
+    The concentration test (share of inliers within a third of the band) only
+    separates a surface from a slab when the band is about 3 sigma of the
+    surface noise. A noisy, low-texture phone floor can exceed the declared
+    band, so when no plane passes at that band, the band is resized from a
+    robust noise estimate (MAD after a local least-squares refit) of the
+    best-supported plane and RANSAC runs again. A slice through walls stays
+    uniform at any band and still fails."""
     if len(points) < 3 or len(centers) < 2:
         raise ValueError("no_floor_plane")
     rng = np.random.default_rng(_RANSAC_SEED)
@@ -183,29 +243,19 @@ def _fit_floor_plane(points: np.ndarray, centers: np.ndarray, downs: np.ndarray)
     low = np.argsort(depth)[-max(3, int(_LOW_SAMPLE_FRAC * len(pts))):]
     min_support = max(_MIN_FLOOR_INLIERS, _MIN_FLOOR_FRAC * len(pts))
 
-    best_count, n, d = 0, None, 0.0
-    done, needed = 0, _RANSAC_MAX_ITERS
-    while done < min(needed, _RANSAC_MAX_ITERS):
-        cand = _floor_candidates(pts, rng, _RANSAC_CHUNK, centers, down, low)
-        done += _RANSAC_CHUNK
-        if cand is None:
-            continue
-        normals, offsets = cand
-        sd = pts @ normals.T + offsets
-        counts = (np.abs(sd) < thresh).sum(axis=0)
-        # tight/band share: a real floor's inliers cluster on the plane; a slice
-        # through walls (or along wall feet) fills the band uniformly
-        tight = (np.abs(sd) < thresh / 3).sum(axis=0) / np.maximum(counts, 1)
-        below = (sd < -2 * thresh).mean(axis=0)
-        counts = np.where((below <= _BELOW_MAX_FRAC) & (counts >= min_support)
-                          & (tight >= _TIGHT_MIN_FRAC), counts, 0)
-        i = int(np.argmax(counts))
-        if counts[i] > best_count:
-            best_count, n, d = int(counts[i]), normals[i], float(offsets[i])
-            w = best_count / len(pts)  # adaptive stop: 99.9% chance of one clean sample
-            needed = int(math.ceil(math.log(1e-3) / math.log(max(1 - w ** 3, 1e-12))))
-    if n is None:
+    floor, sup = _ransac_floor(pts, centers, down, low, thresh, 2 * thresh, min_support)
+    if floor is None and sup is not None:
+        sigma = _noise_sigma(pts, sup[0], sup[1], thresh)
+        wide = min(_NOISE_BAND_SIGMAS * sigma, _NOISE_BAND_MAX * thresh)
+        if wide > thresh:
+            # the below-floor guard keeps (at least) its declared reach: a wider
+            # band must not hide a sparse floor under a table-top plane
+            below_cut = max(2 * thresh, wide)
+            thresh = wide
+            floor, _ = _ransac_floor(pts, centers, down, low, thresh, below_cut, min_support)
+    if floor is None:
         raise ValueError("no_floor_plane")
+    n, d = floor
 
     # refine by least squares on inliers, tightening the band; the last band is
     # a few percent of eye height so wall feet near the floor barely bias it
@@ -345,6 +395,40 @@ def height_above_floor_m(alignment: Alignment, p_xyz: Sequence[float]) -> float:
     return float((np.asarray(p_xyz, float) @ n + alignment.floor_offset) * alignment.scale)
 
 
+def from_graph_xyz(alignment: Alignment, x: float, y: float, height_m: float) -> tuple[float, float, float]:
+    """SfM world point at graph (x, y) metres and `height_m` above the floor.
+
+    Exact inverse of `to_graph_xy` and `height_above_floor_m` (reflection included).
+    """
+    u, v = _plane_basis(alignment.floor_normal, alignment._reflected)
+    n = np.asarray(alignment.floor_normal, float)
+    norm = float(np.linalg.norm(n))
+    c, si = math.cos(alignment.yaw_rad), math.sin(alignment.yaw_rad)
+    dx, dy = (x - alignment.tx) / alignment.scale, (y - alignment.ty) / alignment.scale
+    q0, q1 = c * dx + si * dy, -si * dx + c * dy  # R(yaw)^T applied
+    h = (height_m / alignment.scale - alignment.floor_offset) / norm
+    p = q0 * u + q1 * v + h * (n / norm)
+    return float(p[0]), float(p[1]), float(p[2])
+
+
+def scale_alignment(alignment: Alignment, f: float) -> Alignment:
+    """The same alignment with graph metres scaled by `f` (an anchor's
+    measured / midpoint width): graph xy, eye height and residual all scale by
+    f; yaw, floor plane and reflection are unchanged. The hash uses the same
+    recipe as `fit_alignment`, so f = 1 reproduces it."""
+    f = float(f)
+    if not math.isfinite(f) or f <= 0:
+        raise ValueError(f"scale factor must be finite and > 0, got {f!r}")
+    params = {
+        "scale": alignment.scale * f, "yaw_rad": alignment.yaw_rad,
+        "tx": alignment.tx * f, "ty": alignment.ty * f,
+        "floor_normal": tuple(alignment.floor_normal), "floor_offset": alignment.floor_offset,
+        "residual_m": alignment.residual_m * f, "eye_height_m": alignment.eye_height_m * f,
+    }
+    return Alignment(**params, hash=_alignment_hash({**params, "reflected": alignment._reflected}),
+                     _reflected=alignment._reflected)
+
+
 def scale_badge(alignment: Alignment) -> Literal["agrees", "disagrees"]:
     """Cross-check of the anchor's scale. The tape-measured anchor stays the authority.
     A mirrored (reflected) alignment never agrees."""
@@ -448,7 +532,8 @@ def run_sfm(video: PreparedVideo, work_dir: Path, fps: float = 4.0) -> SfmResult
 
     A reconstruction with no supported floor plane is also "failed"
     ("no_floor_plane"): without a floor there is no frozen alignment, so the
-    caller shows geometry as unavailable."""
+    caller shows geometry as unavailable. The registered frames, points and
+    real registered_fraction are kept, so the walk can still be previewed."""
     t0 = time.monotonic()
     try:
         frames, points, n_sampled = _reconstruct(video, work_dir, fps)
@@ -457,7 +542,9 @@ def run_sfm(video: PreparedVideo, work_dir: Path, fps: float = 4.0) -> SfmResult
                              np.array([f.center for f in frames], float),
                              np.array([np.asarray(f.R, float)[:, 1] for f in frames]))
         except ValueError:
-            return _failed(t0, "no_floor_plane: no well-supported floor below the camera path")
+            return SfmResult("failed", frames, points, len(frames) / n_sampled,
+                             int((time.monotonic() - t0) * 1000),
+                             "no_floor_plane: no well-supported floor below the camera path")
         return SfmResult("completed", frames, points, len(frames) / n_sampled,
                          int((time.monotonic() - t0) * 1000), None)
     except _SfmFailure as e:
@@ -492,19 +579,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-def from_graph_xyz(alignment: Alignment, x: float, y: float, height_m: float) -> tuple[float, float, float]:
-    """SfM world point at graph (x, y) metres and `height_m` above the floor.
-
-    Exact inverse of `to_graph_xy` and `height_above_floor_m` (reflection included).
-    """
-    u, v = _plane_basis(alignment.floor_normal, alignment._reflected)
-    n = np.asarray(alignment.floor_normal, float)
-    norm = float(np.linalg.norm(n))
-    c, si = math.cos(alignment.yaw_rad), math.sin(alignment.yaw_rad)
-    dx, dy = (x - alignment.tx) / alignment.scale, (y - alignment.ty) / alignment.scale
-    q0, q1 = c * dx + si * dy, -si * dx + c * dy  # R(yaw)^T applied
-    h = (height_m / alignment.scale - alignment.floor_offset) / norm
-    p = q0 * u + q1 * v + h * (n / norm)
-    return float(p[0]), float(p[1]), float(p[2])
