@@ -36,6 +36,13 @@ MODEL_ASSUMPTIONS = [
 ]
 
 
+def venue_model_line(venue: VenueV2) -> str:
+    """The first assumption names the venue; building-v2 keeps its published wording."""
+    if venue.venue_id == "building-v2":
+        return MODEL_ASSUMPTIONS[0]
+    return f"{venue.venue_id} model: {venue.provenance}"
+
+
 @dataclass
 class ZoneEffect:
     zone_id: str
@@ -234,4 +241,4 @@ def compute_effects(venue: VenueV2, hazards: List[dict], horizon: int) -> Hazard
         inputs_base=base, zone_effects=zone_effects, door_effects=door_fx, exit_effects=exit_fx,
         hazard_notes=notes, effective=effective, gas_locked_doors=gas_locked, held=held,
         hazard_zone_types=hazard_zone_types, advisories=list(dict.fromkeys(advisories)),
-        assumptions=list(MODEL_ASSUMPTIONS))
+        assumptions=[venue_model_line(venue)] + MODEL_ASSUMPTIONS[1:])

@@ -38,7 +38,7 @@ import { ReviewPanel } from './features/proposal-evidence/ReviewPanel';
 import { cleanHazardEvents, toHazardView } from './ai/hazardView';
 import { TwinWorkspace } from './components/TwinWorkspace';
 import { preloadScene3D } from './components/TwinStage';
-import { canSwitchMode, MODE_LOCKED, modeAfterReset } from './twin/modes';
+import { canSwitchMode, DEFAULT_TWIN_MODE, MODE_LOCKED, modeAfterReset } from './twin/modes';
 import { useTwin } from './twin/useTwin';
 import type { TwinMode } from './twin/types';
 
@@ -109,7 +109,7 @@ export function App() {
   const [smokeError, setSmokeError] = useState<string | null>(null);
   const [stageNotice, setStageNotice] = useState<string | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const [twinMode, setTwinMode] = useState<TwinMode>('tabletop');
+  const [twinMode, setTwinMode] = useState<TwinMode>(DEFAULT_TWIN_MODE);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuSlot, setMenuSlot] = useState<HTMLDivElement | null>(null);
   const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -588,7 +588,7 @@ export function App() {
   return <div className={`app${presenting ? ' presenting' : ''}`}>
     <a className="skip-link" href="#workspace-main">Skip to workspace</a>
     <TopBar hardware={hardwareChip(health?.hardware_mode)} checked={checkedChip(Boolean(snapshot), planCurrent)} connection={connection} presenting={presenting} presenterRef={presenterTriggerRef} onTogglePresenting={() => setPresenting(value => !value)} onStop={stop} onOpenDetails={() => openSheet()} onToggleMenu={toggleMenu} menuOpen={menuOpen} menuRef={menuTriggerRef} onResetJudge={() => void resetNow()} isResetting={reset.phase === 'running'} canReset={Boolean(snapshot) && connection === 'connected'} />
-    <PresenterMenu open={menuOpen} onClose={() => setMenuOpen(false)} triggerRef={menuTriggerRef} boardSlot={setMenuSlot} mode={mode} onModeChange={setSelectedMode} modeLocked={isInvestigating} apiConfigured={apiConfigured} localEnabled={localEnabled} physical={physical} operatorToken={operatorToken} onOperatorToken={setOperatorToken} preflight={preflight} facts={resetFacts} resetMessage={resetMessage} isResetting={reset.phase === 'running'} canReset={Boolean(snapshot) && connection === 'connected'} onReset={() => void resetNow()} onClearHazards={() => void clearHazards()} clearMessage={clearMessage} twinMode={twinMode} onTwinMode={changeTwinMode} twinLocked={isInvestigating} onCalibrate={() => { setMenuOpen(false); setCalibrateTick(value => value + 1); }} imageFile={imageFile} onImageFile={setImageFile} />
+    <PresenterMenu open={menuOpen} onClose={() => setMenuOpen(false)} triggerRef={menuTriggerRef} boardSlot={setMenuSlot} mode={mode} onModeChange={setSelectedMode} modeLocked={isInvestigating} apiConfigured={apiConfigured} localEnabled={localEnabled} physical={physical} operatorToken={operatorToken} onOperatorToken={setOperatorToken} preflight={preflight} facts={resetFacts} resetMessage={resetMessage} isResetting={reset.phase === 'running'} canReset={Boolean(snapshot) && connection === 'connected'} onReset={() => void resetNow()} onClearHazards={() => void clearHazards()} clearMessage={clearMessage} twinMode={twinMode} onTwinMode={changeTwinMode} twinLocked={isInvestigating} onCalibrate={() => { setMenuOpen(false); setCalibrateTick(value => value + 1); }} imageFile={imageFile} onImageFile={setImageFile} venues={twin.venues} venueId={twin.venueId} onVenue={id => void twin.switchVenue(id)} />
     <main id="workspace-main" className={`main${sim ? ' is-sim' : ''}`} tabIndex={-1}>
       <div className="alerts">
         {loadError && <div className="alert" role="alert"><span>{loadError}</span><button type="button" onClick={() => void refresh()}>Reconnect<RotateCcw size={13} aria-hidden="true" /></button></div>}

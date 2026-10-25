@@ -101,7 +101,7 @@ function TabletopPreview({ target }: { target: FixtureTarget }) {
 }
 
 export function ObservationPanel({ proposal, result, currentContext, liveConfigured, fixturesEnabled, isLoading, isApplying, isProposalCurrent, availabilityMessage, isAvailable = true, appliedCaptureId, error, onCapture, onApply, onClearProposal, uploadSlot, settingsSlot, locked = false, onLockedTap, readSeconds = null, onCameraLive, onBoardView, physical = false, resetKey = 0 }: ObservationPanelProps) {
-  const [source, setSource] = useState<Source>('camera');
+  const [source, setSource] = useState<Source>(physical ? 'camera' : 'demo');
   const [demoTarget, setDemoTarget] = useState<FixtureTarget>('P2');
   const [fixtureTarget, setFixtureTarget] = useState<FixtureTarget>('P2');
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('low');
@@ -230,8 +230,14 @@ export function ObservationPanel({ proposal, result, currentContext, liveConfigu
     media?.addEventListener?.('devicechange', refreshDevices);
     return () => media?.removeEventListener?.('devicechange', refreshDevices);
   }, []);
-  // The live camera is the default board view. It starts once; a failure falls back to the demo board.
-  useEffect(() => { void connectRef.current(); }, []);
+  // Without the tabletop hardware the synthetic demo board is the default and no camera is opened. A physical board
+  // makes the live camera the default (once, unless the presenter already chose a source); a failure falls back to
+  // the demo board.
+  useEffect(() => {
+    if (!physical || !autoCamera.current) return;
+    setSource('camera');
+    void connectRef.current();
+  }, [physical]);
   const cameraLive = source === 'camera' && cameraState === 'connected';
   useEffect(() => { onCameraLive?.(cameraLive); }, [cameraLive, onCameraLive]);
   const boardView: BoardView = cameraLive ? 'live' : source === 'demo' || source === 'fixture' ? 'fallback' : 'none';

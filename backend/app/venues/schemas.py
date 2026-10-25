@@ -1,4 +1,4 @@
-"""Request/response models for POST /api/venues/building-v2/door-plan.
+"""Request/response models for POST /api/venues/{venue_id}/door-plan.
 
 Field names mirror frontend/src/twin/types.ts exactly (DoorPlanRequest, DoorPlanResponse and nested types).
 """
@@ -154,7 +154,7 @@ class Baseline(BaseModel):
 
 class DoorPlanResponse(BaseModel):
     plan_id: str
-    venue_id: Literal["building-v2"]
+    venue_id: str
     geometry_revision: str
     hypothetical: Literal[True] = True
     provenance: Literal["local_door_planner_v1"] = "local_door_planner_v1"

@@ -1,4 +1,4 @@
-// Frozen contract for the building-v2 twin (Simulation and Camera twin modes).
+// Contract for the venue twin (Simulation and Camera twin modes); building-v2 is the built-in venue.
 // The backend (backend/app/venues/) is canonical; these types mirror it field for field.
 // Units are metres: x grows east, y grows north, origin at the south-west corner.
 
@@ -9,7 +9,7 @@ export type Point2 = [number, number];
 export type DoorActuation = 'hold_open' | 'simulated_servo' | 'motorized' | 'indicator_only' | 'fixed';
 export type DoorKind = 'fire_door' | 'smoke_door' | 'room_door' | 'servo_door' | 'roller_door' | 'opening';
 
-// GET /api/venues/building-v2
+// GET /api/venues/{venue_id}
 export interface VenueZone {
   id: string;
   name: string;
@@ -45,7 +45,8 @@ export interface HazardDefaults {
 }
 export interface VenueV2 {
   schema_version: '2.0.0';
-  venue_id: 'building-v2';
+  /** building-v2, or an accepted compiled venue (^[a-z0-9-]{3,40}$). */
+  venue_id: string;
   geometry_revision: string;
   provenance: string;
   units: 'm';
@@ -162,6 +163,29 @@ export interface PlanAlternative {
   rank: number;
   run_id: string;
 }
+// GET /api/venues
+export interface ActiveVenue {
+  venue_id: string;
+  /** Compare-and-set revision of the active pointer. */
+  revision: number;
+}
+export interface VenueSummary {
+  venue_id: string;
+  revision: number;
+  builtin: boolean;
+  name: string;
+  geometry_revision: string;
+  provenance: string;
+  zones: number;
+  doors: number;
+  exits: number;
+  created_at: string | null;
+  source_kind: string | null;
+}
+export interface VenueList {
+  venues: VenueSummary[];
+  active: ActiveVenue;
+}
 export type LightCode = 'F' | 'g' | 'X' | 'S' | 'O' | 'B' | 'L' | '0';
 export interface LightSegment {
   element_id: string;
@@ -169,7 +193,7 @@ export interface LightSegment {
   code: LightCode;
 }
 export interface PlanLights {
-  /** 24 characters, one LightCode per on-screen pixel; mirrors led_map. Screen only for building-v2. */
+  /** One LightCode per on-screen pixel (at least 24); mirrors led_map. Screen only. */
   px: string;
   segments: LightSegment[];
   /** Element ids whose lights were set static red once because of a gas hazard. */
@@ -177,7 +201,7 @@ export interface PlanLights {
 }
 export interface DoorPlanResponse {
   plan_id: string;
-  venue_id: 'building-v2';
+  venue_id: string;
   geometry_revision: string;
   hypothetical: true;
   provenance: 'local_door_planner_v1';

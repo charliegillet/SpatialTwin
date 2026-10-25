@@ -26,6 +26,7 @@ from google.genai._gaos.lib.compat_errors import APIStatusError, APITimeoutError
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationError, model_validator
 
+from backend.app.ai.receipts import record_live_receipt
 from backend.app.contracts import (
     Capture,
     EntityType,
@@ -305,6 +306,7 @@ class GroundingAdapter:
                 return result("failed", "invalid_provider_output")
             # No result can outlive the capture freshness window.
             self._validate_context(capture, context, live=True)
+            record_live_receipt("direct_grounding", self.model)
             return result("completed", proposal=proposal)
 
         try:

@@ -22,6 +22,7 @@ from google.genai import errors as genai_errors
 from google.genai._gaos.lib.compat_errors import APIStatusError, APITimeoutError, GeminiNextGenAPIClientError
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationError, model_validator
 
+from backend.app.ai.receipts import record_live_receipt
 from backend.app.ai.grounding.adapter import (
     MAX_CAPTURE_AGE_SECONDS,
     MAX_DEADLINE_SECONDS,
@@ -280,6 +281,7 @@ class HazardCardReader:
                 cards.append(CardReading(**card.model_dump(), confidence=confidence, low_confidence_reason=reason))
             _check_timestamp(timestamp_iso)  # no result outlives the capture freshness window
             corners = [CornerReading(**corner.model_dump()) for corner in output.corners]
+            record_live_receipt("camera_card_read", self.adapter.model)
             return result("completed", cards=cards, corners=corners)
 
         try:

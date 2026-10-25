@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { fetchVenue, postDoorPlan } from '../api/twin.ts';
+import { BUILTIN_VENUE_ID, fetchVenue, fetchVenueList, postDoorPlan, putActiveVenue } from '../api/twin.ts';
+import { ApiError } from '../api/client.ts';
 import { SMOKE_DEFAULT, stepSmokeSeconds } from '../ai/hazardTools.ts';
 import { modeAfterReset } from './modes.ts';
 import { addCameraHazards, clearHazards, emptyPlacement, placeHazard, removeHazard, setSmokeSeconds, toHazardInputs, undoPlacement, zoneDropPoint, type PlacementState } from './placement.ts';
 import { TOO_MANY_HAZARDS } from './placement.ts';
 import { createTwinFlow, idleFlow, type FlowState } from './twinFlow.ts';
 import { planLogLine } from './twinHero.ts';
-import type { DoorPlanResponse, HazardType, PlacedHazard, TwinMode, VenueV2 } from './types.ts';
+import type { DoorPlanResponse, HazardType, PlacedHazard, TwinMode, VenueSummary, VenueV2 } from './types.ts';
 
 export const PICK_FIRST = 'Pick a hazard first';
 
@@ -16,9 +17,16 @@ interface Options {
   log: (message: string, level?: 'info' | 'success' | 'warning') => void;
 }
 
-/** Simulation-mode state: venue, placed hazards, the debounced door plan. Everything resets on leaving the mode. */
+/** Simulation-mode state: the active venue, placed hazards, the debounced door plan. Everything resets on leaving the mode or switching venue. */
 export function useTwin({ mode, notify, log }: Options) {
   const active = mode !== 'tabletop';
+  // The camera twin calibrates against the printed building-v2 sheet, so it always plans on building-v2.
+  const cameraOnly = mode === 'camera';
+  const [activeVenue, setActiveVenue] = useState<{ venue_id: string; revision: number }>({ venue_id: BUILTIN_VENUE_ID, revision: 0 });
+  const [venues, setVenues] = useState<VenueSummary[]>([]);
+  const venueId = cameraOnly ? BUILTIN_VENUE_ID : activeVenue.venue_id;
+  const venueIdRef = useRef(venueId);
+  venueIdRef.current = venueId;
   const [venue, setVenue] = useState<VenueV2 | null>(null);
   const [fixtureVenue, setFixtureVenue] = useState(false);
   const [placement, setPlacement] = useState<PlacementState>(emptyPlacement);
@@ -34,7 +42,7 @@ export function useTwin({ mode, notify, log }: Options) {
   const flowRef = useRef<ReturnType<typeof createTwinFlow<DoorPlanResponse>> | null>(null);
   if (!flowRef.current) {
     flowRef.current = createTwinFlow<DoorPlanResponse>({
-      fetchPlan: postDoorPlan,
+      fetchPlan: (hazards, signal) => postDoorPlan(venueIdRef.current, hazards, signal),
       onState: setFlow,
       onPlan: (plan, _hazards, ms) => {
         const names = Object.fromEntries((venueRef.current?.zones ?? []).map(zone => [zone.id, zone.name]));
@@ -45,14 +53,32 @@ export function useTwin({ mode, notify, log }: Options) {
   }
   const planner = flowRef.current;
 
-  // Venue: fetched once when Simulation first opens; the bundled fixture covers an unreachable backend.
+  // The active venue pointer and the list, read whenever the twin opens; an unreachable backend keeps building-v2.
+  const [listTick, setListTick] = useState(0);
+  const refreshVenues = useCallback(() => setListTick(value => value + 1), []);
   useEffect(() => {
-    if (!active || venue) return;
+    if (!active) return;
     const controller = new AbortController();
-    fetchVenue(controller.signal).then(
+    fetchVenueList(controller.signal).then(
+      list => { setVenues(list.venues); setActiveVenue(list.active); },
+      () => { /* the venue fetch below reports an unreachable backend */ },
+    );
+    return () => controller.abort();
+  }, [active, listTick]);
+
+  // Venue: fetched when the twin opens or the venue changes; the bundled fixture covers an unreachable backend.
+  useEffect(() => {
+    if (!active || venue?.venue_id === venueId) return;
+    const controller = new AbortController();
+    fetchVenue(venueId, controller.signal).then(
       loaded => { setVenue(loaded); setFixtureVenue(false); },
       async () => {
         if (controller.signal.aborted) return;
+        if (venueId !== BUILTIN_VENUE_ID) {
+          logRef.current(`Venue ${venueId} could not be loaded. Showing building-v2.`, 'warning');
+          setActiveVenue({ venue_id: BUILTIN_VENUE_ID, revision: activeVenue.revision });
+          return;
+        }
         const bundled = (await import('./fixtures/building-v2.json')).default as unknown as VenueV2;
         if (controller.signal.aborted) return;
         setVenue(bundled); setFixtureVenue(true);
@@ -60,23 +86,36 @@ export function useTwin({ mode, notify, log }: Options) {
       },
     );
     return () => controller.abort();
-  }, [active, venue]);
+  }, [active, venue, venueId, activeVenue.revision]);
+
+  /** Makes another accepted venue active for every screen; a stale pointer refreshes the list instead. */
+  const switchVenue = useCallback(async (nextId: string) => {
+    if (nextId === activeVenue.venue_id) return true;
+    try {
+      setActiveVenue(await putActiveVenue(nextId, activeVenue.revision));
+      return true;
+    } catch (error) {
+      notify(error instanceof ApiError && error.message ? error.message : 'The venue could not be switched');
+      refreshVenues();
+      return false;
+    }
+  }, [activeVenue, notify, refreshVenues]);
 
   // Every change to the hazards (or a smoke time) re-plans; the first plan for a visit skips the debounce.
   const planned = useRef(false);
   useEffect(() => {
-    if (!active || !venue) return;
+    if (!active || !venue || venue.venue_id !== venueId) return;
     planner.request(toHazardInputs(placement.hazards), { immediate: !planned.current });
     planned.current = true;
-  }, [active, venue, placement.hazards, planner]);
+  }, [active, venue, venueId, placement.hazards, planner]);
 
   const reset = useCallback(() => {
     planner.reset();
     planned.current = false;
     setPlacement(emptyPlacement()); setArmed(null); setSelectedId(null); setSmokeSecondsState(SMOKE_DEFAULT);
   }, [planner]);
-  // Any mode change starts clean: hazards, selection and the plan are forgotten.
-  useEffect(() => { reset(); }, [mode, reset]);
+  // Any mode or venue change starts clean: hazards, selection and the plan are forgotten.
+  useEffect(() => { reset(); }, [mode, venueId, venue?.geometry_revision, reset]);
   useEffect(() => () => planner.reset(), [planner]);
 
   const place = useCallback((point: { x: number; y: number }, type: HazardType | null = armed) => {
@@ -124,13 +163,16 @@ export function useTwin({ mode, notify, log }: Options) {
     return () => window.removeEventListener('keydown', onKey);
   }, [active, armed, selectedId, remove]);
 
+  // A venue from before a switch is never shown while the next one loads.
+  const current = venue?.venue_id === venueId ? venue : null;
   return useMemo(() => ({
-    active, venue, fixtureVenue, flow, placement, hazards: placement.hazards as PlacedHazard[], armed, selectedId, smokeSeconds,
+    active, venue: current, venueId, venues, activeRevision: activeVenue.revision, switchVenue, refreshVenues,
+    fixtureVenue, flow, placement, hazards: placement.hazards as PlacedHazard[], armed, selectedId, smokeSeconds,
     setArmed, setSelectedId, place, placeInZone, addCamera, remove, stepSmoke, reset,
     undo: () => setPlacement(undoPlacement), clear: () => { setPlacement(clearHazards); setSelectedId(null); },
     canUndo: placement.history.length > 0,
     leave: modeAfterReset,
-  }), [active, venue, fixtureVenue, flow, placement, armed, selectedId, smokeSeconds, place, placeInZone, addCamera, remove, stepSmoke, reset]);
+  }), [active, current, venueId, venues, activeVenue.revision, switchVenue, refreshVenues, fixtureVenue, flow, placement, armed, selectedId, smokeSeconds, place, placeInZone, addCamera, remove, stepSmoke, reset]);
 }
 
 export type TwinController = ReturnType<typeof useTwin>;

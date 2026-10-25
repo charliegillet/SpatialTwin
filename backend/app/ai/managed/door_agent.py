@@ -1,4 +1,4 @@
-"""Managed-agent investigation of building-v2 door strategies.
+"""Managed-agent investigation of door strategies for the active venue (building-v2 or a compiled one).
 
 Same pattern as the tabletop investigation (Interactions API, background polling, client-executed function tools,
 previous_interaction_id, network-disabled environment when the adapter has one), but a separate runner: the tabletop
@@ -30,6 +30,7 @@ from .adapter import (
     MODEL, TOKEN_BUDGET, USAGE_FIELDS, InvestigationError, ManagedAgentAdapter, field, provider_error_code,
     safe_status,
 )
+from backend.app.ai.receipts import record_live_receipt
 from .ledger import LedgerConflict
 
 MAX_TOOL_CALLS = 6
@@ -75,7 +76,7 @@ class DoorAgentResult(BaseModel):
     latency_ms: float = 0.0
     errors: List[str] = []
     disclaimer: str = ("Counts are modeled boundary crossings of a synthetic population, not a survival prediction. "
-                       "building-v2 doors are simulated.")
+                       "Doors in the twin are simulated.")
 
 
 def format_states(states: Dict[str, str]) -> str:
@@ -143,7 +144,7 @@ class DoorToolbox:
             "hazards": [{"type": h.type, "zone": h.zone_id, "effective": h.effective} for h in plan.hazards],
             "unsafe_exits": [{"id": x.id, "reason": x.reason[:160]} for x in plan.exits if not x.safe],
             "advisories": [a[:200] for a in plan.advisories[:4]],
-            "note": "Modeled crossings of a synthetic population; building-v2 doors are simulated.",
+            "note": f"Modeled crossings of a synthetic population; {self.plan.venue_id} doors are simulated.",
         }
 
     def compare(self, arguments: Any) -> Dict[str, Any]:
@@ -167,7 +168,7 @@ class DoorToolbox:
             "is_valid": alt.is_valid,
             "is_checked_best": alt.rank == 1,
             "baseline_completed_crossings": self.plan.baseline.completed_crossings,
-            "note": "Modeled crossings of a synthetic population; building-v2 doors are simulated.",
+            "note": f"Modeled crossings of a synthetic population; {self.plan.venue_id} doors are simulated.",
         }
 
     def outcome(self, states: Dict[str, str]) -> Dict[str, Any]:
@@ -215,7 +216,7 @@ def clean_explanation(text: str) -> str:
 def instruction_for(toolbox: DoorToolbox) -> str:
     doors = ", ".join(toolbox.free) or "none"
     return (
-        "You investigate door strategies for a SIMULATED building (building-v2). Every door is simulated; nothing "
+        f"You investigate door strategies for a SIMULATED building ({toolbox.plan.venue_id}). Every door is simulated; nothing "
         "physical moves. Only numbers returned by the tools are evidence. Counts are modeled boundary crossings of a "
         "synthetic population, not real people: never claim anyone survives, is safe or is harmed. "
         f"Controllable doors: {doors}. Call plan_doors exactly once: its checked_states list already contains "
@@ -452,6 +453,8 @@ class DoorAgentRunner:
                             errors.append(f"provider_{lifecycle}")
                         if status == InvestigationStatus.COMPLETED and provider_model != model:
                             raise InvestigationError("provider_model_unverified")
+                        if status == InvestigationStatus.COMPLETED:
+                            record_live_receipt("managed_door_agent", model)
                         final_text = agent_text(interaction)
                         break
                     if status == InvestigationStatus.COMPLETED:

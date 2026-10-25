@@ -1,4 +1,4 @@
-"""Local door planner for building-v2.
+"""Local door planner for any accepted venue (building-v2 or a compiled one).
 
 Free set F = doors the planner may open (planner_can_open, default closed, not gas-locked). All 2^|F| states are
 solved with the forked v2 solver and checked independently; the best checker-valid state wins. AI is not involved:
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import itertools
 import time
+from collections import OrderedDict
 from dataclasses import replace
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
@@ -27,7 +28,14 @@ MAX_HAZARDS = 6
 MIN_HORIZON, MAX_HORIZON = 10, 120
 EXIT_CODE = {"green_flash": "F", "green": "g", "red_x": "X", "red_static": "S"}
 
-_NO_HAZARD_CACHE: Dict[Tuple[str, int], int] = {}
+MIN_PIXELS = 24
+# Bounded: compiled venues each add a geometry revision.
+_NO_HAZARD_CACHE: "OrderedDict[Tuple[str, int], int]" = OrderedDict()
+_NO_HAZARD_CACHE_SIZE = 64
+
+
+def pixel_count_for(venue: VenueV2) -> int:
+    return max([MIN_PIXELS] + [end + 1 for _, end in venue.led_map.values()])
 
 
 class DoorPlanError(Exception):
@@ -125,10 +133,15 @@ def _decompose_routes(venue: VenueV2, outcome: SolveOutcome, multipliers: Dict[s
 
 def _no_hazard_completed(venue: VenueV2, solver: FlowSolverV2, horizon: int) -> int:
     key = (venue.geometry_revision, horizon)
-    if key not in _NO_HAZARD_CACHE:
-        closed = frozenset(d.id for d in venue.doors if d.default_state == "closed")
-        _NO_HAZARD_CACHE[key] = solver.solve(SolveInputs(closed_doors=closed), horizon).completed_crossings
-    return _NO_HAZARD_CACHE[key]
+    if key in _NO_HAZARD_CACHE:
+        _NO_HAZARD_CACHE.move_to_end(key)
+        return _NO_HAZARD_CACHE[key]
+    closed = frozenset(d.id for d in venue.doors if d.default_state == "closed")
+    completed = solver.solve(SolveInputs(closed_doors=closed), horizon).completed_crossings
+    _NO_HAZARD_CACHE[key] = completed
+    while len(_NO_HAZARD_CACHE) > _NO_HAZARD_CACHE_SIZE:
+        _NO_HAZARD_CACHE.popitem(last=False)
+    return completed
 
 
 def plan_doors(venue: VenueV2, request: DoorPlanRequest) -> DoorPlanResponse:
@@ -235,10 +248,11 @@ def plan_doors(venue: VenueV2, request: DoorPlanRequest) -> DoorPlanResponse:
 
     routes = _decompose_routes(venue, chosen, mult)
 
-    # Lights (screen only for building-v2)
+    # Lights (screen only): at least the 24 pixels of building-v2, more if the venue's led_map needs them
     door_by_id = {d.id: d for d in doors}
     exit_by_id = {x.id: x for x in exits}
-    px = ["0"] * 24
+    pixel_count = pixel_count_for(venue)
+    px = ["0"] * pixel_count
     segments: List[LightSegment] = []
     for element, (start, end) in venue.led_map.items():
         if element in exit_by_id:
@@ -246,7 +260,7 @@ def plan_doors(venue: VenueV2, request: DoorPlanRequest) -> DoorPlanResponse:
         else:
             pd = door_by_id[element]
             code = "L" if pd.locked else ("O" if pd.state == "open" else "B")
-        for i in range(start, min(end, 23) + 1):
+        for i in range(start, min(end, pixel_count - 1) + 1):
             px[i] = code
         segments.append(LightSegment(element_id=element, range=[start, end], code=code))
 

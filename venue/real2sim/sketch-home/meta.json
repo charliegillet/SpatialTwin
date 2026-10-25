@@ -1,0 +1,9 @@
+{
+  "fixture_id": "sketch-home",
+  "title": "Hand-drawn home sketch: six rooms, window exit",
+  "source_kind": "sketch",
+  "provenance": "synthetic",
+  "recorded_at": null,
+  "interaction_id_hash": null,
+  "note": "Synthetic image drawn by tools/gen_real2sim_fixtures.py with jittered pen lines; draft.json is what a perfect reading would return. Not a photograph and not a recorded Gemini run."
+}

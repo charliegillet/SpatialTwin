@@ -20,6 +20,7 @@ from backend.app.contracts import (
 from backend.app.state.service import ScenarioService
 from backend.app.hazard.model import HazardToolError, ToolContext
 from backend.app.hazard.tools import HAZARD_TOOL_DEFINITIONS, execute_hazard_tool
+from backend.app.ai.receipts import record_live_receipt
 from .agent_registry import BASE_AGENT, AgentRef
 from .ledger import LedgerConflict, ManagedLedger
 
@@ -542,6 +543,8 @@ class ManagedAgentAdapter:
                             errors.append(f"provider_{lifecycle}")
                         if status == InvestigationStatus.COMPLETED and provider_model != self.model:
                             raise InvestigationError("provider_model_unverified")
+                        if status == InvestigationStatus.COMPLETED:
+                            record_live_receipt("managed_investigation", self.model)
                         break
                 candidates = self._candidates(entries, context)
                 if status == InvestigationStatus.COMPLETED:

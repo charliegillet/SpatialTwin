@@ -3,7 +3,7 @@ import type { DoorPlanResponse, LightCode } from './types.ts';
 
 export interface LightMeaning { label: string; tone: 'safe' | 'quiet' | 'hazard' | 'pending' | 'idle' | 'off'; flashing: boolean; }
 
-/** Legend for the 24-character px string of building-v2 (on screen only). */
+/** Legend for the px string (on screen only). */
 export const LIGHT_CODES: Record<LightCode, LightMeaning> = {
   F: { label: 'Safe exit', tone: 'safe', flashing: true },
   g: { label: 'Safe · no modeled flow', tone: 'quiet', flashing: false },
@@ -16,6 +16,7 @@ export const LIGHT_CODES: Record<LightCode, LightMeaning> = {
 };
 
 export const LIGHTS_TITLE = 'Exit signs · model output';
+/** building-v2's strip; a compiled venue may need more pixels, never fewer. */
 export const PIXEL_COUNT = 24;
 
 export interface LightPixel { index: number; code: string; known: boolean; meaning: LightMeaning; flashing: boolean; }
@@ -23,10 +24,10 @@ export interface LightGroup { id: string; pixels: LightPixel[]; }
 
 const UNKNOWN: LightMeaning = { label: 'Unknown code', tone: 'off', flashing: false };
 
-/** Groups the px string by led_map element (E1–E4, D4), in strip order. Under reduced motion nothing flashes. */
+/** Groups the px string by led_map element (exits, then controllable doors), in strip order. Under reduced motion nothing flashes. */
 export function lightsView(plan: (Pick<DoorPlanResponse, 'lights'> & { chosen?: { validator_report?: { is_valid?: boolean } } }) | null, ledMap: Record<string, [number, number]>, reducedMotion = false): LightGroup[] {
   const px = planChecked(plan) ? plan?.lights.px : undefined;
-  if (!px || px.length !== PIXEL_COUNT) return [];
+  if (!px || px.length < PIXEL_COUNT || Object.values(ledMap).some(([, last]) => last >= px.length)) return [];
   return Object.entries(ledMap)
     .sort((a, b) => a[1][0] - b[1][0])
     .map(([id, [first, last]]) => ({

@@ -12,15 +12,22 @@ interface Options {
   mode: TwinMode;
   /** The presenter menu's Analysis mode. */
   analysisMode: DoorAgentMode;
+  /** The venue the plan is for; a switch drops the run. */
+  venueId: string;
 }
 
 /** Ask-the-agent state for Simulation. A new hazard set, a mode switch, Next judge (unmount) or Cancel drops the run. */
-export function useDoorAgent({ hazards, plan, pending, mode, analysisMode }: Options) {
+export function useDoorAgent({ hazards, plan, pending, mode, analysisMode, venueId }: Options) {
   const [state, setState] = useState<DoorAgentState>(idleAgent);
+  // A run is dropped on every venue switch, so the venue never changes between its start and its last poll.
+  const venueRef = useRef(venueId);
+  venueRef.current = venueId;
   const flowRef = useRef<ReturnType<typeof createDoorAgentFlow> | null>(null);
   if (!flowRef.current) {
     flowRef.current = createDoorAgentFlow({
-      start: startDoorInvestigation, poll: fetchDoorInvestigation, cancel: cancelDoorInvestigation,
+      start: (items, runMode, signal) => startDoorInvestigation(venueRef.current, items, runMode, signal),
+      poll: (id, signal) => fetchDoorInvestigation(venueRef.current, id, signal),
+      cancel: id => cancelDoorInvestigation(venueRef.current, id),
       onState: setState, isDone: isDoorAgentDone, describeFailure: doorAgentErrorMessage,
     });
   }
@@ -29,7 +36,7 @@ export function useDoorAgent({ hazards, plan, pending, mode, analysisMode }: Opt
   const hazardsRef = useRef(hazards);
   hazardsRef.current = hazards;
 
-  useEffect(() => { flow.reset(); }, [flow, key, mode]);
+  useEffect(() => { flow.reset(); }, [flow, key, mode, venueId]);
   useEffect(() => () => flow.reset(), [flow]);
 
   const running = state.status === 'running';

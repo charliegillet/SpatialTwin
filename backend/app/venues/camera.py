@@ -29,7 +29,7 @@ from backend.app.ai.grounding.calibration import (
     normalized_to_px,
 )
 from backend.app.ai.grounding.hazard_read import HazardCardReader, HazardReadResult
-from backend.app.venues.model import VenueV2, get_venue
+from backend.app.venues.model import BUILTIN_VENUE_ID, VenueV2, get_venue
 
 MAPPING_NOTE = "Card positions mapped onto the reviewed floor plan; the 3D model is authored, not reconstructed."
 MAX_READS = 64
@@ -184,7 +184,8 @@ CAMERA_STORE = CameraStore()
 
 
 def _venue_or_404(venue_id: str) -> VenueV2:
-    venue = get_venue(venue_id)
+    # Calibration maps onto the printed building-v2 sheet (venue/print/sheet_v2.json), so only that venue has a camera twin.
+    venue = get_venue(venue_id) if venue_id == BUILTIN_VENUE_ID else None
     if venue is None:
         raise HTTPException(404, detail={"code": "unknown_venue"})
     return venue

@@ -28,11 +28,19 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
+from backend.app.env_file import load_env_file
+
+# Before any singleton reads its configuration from the environment.
+_ENV_FILE_KEYS = load_env_file()
+
 from backend.app.ai.grounding.adapter import GroundingAdapter
+from backend.app.ai.grounding import video as video_module
 from backend.app.ai.grounding.video import IMAGE_FALLBACK_ERROR, ground_video, video_enabled
 from backend.app.ai.managed.model_probe import resolve_model
+from backend.app.ai.receipts import last_live_receipt
 from backend.app.hazard.model import HazardToolError, ToolContext
 from backend.app.hazard.tools import execute_hazard_tool
+from backend.app.incident import build_incident_router
 from backend.app.review.routes import build_review_router
 from backend.app.venues.camera import build_camera_router
 from backend.app.venues.routes import router as venues_router
@@ -235,18 +243,24 @@ app.include_router(build_review_router(
 app.include_router(venues_router)
 app.include_router(build_camera_router(grounding_adapter, fixtures_enabled))
 app.include_router(build_door_agent_router(managed_agent_adapter, _investigation_slots, fixtures_enabled))
+# Server-side incident mirror and the virtual door controller (no hardware): local only, no provider calls.
+app.include_router(build_incident_router())
 
 
 @app.get("/api/ai/capabilities")
 def ai_capabilities() -> Dict[str, Any]:
     """Receipt-gated capability flags. Reads local probe files only; no provider call."""
     resolution = resolve_model()
+    receipt = last_live_receipt(video_module.VIDEO_PROBE_DIR)
     return {
         "video_static": video_enabled("static"),
         "video_agentic": video_enabled("agentic"),
         "managed_model": resolution.model if resolution else None,
         "managed_model_fallback": resolution.is_fallback if resolution else False,
         "receipts_source": "runtime/probes",
+        "last_live_receipt_at": receipt["at"] if receipt else None,
+        "last_live_receipt_age_seconds": receipt["age_seconds"] if receipt else None,
+        "last_live_receipt_kind": receipt["kind"] if receipt else None,
     }
 
 

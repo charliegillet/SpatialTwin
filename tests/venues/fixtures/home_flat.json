@@ -1,0 +1,37 @@
+{
+  "schema_version": "2.0.0",
+  "venue_id": "home-flat",
+  "geometry_revision": "geom-home-flat-test",
+  "provenance": "Hand-written test venue: a five-room flat with an escape window; declared rates; not a surveyed plan.",
+  "units": "m",
+  "extent": [12, 10],
+  "default_horizon_seconds": 40,
+  "time_step_seconds": 2,
+  "zones": [
+    {"id": "LIVING", "name": "Living room", "max_capacity": 10, "initial_occupants": 3, "polygon": [[0, 0], [7, 0], [7, 5], [0, 5]]},
+    {"id": "KITCHEN", "name": "Kitchen", "max_capacity": 6, "initial_occupants": 1, "polygon": [[7, 0], [12, 0], [12, 5], [7, 5]]},
+    {"id": "HALL", "name": "Hall", "max_capacity": 6, "initial_occupants": 0, "polygon": [[0, 5], [12, 5], [12, 6], [0, 6]]},
+    {"id": "BED_1", "name": "Bedroom 1", "max_capacity": 4, "initial_occupants": 2, "polygon": [[0, 6], [6, 6], [6, 10], [0, 10]]},
+    {"id": "BED_2", "name": "Bedroom 2", "max_capacity": 4, "initial_occupants": 1, "polygon": [[6, 6], [12, 6], [12, 10], [6, 10]]}
+  ],
+  "doors": [
+    {"id": "D1", "zones": ["LIVING", "HALL"], "position": [3, 5], "width": 0.9, "throughput_per_sec": 0.9, "travel_time_seconds": 2, "default_state": "open", "kind": "room_door", "actuation": "indicator_only", "planner_can_open": false},
+    {"id": "D2", "zones": ["KITCHEN", "HALL"], "position": [9.5, 5], "width": 0.9, "throughput_per_sec": 0.9, "travel_time_seconds": 2, "default_state": "open", "kind": "room_door", "actuation": "indicator_only", "planner_can_open": false},
+    {"id": "D3", "zones": ["BED_1", "HALL"], "position": [3, 6], "width": 0.8, "throughput_per_sec": 0.8, "travel_time_seconds": 2, "default_state": "open", "kind": "room_door", "actuation": "indicator_only", "planner_can_open": false},
+    {"id": "D4", "zones": ["BED_2", "HALL"], "position": [9, 6], "width": 0.8, "throughput_per_sec": 0.8, "travel_time_seconds": 2, "default_state": "open", "kind": "room_door", "actuation": "indicator_only", "planner_can_open": false},
+    {"id": "D5", "zones": ["LIVING", "KITCHEN"], "position": [7, 2.5], "width": 0.9, "throughput_per_sec": 0.9, "travel_time_seconds": 2, "default_state": "closed", "kind": "room_door", "actuation": "indicator_only", "planner_can_open": true}
+  ],
+  "exits": [
+    {"id": "E1", "zone": "LIVING", "name": "Front door", "position": [0, 2.5], "width": 0.9, "service_rate_per_sec": 0.6},
+    {"id": "E2", "zone": "KITCHEN", "name": "Back door", "position": [12, 2.5], "width": 0.9, "service_rate_per_sec": 0.6},
+    {"id": "E3", "zone": "BED_1", "name": "Escape window", "position": [0, 8], "width": 0.6, "service_rate_per_sec": 0.2}
+  ],
+  "led_map": {"E1": [0, 2], "E2": [3, 5], "E3": [6, 7], "D5": [8, 9]},
+  "hazard_defaults": {
+    "FIRE": {"untenable_s": 6},
+    "SMOKE": {"untenable_s": 12, "throughput_multiplier": 0.5},
+    "GAS": {"untenable_s": 10},
+    "CHEMICAL": {"untenable_s": 10},
+    "WATER": {"throughput_multiplier": 0.5, "travel_multiplier": 2.0}
+  }
+}

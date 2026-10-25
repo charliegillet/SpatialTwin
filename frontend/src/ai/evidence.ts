@@ -1,6 +1,6 @@
 import type { CaptureEvidence, CaptureRequest, ProviderProgress } from '../types.ts';
 
-export const allowlistedTools = new Set(['get_reviewed_scenario', 'evaluate_allowed_alternative', 'get_checked_comparison', 'simulate_hazard_schedule', 'score_exposure']);
+export const allowlistedTools = new Set(['get_reviewed_scenario', 'evaluate_allowed_alternative', 'get_checked_comparison', 'simulate_hazard_schedule', 'score_exposure', 'plan_doors', 'compare_door_states']);
 
 export async function captureEvidence(capture: CaptureRequest): Promise<CaptureEvidence> {
   if (!capture.image_base64) return { ...capture };

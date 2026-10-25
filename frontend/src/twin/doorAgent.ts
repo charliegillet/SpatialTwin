@@ -105,7 +105,7 @@ export function resultView(result: DoorAgentResult): ResultView {
     attribution: !done ? '' : result.provenance === 'live' ? `Agent (${result.provider_model ?? 'Gemini'}) said` : 'Local solver summary',
     agreement: done && !unchecked ? result.agreement_note : '',
     tools: result.tool_ledger.map(toolLine),
-    disclaimer: 'Modeled crossings, not a survival prediction. building-v2 doors are simulated.',
+    disclaimer: 'Modeled crossings, not a survival prediction. Doors in the twin are simulated.',
   };
 }
 

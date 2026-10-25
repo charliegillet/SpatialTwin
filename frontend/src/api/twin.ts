@@ -1,6 +1,11 @@
 import { ApiError, requestJson } from './client.ts';
 import { errorCopy } from '../twin/camera.ts';
-import type { CalibrationRequest, CalibrationResponse, ConfirmResponse, DoorAgentMode, DoorAgentProgress, DoorPlanResponse, HazardInput, HazardReadRequest, HazardReadResponse, VenueV2 } from '../twin/types.ts';
+import type { ActiveVenue, CalibrationRequest, CalibrationResponse, ConfirmResponse, DoorAgentMode, DoorAgentProgress, DoorPlanResponse, HazardInput, HazardReadRequest, HazardReadResponse, VenueList, VenueV2 } from '../twin/types.ts';
+
+/** The authored venue; the camera twin calibrates against its printed sheet only. */
+export const BUILTIN_VENUE_ID = 'building-v2';
+export const VENUE_ID_PATTERN = /^[a-z0-9-]{3,40}$/;
+const venuePath = (venueId: string) => `/api/venues/${encodeURIComponent(venueId)}`;
 
 /** 422 codes from the door-plan endpoint, in short words a judge can read. */
 export const TWIN_ERRORS: Record<string, string> = {
@@ -17,14 +22,15 @@ export const TWIN_ERRORS: Record<string, string> = {
 export function twinErrorMessage(status: number, code: string): string {
   if (status === 422 && code) return TWIN_ERRORS[code] ?? 'The hazards were not accepted';
   if (status === 409) return 'The venue changed. Reload to continue.';
+  if (status === 404 && code === 'unknown_venue') return 'That venue is not available any more.';
   return '';
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const bad = (what: string): never => { throw new ApiError(`The planner returned an unexpected ${what}.`, 502, 'invalid_response'); };
 
-/** Minimal shape check: enough that the UI never reads through an undefined. Extra fields pass. */
-export function parseDoorPlan(raw: unknown): DoorPlanResponse {
+/** Minimal shape check: enough that the UI never reads through an undefined. Extra fields pass. A plan for another venue is rejected. */
+export function parseDoorPlan(raw: unknown, expectedVenueId: string = BUILTIN_VENUE_ID): DoorPlanResponse {
   if (!isRecord(raw)) return bad('response');
   const { chosen, baseline, lights } = raw;
   for (const key of ['hazards', 'doors', 'exits', 'zones', 'routes', 'alternatives', 'advisories'] as const) {
@@ -33,24 +39,42 @@ export function parseDoorPlan(raw: unknown): DoorPlanResponse {
   if (!isRecord(chosen) || ![chosen.completed_crossings, chosen.initial_population, chosen.horizon_seconds].every(Number.isFinite)) bad('result');
   if (!isRecord(baseline) || !Number.isFinite(baseline.completed_crossings)) bad('baseline');
   if (!isRecord(lights) || typeof lights.px !== 'string') bad('light plan');
-  if (typeof raw.plan_id !== 'string' || raw.venue_id !== 'building-v2') bad('plan');
+  if (typeof raw.plan_id !== 'string' || raw.venue_id !== expectedVenueId) bad('plan');
   return raw as unknown as DoorPlanResponse;
 }
 
-export function parseVenue(raw: unknown): VenueV2 {
-  if (!isRecord(raw) || raw.venue_id !== 'building-v2') return bad('venue');
+export function parseVenue(raw: unknown, expectedVenueId?: string): VenueV2 {
+  if (!isRecord(raw) || typeof raw.venue_id !== 'string' || !VENUE_ID_PATTERN.test(raw.venue_id)) return bad('venue');
+  if (expectedVenueId !== undefined && raw.venue_id !== expectedVenueId) bad('venue');
   for (const key of ['zones', 'doors', 'exits'] as const) if (!Array.isArray(raw[key]) || raw[key].length === 0) bad(key);
   if (!isRecord(raw.led_map) || !Array.isArray(raw.extent)) bad('venue');
   return raw as unknown as VenueV2;
 }
 
-export const fetchVenue = async (signal?: AbortSignal): Promise<VenueV2> =>
-  parseVenue(await requestJson<unknown>('/api/venues/building-v2', { signal, timeoutMs: 10_000, fallback: 'The building could not be loaded' }));
+export const fetchVenue = async (venueId: string, signal?: AbortSignal): Promise<VenueV2> =>
+  parseVenue(await requestJson<unknown>(venuePath(venueId), { signal, timeoutMs: 10_000, fallback: 'The building could not be loaded' }), venueId);
 
-export const postDoorPlan = async (hazards: HazardInput[], signal?: AbortSignal): Promise<DoorPlanResponse> =>
-  parseDoorPlan(await requestJson<unknown>('/api/venues/building-v2/door-plan', {
+export const postDoorPlan = async (venueId: string, hazards: HazardInput[], signal?: AbortSignal): Promise<DoorPlanResponse> =>
+  parseDoorPlan(await requestJson<unknown>(`${venuePath(venueId)}/door-plan`, {
     method: 'POST', body: { hazards }, signal, timeoutMs: 30_000, fallback: 'The door plan could not be calculated',
     describe: (status, _detail, code) => twinErrorMessage(status, code),
+  }), venueId);
+
+export function parseActiveVenue(raw: unknown): ActiveVenue {
+  if (!isRecord(raw) || typeof raw.venue_id !== 'string' || !VENUE_ID_PATTERN.test(raw.venue_id) || !Number.isInteger(raw.revision)) return bad('active venue');
+  return { venue_id: raw.venue_id, revision: raw.revision as number };
+}
+
+export async function fetchVenueList(signal?: AbortSignal): Promise<VenueList> {
+  const raw = await requestJson<unknown>('/api/venues', { signal, timeoutMs: 10_000, fallback: 'The venues could not be listed' });
+  if (!isRecord(raw) || !Array.isArray(raw.venues)) return bad('venue list');
+  return { venues: raw.venues as VenueList['venues'], active: parseActiveVenue(raw.active) };
+}
+
+export const putActiveVenue = async (venueId: string, expectedRevision: number, signal?: AbortSignal): Promise<ActiveVenue> =>
+  parseActiveVenue(await requestJson<unknown>('/api/venues/active', {
+    method: 'PUT', body: { venue_id: venueId, expected_revision: expectedRevision }, signal, timeoutMs: 10_000,
+    fallback: 'The venue could not be switched', describe: (status, _detail, code) => twinErrorMessage(status, code),
   }));
 
 // --- Camera twin ----------------------------------------------------------------------------------------
@@ -62,13 +86,13 @@ export function cameraErrorMessage(status: number, code: string): string {
 }
 
 export const postCalibration = (body: CalibrationRequest, signal?: AbortSignal) =>
-  requestJson<CalibrationResponse>('/api/venues/building-v2/camera/calibration', {
+  requestJson<CalibrationResponse>(`${venuePath(BUILTIN_VENUE_ID)}/camera/calibration`, {
     method: 'POST', body, signal, timeoutMs: 10_000, fallback: 'The calibration could not be saved',
     describe: (status, _detail, code) => cameraErrorMessage(status, code),
   });
 
 export async function postHazardRead(body: HazardReadRequest, signal?: AbortSignal): Promise<HazardReadResponse> {
-  const read = await requestJson<HazardReadResponse>('/api/venues/building-v2/camera/hazard-read', {
+  const read = await requestJson<HazardReadResponse>(`${venuePath(BUILTIN_VENUE_ID)}/camera/hazard-read`, {
     method: 'POST', body, signal, timeoutMs: 70_000, fallback: 'The board could not be read',
     describe: (status, _detail, code) => cameraErrorMessage(status, code),
   });
@@ -77,7 +101,7 @@ export async function postHazardRead(body: HazardReadRequest, signal?: AbortSign
 }
 
 export const confirmRead = (readId: string, candidateIds: string[], signal?: AbortSignal) =>
-  requestJson<ConfirmResponse>(`/api/venues/building-v2/camera/reads/${encodeURIComponent(readId)}/confirm`, {
+  requestJson<ConfirmResponse>(`${venuePath(BUILTIN_VENUE_ID)}/camera/reads/${encodeURIComponent(readId)}/confirm`, {
     method: 'POST', body: { candidate_ids: candidateIds }, signal, timeoutMs: 10_000, fallback: 'The cards could not be confirmed',
     describe: (status, _detail, code) => cameraErrorMessage(status, code),
   });
@@ -122,8 +146,8 @@ export function parseDoorAgentProgress(raw: unknown): DoorAgentProgress {
   return { ...raw, investigation: (result ?? null) as DoorAgentProgress['investigation'] } as unknown as DoorAgentProgress;
 }
 
-export async function startDoorInvestigation(hazards: HazardInput[], mode: DoorAgentMode, signal?: AbortSignal): Promise<string> {
-  const started = await requestJson<{ investigation_id?: unknown }>('/api/venues/building-v2/investigate', {
+export async function startDoorInvestigation(venueId: string, hazards: HazardInput[], mode: DoorAgentMode, signal?: AbortSignal): Promise<string> {
+  const started = await requestJson<{ investigation_id?: unknown }>(`${venuePath(venueId)}/investigate`, {
     method: 'POST', body: { hazards, mode }, signal, timeoutMs: 15_000, fallback: 'The agent could not be started',
     describe: (status, _detail, code) => agentStartError(status, code),
   });
@@ -131,12 +155,12 @@ export async function startDoorInvestigation(hazards: HazardInput[], mode: DoorA
   return started.investigation_id;
 }
 
-export const fetchDoorInvestigation = async (id: string, signal?: AbortSignal): Promise<DoorAgentProgress> =>
-  parseDoorAgentProgress(await requestJson<unknown>(`/api/venues/building-v2/investigations/${encodeURIComponent(id)}`, {
+export const fetchDoorInvestigation = async (venueId: string, id: string, signal?: AbortSignal): Promise<DoorAgentProgress> =>
+  parseDoorAgentProgress(await requestJson<unknown>(`${venuePath(venueId)}/investigations/${encodeURIComponent(id)}`, {
     signal, timeoutMs: 10_000, fallback: 'The agent progress could not be read',
   }));
 
-export const cancelDoorInvestigation = (id: string) =>
-  requestJson<{ status: string }>(`/api/venues/building-v2/investigations/${encodeURIComponent(id)}/cancel`, {
+export const cancelDoorInvestigation = (venueId: string, id: string) =>
+  requestJson<{ status: string }>(`${venuePath(venueId)}/investigations/${encodeURIComponent(id)}/cancel`, {
     method: 'POST', timeoutMs: 10_000, fallback: 'The agent could not be cancelled',
   });

@@ -20,6 +20,7 @@ from google.genai import errors as genai_errors
 from google.genai._gaos.lib.compat_errors import APIStatusError, APITimeoutError, GeminiNextGenAPIClientError
 from pydantic import ValidationError
 
+from backend.app.ai.receipts import record_live_receipt
 from backend.app.ai.grounding.adapter import (
     GROUNDING_SYSTEM_INSTRUCTION,
     MAX_DEADLINE_SECONDS,
@@ -321,6 +322,7 @@ async def ground_video(
         if not proposal.validate_semantic_soundness()[0]:
             return result("failed", "invalid_provider_output:semantic")
         GroundingAdapter._validate_context(capture, context, live=True)
+        record_live_receipt(f"video_{mode}", adapter.model)
         return result("completed", proposal=proposal)
 
     try:

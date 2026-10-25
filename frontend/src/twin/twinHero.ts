@@ -15,6 +15,7 @@ export interface TwinHero {
 }
 
 export const MODEL_TAG = 'building-v2 model';
+export const modelTag = (venueId: string | null | undefined): string => venueId ? `${venueId} model` : MODEL_TAG;
 export const NO_CHECKED_PLAN = 'No checked plan \u2014 numbers withheld';
 
 /** False only when the checker said the chosen plan is invalid; partial fixtures without a report count as unknown, not failed. */
@@ -41,19 +42,20 @@ export function deltaFor(plan: DoorPlanResponse): TwinHero['delta'] {
 }
 
 /** Modeled crossings, never survival. The population and horizon come from the response. */
-export function twinHero(input: { plan: DoorPlanResponse | null; pending: boolean; error?: string | null }): TwinHero {
+export function twinHero(input: { plan: DoorPlanResponse | null; pending: boolean; error?: string | null; venueId?: string | null }): TwinHero {
   const { plan, pending, error } = input;
   if (!plan) {
     const reason = error ?? (pending ? 'Solving…' : 'Waiting for the planner.');
-    return { ready: false, stale: false, digits: '—', label: 'reach an exit', tag: MODEL_TAG, delta: null, reason, spoken: `No result. ${reason}`, withheld: false };
+    return { ready: false, stale: false, digits: '—', label: 'reach an exit', tag: modelTag(input.venueId), delta: null, reason, spoken: `No result. ${reason}`, withheld: false };
   }
-  if (!planChecked(plan)) return { ready: false, stale: false, digits: '\u2014', label: 'no checked plan', tag: MODEL_TAG, delta: null, reason: NO_CHECKED_PLAN, spoken: NO_CHECKED_PLAN, withheld: true };
+  const tag = modelTag(plan.venue_id);
+  if (!planChecked(plan)) return { ready: false, stale: false, digits:'\u2014', label: 'no checked plan', tag, delta: null, reason: NO_CHECKED_PLAN, spoken: NO_CHECKED_PLAN, withheld: true };
   const { completed_crossings: done, initial_population: population, horizon_seconds: horizon } = plan.chosen;
   const label = `of ${population} reach an exit in ${horizon} s`;
   const stale = pending || Boolean(error);
   const delta = stale ? null : deltaFor(plan);
   const reason = error ?? (pending ? 'Re-solving…' : null);
-  return { ready: !stale, stale, digits: String(done), label, tag: MODEL_TAG, delta, reason, spoken: `${done} ${label}, ${MODEL_TAG}${delta ? `, ${delta.text}` : ''}`, withheld: false };
+  return { ready: !stale, stale, digits: String(done), label, tag, delta, reason, spoken: `${done} ${label}, ${tag}${delta ? `, ${delta.text}` : ''}`, withheld: false };
 }
 
 export const twinChips = (plan: DoorPlanResponse | null, fixtureVenue: boolean): string[] =>

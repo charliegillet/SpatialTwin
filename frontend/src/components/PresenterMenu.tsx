@@ -4,7 +4,7 @@ import type { InvestigationMode } from '../types';
 import type { PreflightItem, ResetFacts } from '../ai/resetFlow';
 import { ResetChecklist } from './ResetChecklist';
 import { MODE_LABEL, MODE_LOCKED, visibleModes } from '../twin/modes';
-import type { TwinMode } from '../twin/types';
+import type { TwinMode, VenueSummary } from '../twin/types';
 
 interface Props {
   open: boolean;
@@ -37,11 +37,15 @@ interface Props {
   /** Rehearsal without a camera: an image of the sheet replaces the live frame, and every read says so. */
   imageFile: File | null;
   onImageFile: (file: File | null) => void;
+  /** Built-in and accepted venues; Simulation plans on the active one. */
+  venues: VenueSummary[];
+  venueId: string;
+  onVenue: (venueId: string) => void;
   children?: ReactNode;
 }
 
 /** Everything a presenter sets before a judge arrives. The stage itself shows only the live view, Read the board and the proposal. */
-export function PresenterMenu({ open, onClose, triggerRef, boardSlot, mode, onModeChange, modeLocked, apiConfigured, localEnabled, physical, operatorToken, onOperatorToken, preflight, facts, resetMessage, isResetting, canReset, onReset, onClearHazards, clearMessage, twinMode, onTwinMode, twinLocked, onCalibrate, imageFile, onImageFile }: Props) {
+export function PresenterMenu({ open, onClose, triggerRef, boardSlot, mode, onModeChange, modeLocked, apiConfigured, localEnabled, physical, operatorToken, onOperatorToken, preflight, facts, resetMessage, isResetting, canReset, onReset, onClearHazards, clearMessage, twinMode, onTwinMode, twinLocked, onCalibrate, imageFile, onImageFile, venues, venueId, onVenue }: Props) {
   const uid = useId();
   const panel = useRef<HTMLElement>(null);
   const opened = useRef(false);
@@ -59,6 +63,9 @@ export function PresenterMenu({ open, onClose, triggerRef, boardSlot, mode, onMo
       <div className="seg" role="group" aria-labelledby={`${uid}-twin`}>
         {visibleModes().map(item => <button key={item} type="button" aria-pressed={twinMode === item} disabled={twinLocked} onClick={() => onTwinMode(item)}>{MODE_LABEL[item]}</button>)}
       </div>
+      {twinMode === 'sim' && venues.length > 1 && <label className="clip-mode">Venue<select aria-label="Venue" value={venueId} disabled={twinLocked} onChange={event => onVenue(event.target.value)}>
+        {venues.map(item => <option key={item.venue_id} value={item.venue_id}>{item.builtin ? item.name : `${item.name} · ${item.zones} rooms`}</option>)}
+      </select></label>}
       {twinMode === 'camera' && <>
         <button type="button" className="btn pm-reset" onClick={onCalibrate}>Calibrate sheet</button>
         <label className="btn pm-reset pm-file">{imageFile ? `Image: ${imageFile.name.slice(0, 24)}` : 'Use an uploaded image'}<input type="file" accept="image/*" aria-label="Image of the sheet" onChange={event => { const file = event.target.files?.[0]; if (file) onImageFile(file); event.target.value = ''; }} /></label>

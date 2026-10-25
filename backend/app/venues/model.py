@@ -1,6 +1,7 @@
-"""Canonical building-v2 venue: pydantic model, validator and zone hit test.
+"""Venue model (schema 2.0.0): pydantic model, validator and zone hit test.
 
-The JSON file under venue/ is the source of truth; this module only loads and validates it. The shape mirrors
+building-v2 is the built-in venue; its JSON file under venue/ is the source of truth. Other venues are compiled
+from a Gemini reading and accepted by an operator (backend/app/venues/registry.py). The shape mirrors
 frontend/src/twin/types.ts (VenueV2) field for field.
 """
 from __future__ import annotations
@@ -19,6 +20,8 @@ DoorActuation = Literal["hold_open", "simulated_servo", "motorized", "indicator_
 DoorKind = Literal["fire_door", "smoke_door", "room_door", "servo_door", "roller_door", "opening"]
 
 _ID = re.compile(r"^[A-Z0-9_]+$")
+VENUE_ID_PATTERN = r"^[a-z0-9-]{3,40}$"
+BUILTIN_VENUE_ID = "building-v2"
 VENUE_FILE = Path(__file__).resolve().parents[3] / "venue" / "building_v2.json"
 
 Point2 = Tuple[float, float]
@@ -67,7 +70,7 @@ class HazardDefaults(_Strict):
 
 class VenueV2(_Strict):
     schema_version: Literal["2.0.0"]
-    venue_id: Literal["building-v2"]
+    venue_id: str = Field(pattern=VENUE_ID_PATTERN)
     geometry_revision: str
     provenance: str
     units: Literal["m"]
@@ -168,4 +171,10 @@ def load_building_v2() -> VenueV2:
 
 
 def get_venue(venue_id: str) -> Optional[VenueV2]:
-    return load_building_v2() if venue_id == "building-v2" else None
+    """The built-in venue, or an accepted venue from the registry. Drafts are never returned."""
+    if venue_id == BUILTIN_VENUE_ID:
+        return load_building_v2()
+    if not isinstance(venue_id, str) or not re.match(VENUE_ID_PATTERN, venue_id):
+        return None
+    from backend.app.venues.registry import venue_registry  # registry imports this module
+    return venue_registry().accepted_venue(venue_id)

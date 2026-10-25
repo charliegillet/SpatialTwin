@@ -1,0 +1,367 @@
+{
+  "schema_version": "draft-1",
+  "title": "Level 1 - Meridian Offices",
+  "image_kind": "evacuation_map",
+  "scale": {
+    "basis": "scale_bar",
+    "a": [
+      880,
+      524
+    ],
+    "b": [
+      880,
+      731
+    ],
+    "metres": 10.0,
+    "evidence": "Scale bar labelled 0, 5, 10 m under the plan."
+  },
+  "rooms": [
+    {
+      "key": "OFFICE_A",
+      "name": "Office A",
+      "kind": "office",
+      "box": [
+        140,
+        69,
+        400,
+        228
+      ],
+      "label_point": [
+        270,
+        148
+      ]
+    },
+    {
+      "key": "OFFICE_B",
+      "name": "Office B",
+      "kind": "office",
+      "box": [
+        140,
+        228,
+        400,
+        386
+      ],
+      "label_point": [
+        270,
+        307
+      ]
+    },
+    {
+      "key": "MEETING",
+      "name": "Meeting room",
+      "kind": "room",
+      "box": [
+        140,
+        386,
+        400,
+        545
+      ],
+      "label_point": [
+        270,
+        466
+      ]
+    },
+    {
+      "key": "WC",
+      "name": "Toilets",
+      "kind": "bathroom",
+      "box": [
+        140,
+        545,
+        400,
+        621
+      ],
+      "label_point": [
+        270,
+        583
+      ]
+    },
+    {
+      "key": "STORE",
+      "name": "Storage",
+      "kind": "storage",
+      "box": [
+        140,
+        621,
+        400,
+        690
+      ],
+      "label_point": [
+        270,
+        655
+      ]
+    },
+    {
+      "key": "CORRIDOR",
+      "name": "Corridor",
+      "kind": "corridor",
+      "box": [
+        400,
+        69,
+        470,
+        690
+      ],
+      "label_point": [
+        435,
+        379
+      ]
+    },
+    {
+      "key": "LOBBY",
+      "name": "Lobby",
+      "kind": "lobby",
+      "box": [
+        470,
+        69,
+        760,
+        290
+      ],
+      "label_point": [
+        615,
+        179
+      ]
+    },
+    {
+      "key": "OPEN",
+      "name": "Open office",
+      "kind": "office",
+      "box": [
+        470,
+        290,
+        760,
+        538
+      ],
+      "label_point": [
+        615,
+        414
+      ]
+    },
+    {
+      "key": "KITCHEN",
+      "name": "Kitchen",
+      "kind": "kitchen",
+      "box": [
+        470,
+        538,
+        760,
+        690
+      ],
+      "label_point": [
+        615,
+        614
+      ]
+    }
+  ],
+  "doors": [
+    {
+      "key": "D_OA",
+      "between": [
+        "OFFICE_A",
+        "CORRIDOR"
+      ],
+      "point": [
+        400,
+        148
+      ],
+      "width_m": 1.0,
+      "symbol": "swing",
+      "confidence": 0.95,
+      "evidence": "door gap in the wall"
+    },
+    {
+      "key": "D_OB",
+      "between": [
+        "OFFICE_B",
+        "CORRIDOR"
+      ],
+      "point": [
+        400,
+        307
+      ],
+      "width_m": 1.0,
+      "symbol": "swing",
+      "confidence": 0.95,
+      "evidence": "door gap in the wall"
+    },
+    {
+      "key": "D_MT",
+      "between": [
+        "MEETING",
+        "CORRIDOR"
+      ],
+      "point": [
+        400,
+        466
+      ],
+      "width_m": 1.2,
+      "symbol": "double",
+      "confidence": 0.95,
+      "evidence": "door gap in the wall"
+    },
+    {
+      "key": "D_WC",
+      "between": [
+        "WC",
+        "CORRIDOR"
+      ],
+      "point": [
+        400,
+        583
+      ],
+      "width_m": 0.9,
+      "symbol": "swing",
+      "confidence": 0.95,
+      "evidence": "door gap in the wall"
+    },
+    {
+      "key": "D_ST",
+      "between": [
+        "STORE",
+        "CORRIDOR"
+      ],
+      "point": [
+        400,
+        655
+      ],
+      "width_m": 0.9,
+      "symbol": "swing",
+      "confidence": 0.95,
+      "evidence": "door gap in the wall"
+    },
+    {
+      "key": "D_LC",
+      "between": [
+        "LOBBY",
+        "CORRIDOR"
+      ],
+      "point": [
+        470,
+        179
+      ],
+      "width_m": 1.5,
+      "symbol": "fire_door",
+      "confidence": 0.95,
+      "evidence": "door gap in the wall"
+    },
+    {
+      "key": "D_OPC",
+      "between": [
+        "OPEN",
+        "CORRIDOR"
+      ],
+      "point": [
+        470,
+        414
+      ],
+      "width_m": 1.5,
+      "symbol": "fire_door",
+      "confidence": 0.95,
+      "evidence": "door gap in the wall"
+    },
+    {
+      "key": "D_KC",
+      "between": [
+        "KITCHEN",
+        "CORRIDOR"
+      ],
+      "point": [
+        470,
+        614
+      ],
+      "width_m": 1.0,
+      "symbol": "swing",
+      "confidence": 0.95,
+      "evidence": "door gap in the wall"
+    },
+    {
+      "key": "D_LO",
+      "between": [
+        "LOBBY",
+        "OPEN"
+      ],
+      "point": [
+        615,
+        290
+      ],
+      "width_m": 1.2,
+      "symbol": "opening",
+      "confidence": 0.95,
+      "evidence": "door gap in the wall"
+    },
+    {
+      "key": "D_OK",
+      "between": [
+        "OPEN",
+        "KITCHEN"
+      ],
+      "point": [
+        640,
+        538
+      ],
+      "width_m": 1.0,
+      "symbol": "swing",
+      "confidence": 0.95,
+      "evidence": "door gap in the wall"
+    }
+  ],
+  "exits": [
+    {
+      "key": "X_MAIN",
+      "room": "LOBBY",
+      "point": [
+        760,
+        179
+      ],
+      "width_m": 1.8,
+      "kind": "door",
+      "label": "Main exit",
+      "confidence": 0.97,
+      "evidence": "green EXIT sign"
+    },
+    {
+      "key": "X_WEST",
+      "room": "CORRIDOR",
+      "point": [
+        435,
+        69
+      ],
+      "width_m": 1.2,
+      "kind": "door",
+      "label": "West exit",
+      "confidence": 0.97,
+      "evidence": "green EXIT sign"
+    },
+    {
+      "key": "X_EAST",
+      "room": "CORRIDOR",
+      "point": [
+        435,
+        690
+      ],
+      "width_m": 1.2,
+      "kind": "door",
+      "label": "East exit",
+      "confidence": 0.97,
+      "evidence": "green EXIT sign"
+    },
+    {
+      "key": "X_REAR",
+      "room": "OPEN",
+      "point": [
+        760,
+        414
+      ],
+      "width_m": 1.5,
+      "kind": "door",
+      "label": "Rear exit",
+      "confidence": 0.97,
+      "evidence": "green EXIT sign"
+    }
+  ],
+  "you_are_here": [
+    690,
+    228
+  ],
+  "unreadable": [],
+  "notes": "Synthetic evacuation map drawn by our tool."
+}

@@ -26,8 +26,8 @@ export default function CameraRig({ extent, preset, nonce }: { extent: Point2; p
     controls?.update();
     camera.lookAt(framing.target);
     invalidate();
-    // Re-frame on preset change or when the viewport shape changes, not on every render.
-  }, [preset, nonce, Math.round(aspect * 20), Math.round(size.width / 50), controls]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Re-frame on preset change, a new venue footprint or when the viewport shape changes, not on every render.
+  }, [preset, nonce, extent[0], extent[1], Math.round(aspect * 20), Math.round(size.width / 50), controls]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <OrbitControls
@@ -39,7 +39,7 @@ export default function CameraRig({ extent, preset, nonce }: { extent: Point2; p
       maxPolarAngle={1.3}
       minAzimuthAngle={-1.0}
       maxAzimuthAngle={1.0}
-      minDistance={14}
+      minDistance={Math.min(14, distance * 0.6)}
       maxDistance={distance * 1.35}
     />
   );

@@ -21,7 +21,7 @@ export function TwinWorkspace({ twin, notice, mode, calibrateTick, imageFile, an
   const reducedMotion = prefersReducedMotion();
   const plan = flow.plan;
   const pending = flow.status === 'pending';
-  const agent = useDoorAgent({ hazards: toHazardInputs(twin.hazards), plan, pending, mode, analysisMode });
+  const agent = useDoorAgent({ hazards: toHazardInputs(twin.hazards), plan, pending, mode, analysisMode, venueId: twin.venueId });
   const [seed, setSeed] = useState<'live' | 'fixture' | null>(null);
   const hasCamera = twin.hazards.some(item => item.source === 'camera');
   useEffect(() => { if (!hasCamera) setSeed(null); }, [hasCamera]);

@@ -1,0 +1,246 @@
+{
+  "schema_version": "draft-1",
+  "title": "Home sketch",
+  "image_kind": "sketch",
+  "scale": {
+    "basis": "dimension_label",
+    "a": [
+      950,
+      120
+    ],
+    "b": [
+      950,
+      880
+    ],
+    "metres": 12.0,
+    "evidence": "Dimension line under the house labelled 12 m."
+  },
+  "rooms": [
+    {
+      "key": "LIVING",
+      "name": "Living room",
+      "kind": "room",
+      "box": [
+        175,
+        120,
+        550,
+        520
+      ],
+      "label_point": [
+        362,
+        320
+      ]
+    },
+    {
+      "key": "KITCHEN",
+      "name": "Kitchen",
+      "kind": "kitchen",
+      "box": [
+        175,
+        520,
+        550,
+        880
+      ],
+      "label_point": [
+        362,
+        700
+      ]
+    },
+    {
+      "key": "HALL",
+      "name": "Hall",
+      "kind": "corridor",
+      "box": [
+        550,
+        120,
+        650,
+        880
+      ],
+      "label_point": [
+        600,
+        500
+      ]
+    },
+    {
+      "key": "BED_1",
+      "name": "Bedroom 1",
+      "kind": "bedroom",
+      "box": [
+        650,
+        120,
+        875,
+        420
+      ],
+      "label_point": [
+        762,
+        270
+      ]
+    },
+    {
+      "key": "BATH",
+      "name": "Bathroom",
+      "kind": "bathroom",
+      "box": [
+        650,
+        420,
+        875,
+        600
+      ],
+      "label_point": [
+        762,
+        510
+      ]
+    },
+    {
+      "key": "BED_2",
+      "name": "Bedroom 2",
+      "kind": "bedroom",
+      "box": [
+        650,
+        600,
+        875,
+        880
+      ],
+      "label_point": [
+        762,
+        740
+      ]
+    }
+  ],
+  "doors": [
+    {
+      "key": "D_LH",
+      "between": [
+        "LIVING",
+        "HALL"
+      ],
+      "point": [
+        550,
+        300
+      ],
+      "width_m": null,
+      "symbol": "swing",
+      "confidence": 0.85,
+      "evidence": "gap in the pen line"
+    },
+    {
+      "key": "D_KH",
+      "between": [
+        "KITCHEN",
+        "HALL"
+      ],
+      "point": [
+        550,
+        700
+      ],
+      "width_m": null,
+      "symbol": "swing",
+      "confidence": 0.85,
+      "evidence": "gap in the pen line"
+    },
+    {
+      "key": "D_B1",
+      "between": [
+        "BED_1",
+        "HALL"
+      ],
+      "point": [
+        650,
+        270
+      ],
+      "width_m": null,
+      "symbol": "swing",
+      "confidence": 0.85,
+      "evidence": "gap in the pen line"
+    },
+    {
+      "key": "D_BA",
+      "between": [
+        "BATH",
+        "HALL"
+      ],
+      "point": [
+        650,
+        510
+      ],
+      "width_m": null,
+      "symbol": "swing",
+      "confidence": 0.85,
+      "evidence": "gap in the pen line"
+    },
+    {
+      "key": "D_B2",
+      "between": [
+        "BED_2",
+        "HALL"
+      ],
+      "point": [
+        650,
+        740
+      ],
+      "width_m": null,
+      "symbol": "swing",
+      "confidence": 0.85,
+      "evidence": "gap in the pen line"
+    },
+    {
+      "key": "D_LK",
+      "between": [
+        "LIVING",
+        "KITCHEN"
+      ],
+      "point": [
+        362,
+        520
+      ],
+      "width_m": null,
+      "symbol": "opening",
+      "confidence": 0.85,
+      "evidence": "gap in the pen line"
+    }
+  ],
+  "exits": [
+    {
+      "key": "X_FRONT",
+      "room": "LIVING",
+      "point": [
+        362,
+        120
+      ],
+      "width_m": null,
+      "kind": "door",
+      "label": "Front door",
+      "confidence": 0.9,
+      "evidence": "labelled in the margin"
+    },
+    {
+      "key": "X_BACK",
+      "room": "KITCHEN",
+      "point": [
+        362,
+        880
+      ],
+      "width_m": null,
+      "kind": "door",
+      "label": "Back door",
+      "confidence": 0.9,
+      "evidence": "labelled in the margin"
+    },
+    {
+      "key": "X_WIN",
+      "room": "BED_1",
+      "point": [
+        762,
+        120
+      ],
+      "width_m": null,
+      "kind": "window",
+      "label": "Escape window",
+      "confidence": 0.9,
+      "evidence": "labelled in the margin"
+    }
+  ],
+  "you_are_here": null,
+  "unreadable": [],
+  "notes": "Synthetic hand-drawn style sketch drawn by our tool."
+}
