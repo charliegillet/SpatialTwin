@@ -60,7 +60,7 @@ LANES: Tuple[str, ...] = ("strategist", "robustness")
 # ~12 s later, each continuation costs 9-11 s. The strategist needs one turn; the robustness lane several.
 STRATEGIST_DEADLINE_SECONDS = 45.0
 STRATEGIST_MAX_DEADLINE_SECONDS = 90.0
-ROBUSTNESS_DEADLINE_SECONDS = 150.0
+ROBUSTNESS_DEADLINE_SECONDS = 210.0  # live sandbox runs measured 86 s and >150 s on 26 Oct; Act 3 does not wait on it
 ROBUSTNESS_MAX_DEADLINE_SECONDS = 240.0
 FOLLOWUP_DEADLINE_SECONDS = 90.0
 FOLLOWUP_MAX_DEADLINE_SECONDS = 180.0
@@ -808,6 +808,16 @@ class DoorAgentRunner:
                         record = accumulator.start(event)
                         if record:
                             await trace("delta", **record)
+                        started_step = accumulator.steps.get(field(event, "index"))
+                        if started_step and started_step.get("complete"):
+                            # A code result arrives whole in its start event: record it and close the step now.
+                            if started_step["step_type"] == "code_execution_result" and isinstance(interaction_id, str):
+                                sandbox_results[(interaction_id, field(event, "index"))] = (
+                                    started_step["text"], bool(started_step.get("is_error")))
+                            record = accumulator.stop(event)
+                            if record:
+                                stream_info["steps"] += 1
+                                await trace("step", **record)
                     elif kind == "step.delta":
                         record = accumulator.delta(event)
                         if record:

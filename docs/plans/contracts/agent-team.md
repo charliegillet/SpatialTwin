@@ -23,7 +23,7 @@ Every number shown is a **modeled crossing** checked by the local checker; an ag
 {"hazards": [...], "horizon_seconds": null, "mode": "live" | "local",
  "lanes": ["strategist", "robustness"],          // optional; default ["strategist"]; order ignored
  "deadline_seconds": 45,                         // strategist, 0 < s <= 90
- "robustness_deadline_seconds": 150,             // robustness, 0 < s <= 240
+ "robustness_deadline_seconds": 210,             // robustness, 0 < s <= 240
  "supersede": true}                              // a new live team cancels the running one (else 429)
 ```
 

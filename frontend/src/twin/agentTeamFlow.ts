@@ -143,7 +143,8 @@ const toVerification = (raw: unknown): LaneVerification | null => {
   const total = num(item.total);
   if (verified === null || total === null) return null;
   const source = item.source === 'sandbox' || item.source === 'agent' ? item.source : 'local';
-  return { verified, total, source, mismatches: Array.isArray(item.mismatches) ? item.mismatches as LaneVerification['mismatches'] : [], ...(Array.isArray(item.checks) ? { checks: item.checks as LaneVerification['mismatches'] } : {}) };
+  return { verified, total, source, mismatches: Array.isArray(item.mismatches) ? item.mismatches as LaneVerification['mismatches'] : [], ...(Array.isArray(item.checks) ? { checks: item.checks as LaneVerification['mismatches'] } : {}),
+    ...(num(item.sandbox_matched) !== null ? { sandbox_matched: num(item.sandbox_matched) as number } : {}) };
 };
 
 /** Applies one SSE frame. Frames at or below `lastSeq` are replays and are ignored; frames after the run ended never repopulate it. */

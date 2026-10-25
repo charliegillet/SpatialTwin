@@ -8,7 +8,7 @@ from fastapi import FastAPI
 
 from backend.app.ai.managed.adapter import ManagedAgentAdapter
 from backend.app.ai.managed.door_agent import (
-    DoorAgentRunner, deadline_stamp, lane_id,
+    ROBUSTNESS_DEADLINE_SECONDS, DoorAgentRunner, deadline_stamp, lane_id,
 )
 from backend.app.ai.managed.robustness import ScenarioEvaluator
 from backend.app.ai.managed.trace import TraceHub
@@ -292,7 +292,7 @@ async def test_route_team_progress_then_followup_reuses_the_environment(service,
     started = (await client.post("/api/venues/building-v2/investigate", json={
         "hazards": [FIRE], "mode": "live", "lanes": ["robustness", "strategist"]})).json()
     assert set(started["lanes"]) == {"strategist", "robustness"}
-    assert started["lanes"]["robustness"]["deadline_seconds"] == 150.0
+    assert started["lanes"]["robustness"]["deadline_seconds"] == ROBUSTNESS_DEADLINE_SECONDS
     assert started["deadline_at_ms"] == started["lanes"]["robustness"]["deadline_at_ms"]
     body = await poll(client, started["investigation_id"])
     assert body["team_status"] == "finished" and body["status"] == "completed"
