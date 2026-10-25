@@ -627,7 +627,8 @@ def compile_draft(draft: VenueDraftV1, image: SourceImage, *, venue_id: str,
         # Signs label every exit "EXIT"; announcements need to tell them apart, so a bare label names the exit after
         # its room ("North Exit Stair") instead.
         printed = ex.label.strip()
-        generic = printed.upper().rstrip(".!") in ("", "EXIT", "EXITS", "EMERGENCY EXIT", "FIRE EXIT")
+        generic = printed.upper().rstrip(".!") in ("", "EXIT", "EXITS", "EMERGENCY EXIT", "FIRE EXIT", "STAIR", "STAIRS",
+                                                   "EXIT STAIR", "STAIRWAY")
         label = printed if not generic else ("Escape window" if window else
                                              room.name if "exit" in room.name.lower() else f"{room.name} exit")
         # "stair" means exactly this: inside its room, not in a wall (graph_checks and the 3D walls rely on it).
