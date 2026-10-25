@@ -159,9 +159,12 @@ def provider_response_schema() -> dict:
             return node
         out: Dict[str, Any] = {}
         for key, value in node.items():
-            if key in _PROVIDER_DROPPED_KEYWORDS:
+            if key in ("properties", "$defs"):
+                # Keys here are field and model names, not schema keywords: the draft's own `title` field must survive.
+                out[key] = {name: clean(child) for name, child in value.items()}
+            elif key in _PROVIDER_DROPPED_KEYWORDS:
                 continue
-            if key == "const":
+            elif key == "const":
                 out["enum"] = [value]
             else:
                 out[key] = clean(value)

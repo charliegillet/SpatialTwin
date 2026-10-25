@@ -74,3 +74,8 @@ def test_provider_schema_is_structural_only():
                     '"minItems"', '"maxItems"', '"minLength"', '"maxLength"'):
         assert keyword not in text
     assert '"enum": ["draft-1"]' in text and '"required"' in text
+    # Field names are not keywords: the draft's `title` (and every other field) is still requested.
+    schema = provider_response_schema()
+    assert set(schema["properties"]) == set(VenueDraftV1.model_fields)
+    assert all(set(defn["properties"]) for defn in schema["$defs"].values())
+    assert "title" not in schema and "title" not in schema["properties"]["title"]

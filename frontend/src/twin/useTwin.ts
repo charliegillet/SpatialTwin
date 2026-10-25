@@ -81,19 +81,26 @@ export function useTwin({ mode, notify, log }: Options) {
 
   /** Moves the shared active-venue pointer (incident state, approvals and phone signs follow it) under
    *  compare-and-set. The screen only ever shows the venue the server confirms, so they cannot drift apart. */
+  // App passes a new notify function on every render; read it through a ref so switchVenue only changes when the
+  // pointer does, and effects that call it are not restarted by unrelated renders.
+  const notifyRef = useRef(notify);
+  notifyRef.current = notify;
   const switchVenue = useCallback(async (nextId: string) => {
     if (nextId === activeVenue.venue_id) return true;
     try {
       setActiveVenue(await putActiveVenue(nextId, activeVenue.revision));
       return true;
     } catch (error) {
-      notify(error instanceof ApiError && error.message ? error.message : 'The venue could not be switched');
+      notifyRef.current(error instanceof ApiError && error.message ? error.message : 'The venue could not be switched');
       refreshVenues();
       return false;
     }
-  }, [activeVenue, notify, refreshVenues]);
+  }, [activeVenue, refreshVenues]);
+  const switchVenueRef = useRef(switchVenue);
+  switchVenueRef.current = switchVenue;
 
   // Venue: fetched when the twin opens or the venue changes; the bundled fixture covers an unreachable backend.
+  // switchVenue is read through its ref: a pointer refresh must not abort and restart a fetch already in flight.
   useEffect(() => {
     if (!active || venue?.venue_id === venueId) return;
     const controller = new AbortController();
@@ -104,7 +111,7 @@ export function useTwin({ mode, notify, log }: Options) {
         if (venueId !== BUILTIN_VENUE_ID) {
           // Point everyone back at building-v2 on the server too, not just this screen.
           logRef.current(`Venue ${venueId} could not be loaded. Switching to building-v2.`, 'warning');
-          void switchVenue(BUILTIN_VENUE_ID);
+          void switchVenueRef.current(BUILTIN_VENUE_ID);
           return;
         }
         const bundled = (await import('./fixtures/building-v2.json')).default as unknown as VenueV2;
@@ -114,12 +121,12 @@ export function useTwin({ mode, notify, log }: Options) {
       },
     );
     return () => controller.abort();
-  }, [active, venue, venueId, switchVenue]);
+  }, [active, venue, venueId]);
 
   // The camera twin plans on building-v2 (its printed sheet), so the shared pointer follows it there.
   useEffect(() => {
-    if (cameraOnly && activeVenue.venue_id !== BUILTIN_VENUE_ID) void switchVenue(BUILTIN_VENUE_ID);
-  }, [cameraOnly, activeVenue.venue_id, switchVenue]);
+    if (cameraOnly && activeVenue.venue_id !== BUILTIN_VENUE_ID) void switchVenueRef.current(BUILTIN_VENUE_ID);
+  }, [cameraOnly, activeVenue.venue_id]);
 
   // Every change to the hazards (or a smoke time) re-plans; the first plan for a visit skips the debounce.
   const planned = useRef(false);
