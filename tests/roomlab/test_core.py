@@ -106,3 +106,18 @@ def test_missing_key_never_substitutes_scene(tmp_path,monkeypatch):
 def test_cross_origin_write_refused(tmp_path):
     c=TestClient(create_app(tmp_path))
     assert c.post('/api/roomlab/extractions',json={'media_id':'x'},headers={'origin':'https://unrelated.example'}).status_code==403
+
+
+def test_network_binding_accepts_same_origin_requests(tmp_path,monkeypatch):
+    monkeypatch.setenv('ROOMLAB_HOST','0.0.0.0')
+    c=TestClient(create_app(tmp_path),base_url='http://100.75.54.79:8001',client=('100.100.100.1',40000))
+    assert c.get('/health').status_code==200
+    s=c.app.state.store.create(draft())
+    assert c.post('/api/roomlab/scenes',json=s.model_dump(mode='json'),headers={'origin':'http://100.75.54.79:8001'}).status_code==200
+    assert c.post('/api/roomlab/scenes',json=s.model_dump(mode='json'),headers={'origin':'https://unrelated.example'}).status_code==403
+
+
+def test_loopback_default_rejects_remote_client(tmp_path,monkeypatch):
+    monkeypatch.delenv('ROOMLAB_HOST',raising=False)
+    c=TestClient(create_app(tmp_path),client=('100.100.100.1',40000))
+    assert c.get('/health').status_code==403

@@ -19,7 +19,7 @@ cd ..
 .venv/bin/python -m tools.run_server
 ```
 
-Open **http://127.0.0.1:8001**. For UI development, `cd frontend && npm run dev` uses port 5174 and proxies to the backend. Credentials are never part of the frontend bundle. The app is intentionally loopback-only.
+Open **http://127.0.0.1:8001**. For UI development, `cd frontend && npm run dev` uses port 5174 and proxies to the backend. Credentials are never part of the frontend bundle. The default bind address is loopback-only. Set `ROOMLAB_HOST=0.0.0.0` in the local `.env` to accept network connections, including Tailscale. Open the server’s IP address on port 8001 from the other computer. Same-origin writes are supported; unrelated browser origins remain blocked.
 
 ## Use
 

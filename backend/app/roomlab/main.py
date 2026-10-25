@@ -24,16 +24,19 @@ def create_app(runtime:Path|None=None)->FastAPI:
     # Test injection replaces only a provider function; default is always a real model call.
     app.state.extractor=None;app.state.media_processor=None
 
+    network_enabled=os.environ.get('ROOMLAB_HOST','127.0.0.1') in ('0.0.0.0','::')
+
     @app.middleware('http')
-    async def local_only(request:Request,call_next):
+    async def check_access(request:Request,call_next):
         from fastapi.responses import JSONResponse
-        if request.client:
+        if request.client and not network_enabled:
             try:allowed=ipaddress.ip_address(request.client.host).is_loopback
             except ValueError:allowed=request.client.host=='testclient'
             if not allowed:return JSONResponse({'detail':'RoomLab is a local-only application.'},status_code=403)
         if request.method not in ('GET','HEAD','OPTIONS'):
             origin=request.headers.get('origin')
-            if origin and origin not in ('http://127.0.0.1:8001','http://localhost:8001','http://127.0.0.1:5174','http://localhost:5174'):
+            same_origin=f'{request.url.scheme}://{request.url.netloc}'
+            if origin and origin not in (same_origin,'http://127.0.0.1:5174','http://localhost:5174'):
                 return JSONResponse({'detail':'Unexpected request origin.'},status_code=403)
         return await call_next(request)
 
