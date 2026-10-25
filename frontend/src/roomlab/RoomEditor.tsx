@@ -373,7 +373,7 @@ export const RoomEditor: React.FC<RoomEditorProps> = ({
               />
             </label>
             <div className="rl-field">
-              <span>Layout Lock</span>
+              <span>Automatic layout search</span>
               <button
                 type="button"
                 className="rl-btn"
@@ -391,8 +391,8 @@ export const RoomEditor: React.FC<RoomEditorProps> = ({
                 )}
                 <span>
                   {selectedObject.movable !== false
-                    ? "Movable"
-                    : "Locked / Fixed"}
+                    ? "Movable in search"
+                    : "Fixed in search"}
                 </span>
               </button>
             </div>

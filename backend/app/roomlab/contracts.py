@@ -103,7 +103,7 @@ class RoomSceneV1(RoomDraft):
     up_axis: Literal['Y'] = 'Y'
     geometry_source: Literal['model_estimate','user_authored','geometry_fit'] = 'model_estimate'
     calibration: Calibration | None = None
-    evidence_frames: list[EvidenceFrame] = Field(default_factory=list)
+    evidence_frames: list[EvidenceFrame] = Field(default_factory=list,max_length=200)
 
 class RoomDraftResult(Contract):
     draft: RoomDraft
@@ -161,6 +161,7 @@ class OptimizeResult(Contract):
     candidates_checked: int = 0
     object_id: str | None = None
     translation: Point2 | None = None
+    rotation_delta_deg: Finite | None = None
     scene: RoomSceneV1 | None = None
     before: SolveResult
     after: SolveResult | None = None
@@ -177,6 +178,75 @@ class JobRecord(Contract):
     warnings: list[str] = Field(default_factory=list)
     model: str | None = None
     latency_ms: float | None = None
+
+class SceneReceipt(Contract):
+    scene_id: str
+    scene_revision: int
+    geometry_hash: str
+    evidence_hash: str
+
+class CritiqueFrame(Contract):
+    record: EvidenceFrame
+    jpeg_bytes: bytes = Field(max_length=3*1024*1024)
+
+class CritiqueContext(Contract):
+    scene: RoomSceneV1
+    validation: ValidationReport
+    solve: SolveResult | None = None
+    geometry_hash: str
+    evidence_hash: str
+    bev_png: bytes = Field(max_length=5*1024*1024)
+    frames: list[CritiqueFrame] = Field(min_length=1,max_length=6)
+
+class CritiqueFinding(Contract):
+    kind: Literal['observation','needs_evidence']
+    element_ids: list[str] = Field(default_factory=list,max_length=20)
+    frame_ids: list[str] = Field(default_factory=list,max_length=6)
+    message: str = Field(min_length=1,max_length=1000)
+    measurement_request: str | None = Field(default=None,max_length=500)
+
+class CritiqueResult(SceneReceipt):
+    summary: str = Field(min_length=1,max_length=1000)
+    findings: list[CritiqueFinding] = Field(default_factory=list,max_length=12)
+    reviewed_frame_ids: list[str] = Field(max_length=6)
+    model: Literal['gemini-4-argon'] = 'gemini-4-argon'
+    provenance: Literal['live'] = 'live'
+    latency_ms: Annotated[float,Field(ge=0,le=180000,allow_inf_nan=False)]
+
+class CritiqueRequest(Contract):
+    expected_revision: int = Field(ge=1)
+    geometry_hash: str
+    evidence_hash: str
+    focus_element_ids: list[str] = Field(default_factory=list,max_length=12)
+    solve_request: SolveRequest | None = None
+
+class CritiqueJobRecord(SceneReceipt):
+    job_id: str
+    status: Literal['queued','running','completed','failed','cancelled']
+    result: CritiqueResult | None = None
+    error: str | None = None
+
+class RepairRequest(Contract):
+    expected_revision: int = Field(ge=1)
+    max_displacement_m: Annotated[float,Field(gt=0,le=1,allow_inf_nan=False)] = .5
+
+class LayoutChange(Contract):
+    object_id: str
+    from_center: Point2
+    to_center: Point2
+    from_yaw_deg: Finite
+    to_yaw_deg: Finite
+
+class RepairResult(Contract):
+    status: Literal['FOUND','PARTIAL','NO_CHANGE','UNAVAILABLE']
+    scene_revision: int
+    geometry_hash: str
+    message: str
+    before_overlap_pairs: list[list[str]]
+    after_overlap_pairs: list[list[str]]
+    changes: list[LayoutChange] = Field(default_factory=list)
+    scene: RoomSceneV1 | None = None
+
 
 def geometry_hash(scene: RoomSceneV1) -> str:
     payload = scene.model_dump(mode='json',exclude={'evidence_frames','notes','name'})

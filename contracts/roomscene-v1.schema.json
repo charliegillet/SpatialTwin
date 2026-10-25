@@ -677,6 +677,7 @@
         "items": {
           "$ref": "#/$defs/EvidenceFrame"
         },
+        "maxItems": 200,
         "title": "Evidence Frames",
         "type": "array"
       }
@@ -1095,6 +1096,18 @@
         "default": null,
         "title": "Translation"
       },
+      "rotation_delta_deg": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Rotation Delta Deg"
+      },
       "scene": {
         "anyOf": [
           {
@@ -1227,6 +1240,490 @@
       "media_id"
     ],
     "title": "JobRecord",
+    "type": "object"
+  },
+  "SceneReceipt": {
+    "additionalProperties": false,
+    "properties": {
+      "scene_id": {
+        "title": "Scene Id",
+        "type": "string"
+      },
+      "scene_revision": {
+        "title": "Scene Revision",
+        "type": "integer"
+      },
+      "geometry_hash": {
+        "title": "Geometry Hash",
+        "type": "string"
+      },
+      "evidence_hash": {
+        "title": "Evidence Hash",
+        "type": "string"
+      }
+    },
+    "required": [
+      "scene_id",
+      "scene_revision",
+      "geometry_hash",
+      "evidence_hash"
+    ],
+    "title": "SceneReceipt",
+    "type": "object"
+  },
+  "CritiqueFrame": {
+    "additionalProperties": false,
+    "properties": {
+      "record": {
+        "$ref": "#/$defs/EvidenceFrame"
+      },
+      "jpeg_bytes": {
+        "format": "binary",
+        "maxLength": 3145728,
+        "title": "Jpeg Bytes",
+        "type": "string"
+      }
+    },
+    "required": [
+      "record",
+      "jpeg_bytes"
+    ],
+    "title": "CritiqueFrame",
+    "type": "object"
+  },
+  "CritiqueContext": {
+    "additionalProperties": false,
+    "properties": {
+      "scene": {
+        "$ref": "#/$defs/RoomSceneV1"
+      },
+      "validation": {
+        "$ref": "#/$defs/ValidationReport"
+      },
+      "solve": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/SolveResult"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "geometry_hash": {
+        "title": "Geometry Hash",
+        "type": "string"
+      },
+      "evidence_hash": {
+        "title": "Evidence Hash",
+        "type": "string"
+      },
+      "bev_png": {
+        "format": "binary",
+        "maxLength": 5242880,
+        "title": "Bev Png",
+        "type": "string"
+      },
+      "frames": {
+        "items": {
+          "$ref": "#/$defs/CritiqueFrame"
+        },
+        "maxItems": 6,
+        "minItems": 1,
+        "title": "Frames",
+        "type": "array"
+      }
+    },
+    "required": [
+      "scene",
+      "validation",
+      "geometry_hash",
+      "evidence_hash",
+      "bev_png",
+      "frames"
+    ],
+    "title": "CritiqueContext",
+    "type": "object"
+  },
+  "CritiqueFinding": {
+    "additionalProperties": false,
+    "properties": {
+      "kind": {
+        "enum": [
+          "observation",
+          "needs_evidence"
+        ],
+        "title": "Kind",
+        "type": "string"
+      },
+      "element_ids": {
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 20,
+        "title": "Element Ids",
+        "type": "array"
+      },
+      "frame_ids": {
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 6,
+        "title": "Frame Ids",
+        "type": "array"
+      },
+      "message": {
+        "maxLength": 1000,
+        "minLength": 1,
+        "title": "Message",
+        "type": "string"
+      },
+      "measurement_request": {
+        "anyOf": [
+          {
+            "maxLength": 500,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Measurement Request"
+      }
+    },
+    "required": [
+      "kind",
+      "message"
+    ],
+    "title": "CritiqueFinding",
+    "type": "object"
+  },
+  "CritiqueResult": {
+    "additionalProperties": false,
+    "properties": {
+      "scene_id": {
+        "title": "Scene Id",
+        "type": "string"
+      },
+      "scene_revision": {
+        "title": "Scene Revision",
+        "type": "integer"
+      },
+      "geometry_hash": {
+        "title": "Geometry Hash",
+        "type": "string"
+      },
+      "evidence_hash": {
+        "title": "Evidence Hash",
+        "type": "string"
+      },
+      "summary": {
+        "maxLength": 1000,
+        "minLength": 1,
+        "title": "Summary",
+        "type": "string"
+      },
+      "findings": {
+        "items": {
+          "$ref": "#/$defs/CritiqueFinding"
+        },
+        "maxItems": 12,
+        "title": "Findings",
+        "type": "array"
+      },
+      "reviewed_frame_ids": {
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 6,
+        "title": "Reviewed Frame Ids",
+        "type": "array"
+      },
+      "model": {
+        "const": "gemini-4-argon",
+        "default": "gemini-4-argon",
+        "title": "Model",
+        "type": "string"
+      },
+      "provenance": {
+        "const": "live",
+        "default": "live",
+        "title": "Provenance",
+        "type": "string"
+      },
+      "latency_ms": {
+        "maximum": 180000,
+        "minimum": 0,
+        "title": "Latency Ms",
+        "type": "number"
+      }
+    },
+    "required": [
+      "scene_id",
+      "scene_revision",
+      "geometry_hash",
+      "evidence_hash",
+      "summary",
+      "reviewed_frame_ids",
+      "latency_ms"
+    ],
+    "title": "CritiqueResult",
+    "type": "object"
+  },
+  "CritiqueRequest": {
+    "additionalProperties": false,
+    "properties": {
+      "expected_revision": {
+        "minimum": 1,
+        "title": "Expected Revision",
+        "type": "integer"
+      },
+      "geometry_hash": {
+        "title": "Geometry Hash",
+        "type": "string"
+      },
+      "evidence_hash": {
+        "title": "Evidence Hash",
+        "type": "string"
+      },
+      "focus_element_ids": {
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 12,
+        "title": "Focus Element Ids",
+        "type": "array"
+      },
+      "solve_request": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/SolveRequest"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      }
+    },
+    "required": [
+      "expected_revision",
+      "geometry_hash",
+      "evidence_hash"
+    ],
+    "title": "CritiqueRequest",
+    "type": "object"
+  },
+  "CritiqueJobRecord": {
+    "additionalProperties": false,
+    "properties": {
+      "scene_id": {
+        "title": "Scene Id",
+        "type": "string"
+      },
+      "scene_revision": {
+        "title": "Scene Revision",
+        "type": "integer"
+      },
+      "geometry_hash": {
+        "title": "Geometry Hash",
+        "type": "string"
+      },
+      "evidence_hash": {
+        "title": "Evidence Hash",
+        "type": "string"
+      },
+      "job_id": {
+        "title": "Job Id",
+        "type": "string"
+      },
+      "status": {
+        "enum": [
+          "queued",
+          "running",
+          "completed",
+          "failed",
+          "cancelled"
+        ],
+        "title": "Status",
+        "type": "string"
+      },
+      "result": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/CritiqueResult"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "error": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Error"
+      }
+    },
+    "required": [
+      "scene_id",
+      "scene_revision",
+      "geometry_hash",
+      "evidence_hash",
+      "job_id",
+      "status"
+    ],
+    "title": "CritiqueJobRecord",
+    "type": "object"
+  },
+  "RepairRequest": {
+    "additionalProperties": false,
+    "properties": {
+      "expected_revision": {
+        "minimum": 1,
+        "title": "Expected Revision",
+        "type": "integer"
+      },
+      "max_displacement_m": {
+        "default": 0.5,
+        "exclusiveMinimum": 0,
+        "maximum": 1,
+        "title": "Max Displacement M",
+        "type": "number"
+      }
+    },
+    "required": [
+      "expected_revision"
+    ],
+    "title": "RepairRequest",
+    "type": "object"
+  },
+  "LayoutChange": {
+    "additionalProperties": false,
+    "properties": {
+      "object_id": {
+        "title": "Object Id",
+        "type": "string"
+      },
+      "from_center": {
+        "items": {
+          "type": "number"
+        },
+        "maxItems": 2,
+        "minItems": 2,
+        "title": "From Center",
+        "type": "array"
+      },
+      "to_center": {
+        "items": {
+          "type": "number"
+        },
+        "maxItems": 2,
+        "minItems": 2,
+        "title": "To Center",
+        "type": "array"
+      },
+      "from_yaw_deg": {
+        "title": "From Yaw Deg",
+        "type": "number"
+      },
+      "to_yaw_deg": {
+        "title": "To Yaw Deg",
+        "type": "number"
+      }
+    },
+    "required": [
+      "object_id",
+      "from_center",
+      "to_center",
+      "from_yaw_deg",
+      "to_yaw_deg"
+    ],
+    "title": "LayoutChange",
+    "type": "object"
+  },
+  "RepairResult": {
+    "additionalProperties": false,
+    "properties": {
+      "status": {
+        "enum": [
+          "FOUND",
+          "PARTIAL",
+          "NO_CHANGE",
+          "UNAVAILABLE"
+        ],
+        "title": "Status",
+        "type": "string"
+      },
+      "scene_revision": {
+        "title": "Scene Revision",
+        "type": "integer"
+      },
+      "geometry_hash": {
+        "title": "Geometry Hash",
+        "type": "string"
+      },
+      "message": {
+        "title": "Message",
+        "type": "string"
+      },
+      "before_overlap_pairs": {
+        "items": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": "Before Overlap Pairs",
+        "type": "array"
+      },
+      "after_overlap_pairs": {
+        "items": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": "After Overlap Pairs",
+        "type": "array"
+      },
+      "changes": {
+        "items": {
+          "$ref": "#/$defs/LayoutChange"
+        },
+        "title": "Changes",
+        "type": "array"
+      },
+      "scene": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/RoomSceneV1"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      }
+    },
+    "required": [
+      "status",
+      "scene_revision",
+      "geometry_hash",
+      "message",
+      "before_overlap_pairs",
+      "after_overlap_pairs"
+    ],
+    "title": "RepairResult",
     "type": "object"
   }
 }

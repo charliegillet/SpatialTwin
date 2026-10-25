@@ -1,4 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Canvas, useThree, type ThreeEvent } from "@react-three/fiber";
 import { OrbitControls, Html, Line } from "@react-three/drei";
 import * as THREE from "three";
@@ -15,12 +21,24 @@ import {
   type ViewMode,
 } from "./editorState";
 
+import { RoomObjectVisual } from "./RoomObjectVisual";
+import { OpeningVisual } from "./OpeningVisual";
+import { RoomTransformGizmo } from "./RoomTransformGizmo";
+import { LayoutCandidatePreview } from "./LayoutCandidatePreview";
+import { ArchitecturalWall } from "./ArchitecturalWall";
+
 interface RoomCanvas3DProps {
   scene: RoomSceneV1 | null;
   selectedTarget: SelectionTarget;
   viewMode: ViewMode;
   showCSpace: boolean;
   showEndpoints: boolean;
+  candidateScene?: RoomSceneV1 | null;
+  onTransformObject: (
+    id: string,
+    center: [number, number],
+    yaw: number,
+  ) => void;
   startPoint: [number, number];
   goalPoint: [number, number];
   agentDiameterM: number;
@@ -28,7 +46,6 @@ interface RoomCanvas3DProps {
   solveResult: SolveResult | null;
   pickEndpointMode: "start" | "goal" | null;
   onSelectTarget: (target: SelectionTarget) => void;
-  onMoveObject: (objectId: string, newCenter: [number, number]) => void;
   onPickEndpoint: (pt: [number, number]) => void;
 }
 
@@ -180,13 +197,34 @@ function RoomSceneContent({
   solveResult,
   pickEndpointMode,
   onSelectTarget,
-  onMoveObject,
   onPickEndpoint,
   showLabels,
-}: RoomCanvas3DProps & { scene: RoomSceneV1; showLabels: boolean }) {
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const dragOffsetRef = useRef<[number, number]>([0, 0]);
-  // Preserve selection through the trailing click after pressing or dragging an object.
+  candidateScene,
+  onTransformObject,
+  visualMode,
+  cutaway,
+  transformMode,
+}: RoomCanvas3DProps & {
+  scene: RoomSceneV1;
+  showLabels: boolean;
+  visualMode: "proxy" | "bounds";
+  cutaway: boolean;
+  transformMode: "select" | "translate" | "rotate";
+}) {
+  const [isTransforming, setTransforming] = useState(false);
+  const nodes = useRef<Record<string, THREE.Group>>({});
+  const [transformTarget, setTransformTarget] = useState<THREE.Group | null>(
+    null,
+  );
+  const selectedObject =
+    selectedTarget?.kind === "object"
+      ? scene.objects?.find((o) => o.id === selectedTarget.id)
+      : null;
+  useLayoutEffect(() => {
+    setTransformTarget(
+      selectedObject ? (nodes.current[selectedObject.id] ?? null) : null,
+    );
+  }, [selectedObject]);
   const objectPressRef = useRef(false);
   const floorPlane = useMemo(
     () => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0),
@@ -196,24 +234,6 @@ function RoomSceneContent({
   const wallPieces = useMemo(() => buildSegmentedWallPieces(scene), [scene]);
   const walls = useMemo(() => deriveWallsFromFloor(scene), [scene]);
   const rEff = agentDiameterM * 0.5 + marginM;
-
-  const handleFloorPointerMove = (e: ThreeEvent<PointerEvent>) => {
-    if (!draggingId) return;
-    e.stopPropagation();
-    const hit = new THREE.Vector3();
-    if (e.ray.intersectPlane(floorPlane, hit)) {
-      const nx = Math.round((hit.x + dragOffsetRef.current[0]) * 50) / 50;
-      const nz = Math.round((hit.z + dragOffsetRef.current[1]) * 50) / 50;
-      onMoveObject(draggingId, [nx, nz]);
-    }
-  };
-
-  const handleFloorPointerUp = (e: ThreeEvent<PointerEvent>) => {
-    if (draggingId) {
-      e.stopPropagation();
-      setDraggingId(null);
-    }
-  };
 
   const handleFloorClick = (e: ThreeEvent<MouseEvent>) => {
     if (pickEndpointMode) {
@@ -228,7 +248,13 @@ function RoomSceneContent({
       return;
     }
     // Ignore the click that ends an object press/drag or a camera orbit; only a plain click on empty floor deselects.
-    if (objectPressRef.current || e.delta > 4) return;
+    if (
+      objectPressRef.current ||
+      isTransforming ||
+      transformMode !== "select" ||
+      e.delta > 4
+    )
+      return;
     onSelectTarget(null);
   };
 
@@ -250,7 +276,7 @@ function RoomSceneContent({
       <CameraController
         viewMode={viewMode}
         floor={scene.floor}
-        isDraggingObject={draggingId !== null}
+        isDraggingObject={isTransforming}
       />
 
       {/* Interactive Ground Plane for Dragging & Endpoint Picking */}
@@ -260,8 +286,6 @@ function RoomSceneContent({
         onPointerDown={() => {
           objectPressRef.current = false;
         }}
-        onPointerMove={handleFloorPointerMove}
-        onPointerUp={handleFloorPointerUp}
         onClick={handleFloorClick}
       >
         <planeGeometry args={[80, 80]} />
@@ -318,24 +342,16 @@ function RoomSceneContent({
                   ? "#538568"
                   : "#bfc6b6";
         return (
-          <mesh
+          <ArchitecturalWall
             key={piece.key}
-            position={piece.center}
-            rotation={[0, piece.yawRad, 0]}
-            onClick={(e) => {
-              e.stopPropagation();
-              onSelectTarget({ kind: "wall", id: piece.wallId });
-            }}
-          >
-            <boxGeometry args={[piece.length, piece.height, piece.thickness]} />
-            <meshStandardMaterial
-              color={wallColor}
-              roughness={0.85}
-              metalness={0.1}
-              transparent
-              opacity={boundary?.role === "partition" ? 0.35 : 0.65}
-            />
-          </mesh>
+            piece={piece}
+            wall={boundary}
+            floor={scene.floor}
+            cutaway={cutaway && viewMode === "orbit"}
+            selected={isSelected}
+            color={wallColor}
+            onSelect={() => onSelectTarget({ kind: "wall", id: piece.wallId })}
+          />
         );
       })}
 
@@ -379,11 +395,8 @@ function RoomSceneContent({
         const isSelected =
           selectedTarget?.kind === "opening" && selectedTarget.id === op.id;
         return (
-          <group
-            key={op.id}
-            position={[cx, 0.02, cz]}
-            rotation={[0, yawRad, 0]}
-          >
+          <group key={op.id} position={[cx, 0, cz]} rotation={[0, yawRad, 0]}>
+            <OpeningVisual opening={op} wall={wall} />
             <mesh
               onClick={(e) => {
                 e.stopPropagation();
@@ -426,38 +439,36 @@ function RoomSceneContent({
         const uncRadius = obj.uncertainty_radius_m ?? 0;
 
         return (
-          <group key={obj.id} position={[obj.center[0], 0, obj.center[1]]}>
+          <group
+            key={obj.id}
+            ref={(node) => {
+              if (node) nodes.current[obj.id] = node;
+              else delete nodes.current[obj.id];
+            }}
+            position={[obj.center[0], 0, obj.center[1]]}
+            rotation={[0, yawRad, 0]}
+          >
+            <RoomObjectVisual
+              object={obj}
+              selected={isSelected}
+              mode={visualMode}
+            />
             <mesh
               position={[0, obj.height_m * 0.5, 0]}
-              rotation={[0, yawRad, 0]}
               onPointerDown={(e) => {
                 e.stopPropagation();
                 objectPressRef.current = true;
                 onSelectTarget({ kind: "object", id: obj.id });
-                const hit = new THREE.Vector3();
-                if (e.ray.intersectPlane(floorPlane, hit)) {
-                  dragOffsetRef.current = [
-                    obj.center[0] - hit.x,
-                    obj.center[1] - hit.z,
-                  ];
-                  setDraggingId(obj.id);
-                }
               }}
               onClick={(e) => e.stopPropagation()}
             >
               <boxGeometry args={[obj.width_m, obj.height_m, obj.depth_m]} />
-              <meshStandardMaterial
-                color={color}
-                roughness={0.6}
-                metalness={0.15}
-                transparent={!isSolid}
-                opacity={isSolid ? 0.96 : vis === "unobserved" ? 0.42 : 0.72}
-              />
+              <meshBasicMaterial transparent opacity={0} depthWrite={false} />
             </mesh>
 
             {/* Uncertainty Halo Footprint */}
             {uncRadius > 0.01 && (showCSpace || isSelected) && (
-              <mesh position={[0, 0.01, 0]} rotation={[0, yawRad, 0]}>
+              <mesh position={[0, 0.01, 0]}>
                 <boxGeometry
                   args={[
                     obj.width_m + uncRadius * 2,
@@ -476,7 +487,7 @@ function RoomSceneContent({
 
             {/* C-Space Minkowski Inflation Footprint */}
             {showCSpace && (
-              <mesh position={[0, 0.015, 0]} rotation={[0, yawRad, 0]}>
+              <mesh position={[0, 0.015, 0]}>
                 <boxGeometry
                   args={[
                     obj.width_m + (rEff + uncRadius) * 2,
@@ -532,6 +543,21 @@ function RoomSceneContent({
           );
         })}
 
+      {selectedObject &&
+        transformTarget &&
+        transformMode !== "select" &&
+        !pickEndpointMode && (
+          <RoomTransformGizmo
+            target={transformTarget}
+            object={selectedObject}
+            mode={transformMode}
+            onDragging={setTransforming}
+            onCommit={onTransformObject}
+          />
+        )}
+      {candidateScene && (
+        <LayoutCandidatePreview current={scene} candidate={candidateScene} />
+      )}
       {/* Start & Goal Disc Agent Markers */}
       <group
         visible={showEndpoints}
@@ -591,6 +617,7 @@ function RoomSceneContent({
 function FallbackPlan2D({
   showEndpoints,
   scene,
+  candidateScene,
   selectedTarget,
   startPoint,
   goalPoint,
@@ -598,6 +625,7 @@ function FallbackPlan2D({
   onSelectTarget,
 }: {
   scene: RoomSceneV1;
+  candidateScene?: RoomSceneV1 | null;
   showEndpoints: boolean;
   selectedTarget: SelectionTarget;
   startPoint: [number, number];
@@ -712,6 +740,44 @@ function FallbackPlan2D({
             </g>
           );
         })}
+        {(candidateScene?.objects ?? []).map((next) => {
+          const old = scene.objects?.find((o) => o.id === next.id);
+          if (
+            !old ||
+            (Math.hypot(
+              next.center[0] - old.center[0],
+              next.center[1] - old.center[1],
+            ) < 1e-6 &&
+              Math.abs((next.yaw_deg ?? 0) - (old.yaw_deg ?? 0)) < 1e-6)
+          )
+            return null;
+          return (
+            <g key={next.id} pointerEvents="none">
+              <line
+                x1={250 + (old.center[0] - midX) * scale}
+                y1={220 + (old.center[1] - midZ) * scale}
+                x2={250 + (next.center[0] - midX) * scale}
+                y2={220 + (next.center[1] - midZ) * scale}
+                stroke="#508460"
+                strokeWidth="2"
+              />
+              {[old, next].map((o, i) => (
+                <rect
+                  key={i}
+                  x={(-o.width_m * scale) / 2}
+                  y={(-o.depth_m * scale) / 2}
+                  width={o.width_m * scale}
+                  height={o.depth_m * scale}
+                  transform={`translate(${250 + (o.center[0] - midX) * scale},${220 + (o.center[1] - midZ) * scale}) rotate(${-(o.yaw_deg ?? 0)})`}
+                  fill="none"
+                  stroke={i ? "#508460" : "#b29267"}
+                  strokeWidth="2"
+                  strokeDasharray="4 2"
+                />
+              ))}
+            </g>
+          );
+        })}
         {solveResult?.path && solveResult.path.length >= 2 && (
           <polyline
             fill="none"
@@ -745,6 +811,14 @@ export const RoomCanvas3D: React.FC<RoomCanvas3DProps> = (props) => {
   const [webglSupported] = useState<boolean>(() => detectWebGLAvailable());
   const [force2D, setForce2D] = useState<boolean>(false);
   const [showLabels, setShowLabels] = useState(false);
+  const [visualMode, setVisualMode] = useState<"proxy" | "bounds">("proxy");
+  const [cutaway, setCutaway] = useState(true);
+  const [transformMode, setTransformMode] = useState<
+    "select" | "translate" | "rotate"
+  >("select");
+  const hasSelectedObject =
+    props.selectedTarget?.kind === "object" &&
+    props.scene?.objects?.some((o) => o.id === props.selectedTarget?.id);
 
   if (!props.scene) {
     return (
@@ -762,6 +836,55 @@ export const RoomCanvas3D: React.FC<RoomCanvas3DProps> = (props) => {
 
   return (
     <div className="rl-canvas-wrap">
+      <div
+        className="rl-room-view-tools"
+        role="group"
+        aria-label="Room display and editing"
+      >
+        <button
+          className="rl-btn rl-btn--xs"
+          aria-pressed={visualMode === "bounds"}
+          onClick={() =>
+            setVisualMode((v) => (v === "proxy" ? "bounds" : "proxy"))
+          }
+        >
+          Bounding boxes
+        </button>
+        <button
+          className="rl-btn rl-btn--xs"
+          aria-pressed={cutaway}
+          onClick={() => setCutaway((v) => !v)}
+        >
+          Cutaway walls
+        </button>
+        <span className="rl-tool-separator" />
+        {(
+          [
+            { id: "select", label: "Select" },
+            { id: "translate", label: "Move" },
+            { id: "rotate", label: "Rotate" },
+          ] as const
+        ).map((t) => (
+          <button
+            key={t.id}
+            className={
+              "rl-btn rl-btn--xs " +
+              (transformMode === t.id ? "rl-btn--active" : "")
+            }
+            disabled={t.id !== "select" && (!hasSelectedObject || force2D)}
+            aria-pressed={transformMode === t.id}
+            onClick={() => setTransformMode(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {props.candidateScene && (
+        <div className="rl-preview-legend">
+          Layout preview · gold: current · green: proposed. Save and re-check
+          after applying.
+        </div>
+      )}
       <div className="rl-canvas-hud-top">
         <details className="rl-legend">
           <summary>Estimated geometry · legend & limits</summary>
@@ -806,6 +929,7 @@ export const RoomCanvas3D: React.FC<RoomCanvas3DProps> = (props) => {
         <FallbackPlan2D
           showEndpoints={props.showEndpoints}
           scene={props.scene}
+          candidateScene={props.candidateScene}
           selectedTarget={props.selectedTarget}
           startPoint={props.startPoint}
           goalPoint={props.goalPoint}
@@ -826,12 +950,17 @@ export const RoomCanvas3D: React.FC<RoomCanvas3DProps> = (props) => {
             dpr={[1, 1.5]}
             gl={{ antialias: true }}
             frameloop="demand"
-            onPointerMissed={() => props.onSelectTarget(null)}
+            onPointerMissed={() => {
+              if (transformMode === "select") props.onSelectTarget(null);
+            }}
           >
             <RoomSceneContent
               {...props}
               scene={props.scene}
               showLabels={showLabels}
+              visualMode={visualMode}
+              cutaway={cutaway}
+              transformMode={transformMode}
             />
           </Canvas>
         </div>

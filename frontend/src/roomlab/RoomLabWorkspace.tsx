@@ -11,6 +11,7 @@ import {
   cancelJob,
   extractRoom,
   getConfig,
+  proposeOverlapRepair,
   getJob,
   getMedia,
   getScene,
@@ -48,6 +49,9 @@ import {
   type SelectionTarget,
   type ViewMode,
 } from "./editorState";
+import { OverlapRepairPanel } from "./OverlapRepairPanel";
+import { VisualReviewPanel } from "./VisualReviewPanel";
+import type { RepairResult } from "./contracts.generated";
 import { RoomToolbar, RoomCanvasTools } from "./RoomToolbar";
 import { RoomCanvas3D } from "./RoomCanvas3D";
 import { RoomEvidencePanel } from "./RoomEvidencePanel";
@@ -89,6 +93,9 @@ export default function RoomLabWorkspace() {
   const [optimizeResult, setOptimizeResult] = useState<OptimizeResult | null>(
     null,
   );
+
+  const [repairResult, setRepairResult] = useState<RepairResult | null>(null);
+  const [isRepairing, setRepairing] = useState(false);
 
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
@@ -136,6 +143,7 @@ export default function RoomLabWorkspace() {
     analysisEpoch.current += 1;
     setSolveResult(null);
     setOptimizeResult(null);
+    setRepairResult(null);
     setValidation(null);
   }, []);
 
@@ -460,6 +468,7 @@ export default function RoomLabWorkspace() {
     const epoch = analysisEpoch.current;
     setBannerError(null);
     setIsOptimizing(true);
+    setRepairResult(null);
     try {
       const res = await optimizeScene(scene.scene_id, req);
       if (epoch === analysisEpoch.current) setOptimizeResult(res);
@@ -472,6 +481,32 @@ export default function RoomLabWorkspace() {
     }
   };
 
+  const handleRepair = async (max: number) => {
+    if (!scene || history.dirty) return;
+    const epoch = analysisEpoch.current;
+    setRepairing(true);
+    setBannerError(null);
+    setOptimizeResult(null);
+    try {
+      const result = await proposeOverlapRepair(scene.scene_id, {
+        expected_revision: scene.scene_revision ?? 1,
+        max_displacement_m: max,
+      });
+      if (epoch === analysisEpoch.current) setRepairResult(result);
+    } catch (e) {
+      if (epoch === analysisEpoch.current)
+        setBannerError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRepairing(false);
+    }
+  };
+  const applyCandidate = (next: RoomSceneV1) => {
+    setHistory((prev) => pushSceneEdit(prev, next));
+    clearAnalysisOverlays();
+    setBannerInfo(
+      "Staged a proposed layout. Save changes, then check geometry and reachability again.",
+    );
+  };
   const handleUpdateObject = useCallback(
     (objectId: string, updater: (obj: RoomObject) => RoomObject) => {
       setHistory((prev) => {
@@ -484,16 +519,6 @@ export default function RoomLabWorkspace() {
       clearAnalysisOverlays();
     },
     [clearAnalysisOverlays],
-  );
-
-  const handleMoveObject = useCallback(
-    (objectId: string, newCenter: [number, number]) => {
-      handleUpdateObject(objectId, (o) => ({
-        ...o,
-        center: [newCenter[0], newCenter[1]],
-      }));
-    },
-    [handleUpdateObject],
   );
 
   const handleAddObject = useCallback(
@@ -771,6 +796,40 @@ export default function RoomLabWorkspace() {
                   );
                 }}
               />
+              <OverlapRepairPanel
+                scene={scene}
+                dirty={history.dirty}
+                result={repairResult}
+                busy={isRepairing}
+                onRun={handleRepair}
+                onApply={applyCandidate}
+                onDiscard={() => setRepairResult(null)}
+              />
+              <VisualReviewPanel
+                scene={scene}
+                dirty={history.dirty}
+                onStartReview={() => {
+                  setRepairResult(null);
+                  setOptimizeResult(null);
+                }}
+                contextVersion={analysisEpoch.current}
+                request={
+                  scene
+                    ? {
+                        expected_revision: scene.scene_revision ?? 1,
+                        start: startPoint,
+                        goal: goalPoint,
+                        agent_diameter_m: agentDiameterM,
+                        margin_m: marginM,
+                      }
+                    : null
+                }
+                focus={selectedTarget ? [selectedTarget.id] : []}
+                onFrame={(id) => {
+                  setActiveFrameId(id);
+                  setSidebarTab("source");
+                }}
+              />
             </div>
           </div>
           <div className="rl-sidebar-footer">
@@ -824,6 +883,12 @@ export default function RoomLabWorkspace() {
             viewMode={viewMode}
             showCSpace={showCSpace}
             showEndpoints={sidebarTab === "analysis" || showCSpace}
+            candidateScene={
+              optimizeResult?.scene ?? repairResult?.scene ?? null
+            }
+            onTransformObject={(id, center, yaw) =>
+              handleUpdateObject(id, (o) => ({ ...o, center, yaw_deg: yaw }))
+            }
             startPoint={startPoint}
             goalPoint={goalPoint}
             agentDiameterM={agentDiameterM}
@@ -831,7 +896,6 @@ export default function RoomLabWorkspace() {
             solveResult={solveResult}
             pickEndpointMode={pickEndpointMode}
             onSelectTarget={selectTarget}
-            onMoveObject={handleMoveObject}
             onPickEndpoint={(pt) => {
               if (pickEndpointMode === "start") setStartPoint(pt);
               else if (pickEndpointMode === "goal") setGoalPoint(pt);

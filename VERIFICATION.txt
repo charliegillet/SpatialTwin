@@ -167,3 +167,40 @@ Full backend suite: 35 passed in 2.85s. New proposed meshes/gizmos/visual critic
 overlap repair and anisotropic calibration were evaluated, not implemented.
 Detailed local report:
 /Users/alhinai/argon/research/roomlab-hermes-proposal-audit-2026-10-25.txt
+
+V2 IMPLEMENTATION AND LIVE VERIFICATION — 2026-10-25
+
+Supersedes the earlier audit's 'not implemented' status for visual proxies, controls,
+visual critic and optional overlap repair. Anisotropic calibration remains deferred.
+
+- Full backend suite: 49 passed in 3.30s; existing Starlette/httpx warning only.
+- Frontend: 6 passed; TypeScript/Vite production build passed.
+- Category and aperture bounds are tested, including sub-centimeter imports.
+- A narrow-room regression requires a 90-degree rotation to produce ROBUST_PASS;
+  the exact returned candidate hash matches its solver receipt, original unchanged.
+- BEV rendering has bounded grid work for extreme imported coordinates and an
+  accurately sized scale bar, labelled estimated.
+- Read-only critic integration tests cover provider frame/BEV input, unknown or
+  missing citations, bad receipts, cancellation, revision changes and unsafe paths.
+- Browser Move changed a new unsaved table center X from 0 to 1.35 m; Undo once
+  restored 0. Rotate changed yaw from 0 to -30 degrees; Undo once restored 0.
+  Escape cancellation is implemented but was not separately exercised by browser
+  automation (the available input driver lacks a held-pointer/key sequence).
+- Demo overlap preview reduced two pairs to zero, moving sofa +0.085 m in X and
+  bicycles approximately [+0.0344,-0.0092] m. Nothing auto-saved. Applying it enabled
+  Save changes; one Undo restored Export room. Both 3D and SVG previews rendered.
+- Real gemini-4-argon multimodal review of the saved demo completed in 19.567 s,
+  using the BEV and six source frames spread across 0..14.14 s. Six findings cited
+  only supplied frame/element IDs. Clicking Frame 0.0s opened the actual source.
+  Findings remain advisory: they flag uncalibrated scale, effective door-leaf width,
+  object-box overlaps and missing clearance measurements. They do not establish
+  geometric accuracy or approve movement through the real space.
+- Saved demo remains revision 2 with all extracted geometry preserved. This V2
+  verification reused the real extracted scene and footage; it did not replace it
+  with a synthetic result or claim a fresh extraction accuracy benchmark.
+- Browser console: no captured errors during preview/apply/undo/fallback transitions.
+- App restarted on 0.0.0.0:8001; separate original server on port 8000 still responds.
+- Proof: runtime/roomlab/v2-live-review.png; live result metadata:
+  runtime/roomlab/demo-v2-live-critique.json (ignored local artifacts).
+- Production JS remains a large chunk (~368 kB gzipped). Review/extraction jobs and
+  review UI results are in memory, while saved scenes and source media persist.

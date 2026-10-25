@@ -267,7 +267,7 @@ export const ClearancePanel: React.FC<ClearancePanelProps> = ({
           className="rl-btn rl-btn--accent"
           disabled={isOptimizing || dirty}
           onClick={triggerOptimize}
-          title="Search bounded translations of movable furniture for a verified passable candidate"
+          title="Search bounded translations and yaw rotations of movable furniture for a verified final pose"
         >
           <Wand2 size={14} />
           <span>{isOptimizing ? "Searching…" : "Search Furniture Moves"}</span>
@@ -336,8 +336,9 @@ export const ClearancePanel: React.FC<ClearancePanelProps> = ({
               Best verified candidate within search budget: move{" "}
               <code>{optimizeResult.object_id}</code> by ΔX=
               {optimizeResult.translation[0].toFixed(2)}m, ΔZ=
-              {optimizeResult.translation[1].toFixed(2)}m (final-layout
-              suggestion).
+              {optimizeResult.translation[1].toFixed(2)}m · Δyaw=
+              {(optimizeResult.rotation_delta_deg ?? 0).toFixed(0)}°
+              (final-layout suggestion).
             </p>
           )}
           {optimizeResult.scene && (
@@ -346,7 +347,7 @@ export const ClearancePanel: React.FC<ClearancePanelProps> = ({
               className="rl-btn rl-btn--primary rl-btn--full"
               onClick={() => onApplyOptimizedScene(optimizeResult.scene!)}
             >
-              <span>Preview & Stage Candidate Layout</span>
+              <span>Apply proposed layout</span>
             </button>
           )}
         </div>

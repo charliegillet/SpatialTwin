@@ -1,15 +1,18 @@
 """Standalone RoomLab app: no imported SpatialTwin runtime or hardware."""
 from __future__ import annotations
 import asyncio,os,json,uuid,logging,ipaddress
+from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI,UploadFile,File,HTTPException,Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from .contracts import RoomSceneV1,RoomDraft,MediaRecord,JobRecord,ExtractRequest,EditSceneRequest,CalibrateRequest,SolveRequest
+from .contracts import RoomSceneV1,RoomDraft,MediaRecord,JobRecord,ExtractRequest,EditSceneRequest,CalibrateRequest,SolveRequest,CritiqueRequest,RepairRequest,SceneReceipt,CritiqueJobRecord
 from .store import SceneStore,ConflictError
 from .validation import validate_scene
 from .reachability import solve
 from .optimizer import optimize
+from .overlap_repair import repair_overlaps
+from .critique_service import CritiqueService,receipt
 
 ROOT=Path(__file__).resolve().parents[3]
 MAX_BYTES=256*1024*1024
@@ -19,10 +22,19 @@ def create_app(runtime:Path|None=None)->FastAPI:
     runtime=runtime or ROOT/'runtime/roomlab';runtime.mkdir(parents=True,exist_ok=True)
     media_root=runtime/'media';media_root.mkdir(exist_ok=True)
     store=SceneStore(runtime/'scenes');jobs={};tasks={};limit=asyncio.Semaphore(1)
-    app=FastAPI(title='RoomLab',version='1.0.0')
+    critic=CritiqueService(store,media_root)
+    @asynccontextmanager
+    async def lifespan(_app):
+        yield
+        await critic.close()
+        pending=[task for task in tasks.values() if not task.done()]
+        for task in pending:task.cancel()
+        if pending:await asyncio.gather(*pending,return_exceptions=True)
+    app=FastAPI(title='RoomLab',version='1.0.0',lifespan=lifespan)
     app.state.store=store;app.state.runtime=runtime;app.state.jobs=jobs
     # Test injection replaces only a provider function; default is always a real model call.
     app.state.extractor=None;app.state.media_processor=None
+    app.state.critic=critic
 
     network_enabled=os.environ.get('ROOMLAB_HOST','127.0.0.1') in ('0.0.0.0','::')
 
@@ -158,6 +170,46 @@ def create_app(runtime:Path|None=None)->FastAPI:
         scene=get_scene(id)
         if request.expected_revision!=scene.scene_revision:raise ConflictError('Scene revision changed. Save/reload before optimizing.')
         return await asyncio.to_thread(optimize,scene,request)
+
+
+    @app.get('/api/roomlab/scenes/{id}/receipt',response_model=SceneReceipt)
+    async def scene_receipt(id:str):
+        try:return await asyncio.to_thread(receipt,get_scene(id),media_root)
+        except ValueError as exc:raise HTTPException(422,str(exc))
+
+    @app.get('/api/roomlab/scenes/{id}/preview.png')
+    async def scene_preview(id:str,revision:int|None=None):
+        from .scene_preview import render_scene_preview
+        from fastapi.responses import Response
+        scene=get_scene(id)
+        if revision is not None and revision!=scene.scene_revision:raise ConflictError('Scene revision changed.')
+        data=await asyncio.to_thread(render_scene_preview,scene)
+        return Response(data,media_type='image/png',headers={'Cache-Control':'no-store'})
+
+    @app.post('/api/roomlab/scenes/{id}/critique',response_model=CritiqueJobRecord,status_code=202)
+    async def request_critique(id:str,request:CritiqueRequest):
+        scene=get_scene(id);key=os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY')
+        if not key and critic.provider is None:raise HTTPException(503,'Gemini is not configured for visual review.')
+        try:return await critic.start(scene,request,key or '')
+        except ValueError as exc:
+            if isinstance(exc,ConflictError):raise
+            raise HTTPException(422,str(exc))
+
+    @app.get('/api/roomlab/critique-jobs/{id}',response_model=CritiqueJobRecord)
+    def get_critique_job(id:str):
+        if id not in critic.jobs:raise HTTPException(404,'Visual review job not found.')
+        return critic.jobs[id]
+
+    @app.delete('/api/roomlab/critique-jobs/{id}',response_model=CritiqueJobRecord)
+    async def cancel_critique_job(id:str):
+        if id not in critic.jobs:raise HTTPException(404,'Visual review job not found.')
+        return critic.cancel(id)
+
+    @app.post('/api/roomlab/scenes/{id}/repair-overlaps')
+    async def propose_overlap_repair(id:str,request:RepairRequest):
+        scene=get_scene(id)
+        if scene.scene_revision!=request.expected_revision:raise ConflictError('Scene revision changed. Reload before proposing repair.')
+        return await asyncio.to_thread(repair_overlaps,scene,request)
 
     app.mount('/media',StaticFiles(directory=media_root),name='media')
     dist=ROOT/'frontend/dist'

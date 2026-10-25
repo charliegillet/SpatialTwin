@@ -57,3 +57,35 @@ World coordinates are metres, +Y up, and floor pairs are literal `[x,z]`. Positi
 Path statuses concern only the declared model and uncertainty bounds. A verified common path in conservative free space supports `ROBUST_PASS`; disconnection even in optimistic space supports `ROBUST_BLOCKED`. Failure of a sampled path search alone is `INCONCLUSIVE`. User-specified uncertainty is not calibrated probability. Any optional normal-distribution lesson is explicitly conditional on its assumed distribution.
 
 Application state and source media stay in ignored `runtime/roomlab/`. Dependency environments/build products and credentials are also ignored. The tracked tree retains Git history and authorship through the parent project; dependency licences remain with their packages.
+
+## Visual editing and review
+
+The full-height two-column workspace keeps all project controls in the left
+sidebar and the entire right column for the room. Illustrated category proxies
+(stairs, furniture, plants and bicycles) fit inside the canonical object bounds;
+they are visual aids, not recovered meshes. Switch to Bounding boxes to inspect
+the solver's rectangular footprints. Camera-facing shell walls can be cut away
+visually; partitions, openings and solver geometry retain their declared positions.
+Door frames and glass are shown without inventing hinges or door swing states.
+
+Select an object, choose Move or Rotate, then drag the in-canvas control. Translation
+stays on the XZ floor and rotation on Y, with 5 cm / 5 degree snapping. Each gesture
+is one undoable edit; Escape cancels an active gesture. Numeric dimension editing
+remains in Objects. Save changes before requesting server-side analysis.
+
+Analysis includes two separate optional actions:
+- **Preview box separation** proposes bounded translations of movable overlapping
+  boxes. Gold/green bounds show current/proposed poses in 3D and the SVG plan.
+  Apply stages a local edit, with explicit geometry_fit provenance; save and check
+  again. Coarse overlapping boxes may reflect intentional arrangements.
+- **Review scene with Argon** sends a labelled plan, deterministic validation/solve
+  result and up to six source JPEGs to Gemini. Findings are advisory and link to
+  actual supplied frames. It never edits the scene or replaces solver verdicts.
+  Missing/unknown citations, stale revisions, changed source evidence and invalid
+  response receipts fail the review. Cancel is available; results are session-local.
+
+Furniture search tries bounded single-object translations (up to 0.8 m), or selected
+15/45/90 degree yaw changes, with a 120-candidate / 4-second budget. It verifies final
+poses only; it does not plan a physical movement sweep or guarantee a global optimum.
+One-anchor isotropic calibration and independent residual checks remain the scale
+model; separate X/Z stretching is intentionally unsupported.
