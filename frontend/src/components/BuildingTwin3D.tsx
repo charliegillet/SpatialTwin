@@ -216,6 +216,28 @@ export const BuildingTwin3D: React.FC<BuildingTwin3DProps> = ({
             <path d="M 0 275 L 130 210 L 130 185 L 0 250 Z" fill="url(#wallShadow)" stroke="#94a3b8" strokeWidth="1" />
             <path d="M 170 190 L 230 160 L 230 135 L 170 165 Z" fill="url(#wallShadow)" stroke="#94a3b8" strokeWidth="1" />
 
+            {/* FLOATING REAL-TIME OCCUPANCY METRIC HUD BADGES IN 3D SPACE */}
+            <g transform="translate(0, 85)">
+              <rect x="-65" y="-12" width="130" height="22" rx="4" fill="#090d16" stroke="#4338ca" strokeWidth="1" />
+              <text x="0" y="3" fill="#c7d2fe" fontSize="9" fontWeight="bold" textAnchor="middle">
+                EVENT HALL: {plan?.zone_occupancy?.['EVENT'] ?? plan?.remaining_population ?? 120} pers
+              </text>
+            </g>
+
+            <g transform="translate(-105, 115)">
+              <rect x="-46" y="-10" width="92" height="19" rx="3" fill="#090d16" stroke="#10b981" strokeWidth="1" />
+              <text x="0" y="3" fill="#34d399" fontSize="8" fontWeight="bold" textAnchor="middle">
+                WEST: {plan?.zone_occupancy?.['WEST'] ?? 0} pers
+              </text>
+            </g>
+
+            <g transform="translate(105, 115)">
+              <rect x="-46" y="-10" width="92" height="19" rx="3" fill="#090d16" stroke={isP2Blocked ? '#ef4444' : '#10b981'} strokeWidth="1" />
+              <text x="0" y="3" fill={isP2Blocked ? '#ef4444' : '#34d399'} fontSize="8" fontWeight="bold" textAnchor="middle">
+                {isP2Blocked ? 'BLOCKED 🔥' : `EAST: ${plan?.zone_occupancy?.['EAST'] ?? 0} pers`}
+              </text>
+            </g>
+
             {/* MINIATURE SERVO GATE P3 (Center Reserve Bypass) */}
             <g transform="translate(0, 160)">
               {/* Gate bracket */}
@@ -279,6 +301,9 @@ export const BuildingTwin3D: React.FC<BuildingTwin3DProps> = ({
               <text x="-30" y="42" fill="#34d399" fontSize="9" fontWeight="bold" textAnchor="middle">
                 EXIT B1
               </text>
+              <text x="-30" y="54" fill="#a7f3d0" fontSize="8" textAnchor="middle">
+                {plan?.boundary_breakdown?.['B1'] ?? 60} Serviced
+              </text>
             </g>
 
             {/* East Exit Arrow pointing bottom-right */}
@@ -297,6 +322,9 @@ export const BuildingTwin3D: React.FC<BuildingTwin3DProps> = ({
                   <text x="20" y="38" fill="#ef4444" fontSize="9" fontWeight="bold" textAnchor="middle">
                     B2 BLOCKED
                   </text>
+                  <text x="20" y="50" fill="#fca5a5" fontSize="8" textAnchor="middle">
+                    0 Serviced (Downstream Failure)
+                  </text>
                 </g>
               ) : (
                 /* Glowing Green Arrow Path */
@@ -309,6 +337,9 @@ export const BuildingTwin3D: React.FC<BuildingTwin3DProps> = ({
                   />
                   <text x="30" y="42" fill="#34d399" fontSize="9" fontWeight="bold" textAnchor="middle">
                     EXIT B2
+                  </text>
+                  <text x="30" y="54" fill="#a7f3d0" fontSize="8" textAnchor="middle">
+                    {plan?.boundary_breakdown?.['B2'] ?? 60} Serviced
                   </text>
                 </g>
               )}
