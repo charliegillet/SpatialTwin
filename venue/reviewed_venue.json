@@ -1,0 +1,128 @@
+{
+  "schema_version": "1.0.0",
+  "geometry_revision": "geom-shack15-v1",
+  "provenance": "Reviewed 6-zone tabletop schematic for Gemini 4 Argon Hackathon. Declared units: meters and seconds.",
+  "parameters_revision": "params-v1",
+  "default_horizon_seconds": 40,
+  "time_step_seconds": 2,
+  "zones": [
+    {
+      "id": "EVENT",
+      "name": "Main Event Hall",
+      "max_capacity": 200,
+      "initial_occupants": 120,
+      "polygon": [[50, 50], [350, 50], [350, 250], [50, 250]]
+    },
+    {
+      "id": "WEST",
+      "name": "West Corridor",
+      "max_capacity": 60,
+      "initial_occupants": 0,
+      "polygon": [[50, 270], [170, 270], [170, 420], [50, 420]]
+    },
+    {
+      "id": "EAST",
+      "name": "East Corridor",
+      "max_capacity": 60,
+      "initial_occupants": 0,
+      "polygon": [[230, 270], [350, 270], [350, 420], [230, 420]]
+    },
+    {
+      "id": "RESERVE",
+      "name": "Reserve Channel",
+      "max_capacity": 40,
+      "initial_occupants": 0,
+      "polygon": [[180, 260], [220, 260], [220, 380], [180, 380]]
+    }
+  ],
+  "portals": [
+    {
+      "id": "P1",
+      "role": "main_west",
+      "from_zone": "EVENT",
+      "to_zone": "WEST",
+      "width_meters": 2.4,
+      "throughput_per_sec": 3.0,
+      "travel_time_seconds": 2,
+      "default_state": "open",
+      "can_be_blocked": true,
+      "token_pad_id": "T_P1",
+      "led_range": [0, 7]
+    },
+    {
+      "id": "P2",
+      "role": "main_east",
+      "from_zone": "EVENT",
+      "to_zone": "EAST",
+      "width_meters": 2.4,
+      "throughput_per_sec": 3.0,
+      "travel_time_seconds": 2,
+      "default_state": "open",
+      "can_be_blocked": true,
+      "token_pad_id": "T_P2",
+      "led_range": [8, 15]
+    },
+    {
+      "id": "P3",
+      "role": "miniature_reserve_gate",
+      "from_zone": "EVENT",
+      "to_zone": "RESERVE",
+      "width_meters": 1.8,
+      "throughput_per_sec": 2.5,
+      "travel_time_seconds": 2,
+      "default_state": "closed",
+      "can_be_blocked": false,
+      "is_actuated": true,
+      "led_range": [16, 23]
+    },
+    {
+      "id": "P4",
+      "role": "fixed_reserve_to_east",
+      "from_zone": "RESERVE",
+      "to_zone": "EAST",
+      "width_meters": 2.0,
+      "throughput_per_sec": 3.0,
+      "travel_time_seconds": 2,
+      "default_state": "open",
+      "can_be_blocked": false,
+      "is_actuated": false,
+      "led_range": []
+    }
+  ],
+  "boundaries": [
+    {
+      "id": "B1",
+      "from_zone": "WEST",
+      "service_rate_per_sec": 1.5,
+      "can_be_blocked": false,
+      "token_pad_id": null
+    },
+    {
+      "id": "B2",
+      "from_zone": "EAST",
+      "service_rate_per_sec": 1.5,
+      "can_be_blocked": true,
+      "token_pad_id": "T_B2"
+    }
+  ],
+  "token_pads": [
+    {
+      "id": "T_P1",
+      "target_type": "portal",
+      "target_id": "P1",
+      "label": "Portal P1 (West)"
+    },
+    {
+      "id": "T_P2",
+      "target_type": "portal",
+      "target_id": "P2",
+      "label": "Portal P2 (East)"
+    },
+    {
+      "id": "T_B2",
+      "target_type": "boundary",
+      "target_id": "B2",
+      "label": "Boundary B2 (East Exit)"
+    }
+  ]
+}
