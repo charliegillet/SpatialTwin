@@ -58,11 +58,17 @@ class Approval(BaseModel):
 class Session(BaseModel):
     id: str
     video: PreparedVideo
-    anchor: Anchor | None = None
+    anchor: Anchor | None = None  # server-owned (D2): set by POST /anchor, applied at accept
     anchor_hint: str | None = None
     anchor_width_m: float | None = None
     sfm: dict | None = None  # walktwin.sfm.SfmResult as JSON
-    alignment: dict | None = None  # walktwin.sfm.Alignment as JSON (frozen once fitted)
+    # walktwin.sfm.Alignment as JSON, in the draft's frame: fitted once on the
+    # extraction graph, then moved into the accepted frame by an anchored accept (D3).
+    alignment: dict | None = None
+    alignment_unanchored: dict | None = None  # the fitted alignment, before any anchor
+    # Scale of the draft's frame relative to the extraction graph: the product of the
+    # anchor factors applied at accept since the last extraction.
+    frame_scale: float = 1.0
     alignment_error: str | None = None
     geometry_unavailable_reason: str | None = None  # R30: why the loop runs model-reported only
     draft_graph: VenueGraph | None = None
