@@ -57,7 +57,11 @@ def _load_dotenv(paths: list[Path]) -> None:
 
 
 def make_client():
-    """Return a ``genai.Client`` using ``GEMINI_API_KEY`` (env, else a ``.env`` file)."""
+    """Return a ``genai.Client`` using ``GEMINI_API_KEY``.
+
+    Side effect: if the variable is unset, ``.env`` files are loaded into
+    ``os.environ`` (existing variables are never overridden).
+    """
     if not os.environ.get("GEMINI_API_KEY"):
         _load_dotenv(_ENV_SEARCH)
     key = os.environ.get("GEMINI_API_KEY")
@@ -136,18 +140,26 @@ async def run_background(client, *, deadline_s: float, poll_s: float = 3.0,
     started = time.monotonic()
     create_kwargs = {**create_kwargs, "background": True, "store": True}
     interactions = client.aio.interactions
-    interaction = await interactions.create(**create_kwargs)
-    iid = _get(interaction, "id")
-    while str(_get(interaction, "status")) in _NON_TERMINAL:
-        remaining = deadline_s - (time.monotonic() - started)
-        if remaining <= 0:
+    iid = None
+    try:
+        async with asyncio.timeout(deadline_s):
+            interaction = await interactions.create(**create_kwargs)
+            iid = _get(interaction, "id")
+            while str(_get(interaction, "status")) in _NON_TERMINAL:
+                await asyncio.sleep(poll_s)
+                interaction = await interactions.get(iid)
+    except TimeoutError:
+        # Only the deadline lands here; CancelledError is never caught.
+        note = ""
+        if iid:
             try:
                 await interactions.cancel(iid)
-            finally:
-                raise TimeoutError(
-                    f"interaction {iid} not terminal after {deadline_s}s; cancelled")
-        await asyncio.sleep(min(poll_s, remaining))
-        interaction = await interactions.get(iid)
+            except Exception as exc:  # noqa: BLE001
+                note = f"; cancel failed: {type(exc).__name__}: {exc}"
+        raise TimeoutError(
+            f"interaction {iid} not terminal after {deadline_s}s; cancelled{note}"
+            if not note else
+            f"interaction {iid} not terminal after {deadline_s}s{note}") from None
     return interaction, make_receipt(interaction, started)
 
 

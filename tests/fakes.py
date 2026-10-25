@@ -33,7 +33,19 @@ from __future__ import annotations
 from typing import Any
 
 from google.genai import types
+from google.genai._gaos.types.interactions.createagentinteraction import (
+    CreateAgentInteractionParam)
+from google.genai._gaos.types.interactions.createmodelinteraction import (
+    CreateModelInteractionParam)
 from google.genai._gaos.types.interactions.interaction import Interaction
+
+# Body keys the real google-genai 2.33.0 ``interactions.create`` accepts
+# (union of the model and agent request TypedDicts) plus its transport kwargs.
+ALLOWED_CREATE_KWARGS = (
+    set(CreateModelInteractionParam.__annotations__)
+    | set(CreateAgentInteractionParam.__annotations__)
+    | {"request", "api_version", "extra_headers", "extra_query", "extra_body", "timeout"}
+)
 
 
 def text_step(text: str) -> dict:
@@ -60,6 +72,14 @@ class _Interactions:
 
     async def create(self, **kwargs: Any) -> Interaction:
         o = self._o
+        unknown = set(kwargs) - ALLOWED_CREATE_KWARGS
+        if unknown:
+            raise TypeError(f"FakeClient: unknown create() kwargs {sorted(unknown)}")
+        inp = kwargs.get("input")
+        if isinstance(inp, list):
+            for item in inp:
+                if not isinstance(item, dict) or "type" not in item:
+                    raise TypeError(f"FakeClient: input item needs a 'type': {item!r}")
         o.requests.append(kwargs)
         if not o._scripts:
             raise AssertionError("FakeClient: create() called with no script left")
@@ -82,7 +102,10 @@ class _Interactions:
     async def cancel(self, id: str, **kwargs: Any) -> Interaction:
         self._o.cancel_calls.append(id)
         entry = self._o._by_id[id]
-        return self._build({**entry["states"][entry["pos"]], "status": "cancelled"})
+        cancelled = {**entry["states"][entry["pos"]], "status": "cancelled"}
+        entry["states"] = [cancelled]
+        entry["pos"] = 0
+        return self._build(cancelled)
 
     @staticmethod
     def _build(state: dict) -> Interaction:
@@ -109,10 +132,34 @@ class _Files:
         return self._file(o._file_states[o._file_pos])
 
 
+    async def delete(self, *, name: str, **kwargs: Any) -> None:
+        self._o.file_deletes.append(name)
+
+
+class _Agents:
+    def __init__(self, owner: "FakeClient") -> None:
+        self._o = owner
+
+    async def create(self, **kwargs: Any) -> Any:
+        from types import SimpleNamespace
+        self._o.agents_created.append(kwargs)
+        self._o._agents[kwargs["id"]] = kwargs
+        return SimpleNamespace(**kwargs)
+
+    async def get(self, *, id: str, **kwargs: Any) -> Any:
+        from types import SimpleNamespace
+        return SimpleNamespace(**self._o._agents[id])
+
+    async def delete(self, *, id: str, **kwargs: Any) -> None:
+        self._o._agents.pop(id)
+        self._o.agents_deleted.append(id)
+
+
 class _Aio:
     def __init__(self, owner: "FakeClient") -> None:
         self.interactions = _Interactions(owner)
         self.files = _Files(owner)
+        self.agents = _Agents(owner)
 
 
 class FakeClient:
@@ -126,4 +173,8 @@ class FakeClient:
         self.cancel_calls: list[str] = []
         self.uploads: list[dict] = []
         self.file_get_calls: list[str] = []
+        self.file_deletes: list[str] = []
+        self._agents: dict[str, dict] = {}
+        self.agents_created: list[dict] = []
+        self.agents_deleted: list[str] = []
         self.aio = _Aio(self)
