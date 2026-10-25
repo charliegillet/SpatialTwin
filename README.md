@@ -37,3 +37,7 @@ Note: a plain `pytest` run includes the browser tests (use `-m 'not browser'` to
 ## Measured results
 
 live: pending key. No benchmark has been run yet; numbers will be pasted here only from `runtime/bench/<venue>.json` produced by `python -m walktwin.benchmark run`.
+
+## Session API (Task 14)
+
+From the repo root: `PYTHONPATH=backend .venv/bin/uvicorn walktwin.api:app --port 8000`. It serves `/api/*` and, if built, `frontend/dist` (mounted last). Session state is written to `runtime/sessions/<id>/session.json`.

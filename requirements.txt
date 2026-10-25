@@ -9,4 +9,5 @@ pycolmap==4.2.1
 pydantic==2.14.1
 pytest==9.1.1
 pytest-asyncio==1.4.0
+python-multipart==0.0.32
 uvicorn==0.54.0
