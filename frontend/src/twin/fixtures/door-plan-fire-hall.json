@@ -977,7 +977,7 @@
     "held": []
   },
   "advisories": [
-    "D4 is a simulated servo door; the physical gate is on the tabletop board.",
+    "D4 is a simulated servo door, driven by the virtual door controller.",
     "20 modeled occupants remain in Hall at 40 s: fire made the zone untenable at 6 s and the doors and exits out of it could not take everyone in that window. This is a modeled outcome of the declared assumptions, not an intended one."
   ],
   "announcement": "Attention. Fire in the hall. Use the south exit, north stair exit or west exit. Door D4 between the hall and the north stair is open.",

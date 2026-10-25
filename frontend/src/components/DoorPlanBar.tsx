@@ -3,13 +3,13 @@ import { ChevronDown, DoorClosed, DoorOpen, LockKeyhole, TriangleAlert, Volume2 
 import { ANNOUNCE_LABEL, SPEECH_UNAVAILABLE, announcementText, speak, speechAvailable, stopSpeaking } from '../twin/announce';
 import { FAILED_CHECK, NO_CHECKED_PLAN, alternativeRows, doorRows, gainFrom, groupDoorRows, planChecked, unsafeExits } from '../twin/twinHero';
 import type { DoorPlanResponse } from '../twin/types';
-import type { DoorAgentController } from '../twin/useDoorAgent';
-import { DoorAgentPanel } from './DoorAgentPanel';
+import type { AgentTeamController } from '../twin/useAgentTeam';
+import { AgentTeamPanel } from './AgentTeamPanel';
 
-const SIMULATED = 'Simulated doors · the physical gate is on the tabletop';
+const SIMULATED = 'Simulated doors · a virtual door controller, no hardware';
 
 /** The door decisions that changed, unsafe exits, advisories and the alternatives the planner compared. No approval: nothing physical moves. */
-export function DoorPlanBar({ plan, pending, agent }: { plan: DoorPlanResponse | null; pending: boolean; agent?: DoorAgentController }) {
+export function DoorPlanBar({ plan, pending, team }: { plan: DoorPlanResponse | null; pending: boolean; team?: AgentTeamController }) {
   const text = announcementText(plan);
   const synth = typeof window !== 'undefined' ? window.speechSynthesis : undefined;
   const Utterance = typeof window !== 'undefined' ? window.SpeechSynthesisUtterance : undefined;
@@ -49,7 +49,7 @@ export function DoorPlanBar({ plan, pending, agent }: { plan: DoorPlanResponse |
         <tbody>{alternatives.map(item => <tr key={`${item.rank}-${item.doors}`} className={item.chosen ? 'is-chosen' : undefined}>
           <td>{item.rank}</td><td>{item.doors}{item.valid ? '' : ` \u00b7 ${FAILED_CHECK}`}</td><td>{checked ? item.crossings : '\u2014'}</td></tr>)}</tbody></table>
     </details>
-    {agent && <DoorAgentPanel agent={agent} />}
+    {team && <AgentTeamPanel team={team} />}
     <p className="twin-quiet">Local solver · checker decided. {SIMULATED}</p>
   </section>;
 }

@@ -15,7 +15,8 @@ export interface TwinHero {
 }
 
 export const MODEL_TAG = 'building-v2 model';
-export const modelTag = (venueId: string | null | undefined): string => venueId ? `${venueId} model` : MODEL_TAG;
+export const modelTag = (venueId: string | null | undefined, venueName?: string | null): string =>
+  venueName ? `${venueName} model` : venueId ? `${venueId} model` : MODEL_TAG;
 export const NO_CHECKED_PLAN = 'No checked plan \u2014 numbers withheld';
 
 /** False only when the checker said the chosen plan is invalid; partial fixtures without a report count as unknown, not failed. */
@@ -42,13 +43,14 @@ export function deltaFor(plan: DoorPlanResponse): TwinHero['delta'] {
 }
 
 /** Modeled crossings, never survival. The population and horizon come from the response. */
-export function twinHero(input: { plan: DoorPlanResponse | null; pending: boolean; error?: string | null; venueId?: string | null }): TwinHero {
+export function twinHero(input: { plan: DoorPlanResponse | null; pending: boolean; error?: string | null; venueId?: string | null; venueName?: string | null }): TwinHero {
   const { plan, pending, error } = input;
   if (!plan) {
     const reason = error ?? (pending ? 'Solving…' : 'Waiting for the planner.');
-    return { ready: false, stale: false, digits: '—', label: 'reach an exit', tag: modelTag(input.venueId), delta: null, reason, spoken: `No result. ${reason}`, withheld: false };
+    return { ready: false, stale: false, digits: '—', label: 'reach an exit', tag: modelTag(input.venueId, input.venueName), delta: null, reason, spoken: `No result. ${reason}`, withheld: false };
   }
-  const tag = modelTag(plan.venue_id);
+  // The name is used only while it belongs to the plan's venue; a plan from the previous venue keeps its id.
+  const tag = modelTag(plan.venue_id, plan.venue_id === input.venueId ? input.venueName : null);
   if (!planChecked(plan)) return { ready: false, stale: false, digits:'\u2014', label: 'no checked plan', tag, delta: null, reason: NO_CHECKED_PLAN, spoken: NO_CHECKED_PLAN, withheld: true };
   const { completed_crossings: done, initial_population: population, horizon_seconds: horizon } = plan.chosen;
   const label = `of ${population} reach an exit in ${horizon} s`;
@@ -56,6 +58,21 @@ export function twinHero(input: { plan: DoorPlanResponse | null; pending: boolea
   const delta = stale ? null : deltaFor(plan);
   const reason = error ?? (pending ? 'Re-solving…' : null);
   return { ready: !stale, stale, digits: String(done), label, tag, delta, reason, spoken: `${done} ${label}, ${tag}${delta ? `, ${delta.text}` : ''}`, withheld: false };
+}
+
+/** The incident's checked fallback (a door jammed and the server re-planned with it stuck closed), when one is in force. */
+export interface HeroFallback { valid: boolean; completed: number; population: number; stuck: string[] }
+
+/** After a jam the doors being executed are the fallback's, so the headline follows it and says why it fell.
+ *  An unchecked fallback withholds the number like any unchecked plan. */
+export function withFallback(hero: TwinHero, fallback: HeroFallback | null | undefined, primary: DoorPlanResponse | null): TwinHero {
+  if (!fallback || !hero.ready || !primary) return hero;
+  const stuck = fallback.stuck.length ? joinIds(fallback.stuck) : 'a door';
+  if (!fallback.valid) return { ...hero, ready: false, digits: '\u2014', label: 'no checked plan', delta: null, reason: NO_CHECKED_PLAN, spoken: NO_CHECKED_PLAN, withheld: true };
+  const loss = primary.chosen.completed_crossings - fallback.completed;
+  const label = `of ${fallback.population} reach an exit in ${primary.chosen.horizon_seconds} s`;
+  const delta = { text: `fallback · ${stuck} stuck${loss > 0 ? ` · ${MINUS}${loss} vs the plan` : ''}`, tone: 'loss' as const };
+  return { ...hero, digits: String(fallback.completed), label, delta, spoken: `${fallback.completed} ${label}, ${hero.tag}, ${delta.text}` };
 }
 
 export const twinChips = (plan: DoorPlanResponse | null, fixtureVenue: boolean): string[] =>

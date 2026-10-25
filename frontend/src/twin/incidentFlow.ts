@@ -9,6 +9,8 @@ export const MAX_CONSOLE_LINES = 200;
 export const POLL_MS = 1500;
 export const SIM_LABEL = 'Simulated device';
 export const ACK_COPY = 'ACK · heard, not arrived';
+/** After the endpoint switch reports, the ACK is history: arrival came from the switch, not from the ACK. */
+export const ARRIVED_COPY = 'Endpoint confirmed';
 const MOVING: readonly string[] = ['OPENING', 'CLOSING'];
 
 export type ConnectionStatus = 'connecting' | 'live' | 'polling' | 'offline';
@@ -201,7 +203,9 @@ export function gateViews(incident: IncidentState | null, movingSince: Record<st
       id: gate.gate_id, state: gate.state, draw, label: DRAW_LABEL[draw], target: gate.target,
       openSwitch: gate.open_switch, closedSwitch: gate.closed_switch, observed: gate.observed, epoch: gate.epoch,
       armedFault: gate.fault && !warn ? gate.fault : null, warn, moving, stuck: incident.stuck_doors.includes(gate.gate_id),
-      ack: gate.last_ack ? { heard: true, label: ACK_COPY } : { heard: false, label: 'No ACK' },
+      ack: !gate.last_ack ? { heard: false, label: 'No ACK' }
+        : !moving && !warn && gate.observed && gate.target && gate.observed === gate.target.toLowerCase()
+          ? { heard: true, label: `${ARRIVED_COPY} · ${gate.observed}` } : { heard: true, label: ACK_COPY },
       elapsedMs, transitFraction: elapsedMs === null ? null : Math.min(1, elapsedMs / transitMs), overdue: elapsedMs !== null && elapsedMs > transitMs,
       detail: gate.detail,
     };

@@ -1,4 +1,6 @@
 import { ApiError, requestJson } from './client.ts';
+import { parseVenue } from './twin.ts';
+import type { VenueV2 } from '../twin/types.ts';
 
 /** Client for the Real2Sim draft API (docs/plans/contracts/real2sim-api.md). Argon proposes, the local compiler and
  *  graph checks decide, an operator accepts: nothing here changes the active venue except `acceptDraft`. */
@@ -41,6 +43,8 @@ export interface DraftView {
   overlay_available: boolean; topdown_available: boolean;
   controllable_door_candidates: DoorCandidate[]; max_controllable_doors: number; accept_blockers: string[];
   accepted: { venue_id: string } | null;
+  /** The preview compile (default doors, before the operator's choices), for the 3D stage. Null when it did not compile. */
+  preview: VenueV2 | null;
 }
 
 export interface SavedRun {
@@ -218,8 +222,14 @@ export function parseDraftView(raw: unknown): DraftView {
     overlay_available: raw.overlay_available === true, topdown_available: raw.topdown_available === true,
     controllable_door_candidates: (raw.controllable_door_candidates as unknown[]).map(parseCandidate),
     max_controllable_doors: isInt(raw.max_controllable_doors) ? raw.max_controllable_doors : MAX_CONTROLLABLE_DOORS,
-    accept_blockers: strings(raw.accept_blockers, 'blocker list'), accepted,
+    accept_blockers: strings(raw.accept_blockers, 'blocker list'), accepted, preview: previewVenue(raw.compile),
   };
+}
+
+/** A preview that fails the strict venue parser is simply not shown: the overlay and checks still explain the draft. */
+function previewVenue(compile: unknown): VenueV2 | null {
+  if (!isRecord(compile) || !isRecord(compile.venue)) return null;
+  try { return parseVenue(compile.venue); } catch { return null; }
 }
 
 export function parseCreateResponse(raw: unknown): CreateDraftResponse {

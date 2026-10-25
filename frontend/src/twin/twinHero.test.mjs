@@ -110,3 +110,25 @@ test('failing alternatives are labelled failed check', () => {
   const rows = alternativeRows(invalid());
   assert.equal(rows[1].valid, false);
 });
+
+import { withFallback } from './twinHero.ts';
+
+test('after a jam the hero follows the checked fallback and says which door is stuck', () => {
+  const plan = makePlan();
+  const hero = twinHero({ plan, pending: false });
+  const done = plan.chosen.completed_crossings;
+  const shown = withFallback(hero, { valid: true, completed: done - 9, population: plan.chosen.initial_population, stuck: ['D9'] }, plan);
+  assert.equal(shown.digits, String(done - 9));
+  assert.equal(shown.delta.tone, 'loss');
+  assert.equal(shown.delta.text, 'fallback · D9 stuck · −9 vs the plan');
+  assert.equal(withFallback(hero, null, plan), hero, 'no fallback: unchanged');
+  const unchecked = withFallback(hero, { valid: false, completed: 1, population: 2, stuck: ['D9'] }, plan);
+  assert.equal(unchecked.withheld, true);
+  assert.equal(unchecked.digits, '—');
+});
+
+test('the hero names an accepted venue only while the plan belongs to it', () => {
+  const plan = makePlan({ venue_id: 'ferry-building-level-2' });
+  assert.equal(twinHero({ plan, pending: false, venueId: 'ferry-building-level-2', venueName: 'Ferry Building Level 2' }).tag, 'Ferry Building Level 2 model');
+  assert.equal(twinHero({ plan, pending: false, venueId: 'building-v2', venueName: 'Other' }).tag, 'ferry-building-level-2 model');
+});

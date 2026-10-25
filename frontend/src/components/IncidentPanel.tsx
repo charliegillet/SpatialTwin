@@ -89,7 +89,7 @@ function GateCard({ gate, incident }: { gate: GateView; incident: IncidentContro
     <ul className="incident-chips" aria-label={`${gate.id} signals`}>
       <li className={`chip chip-data incident-switch${gate.openSwitch ? ' is-lit' : ''}`}><i aria-hidden="true" />OPEN switch {gate.openSwitch ? 'on' : 'off'}</li>
       <li className={`chip chip-data incident-switch${gate.closedSwitch ? ' is-lit' : ''}`}><i aria-hidden="true" />CLOSED switch {gate.closedSwitch ? 'on' : 'off'}</li>
-      <li className={`chip chip-data${gate.ack.heard ? ' incident-ack' : ''}`} title="The device heard the command. That is not arrival.">{gate.ack.heard ? ACK_COPY : gate.ack.label}</li>
+      <li className={`chip chip-data${gate.ack.heard ? ' incident-ack' : ''}`} title="The device heard the command. That is not arrival.">{gate.ack.label}</li>
       <li className="chip chip-data">epoch {gate.epoch}</li>
       {gate.stuck && <li className="chip chip-warn"><Lock size={12} aria-hidden="true" />stuck closed</li>}
       {gate.armedFault && <li className="chip chip-warn" title={FAULT_COPY[gate.armedFault]}>armed: {gate.armedFault.replace('_', ' ')}</li>}

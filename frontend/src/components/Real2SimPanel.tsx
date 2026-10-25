@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Camera, CheckCircle2, LoaderCircle, RotateCcw } from 'lucide-react';
 import { MAX_CONTROLLABLE_DOORS, overlayUrl, topdownUrl } from '../api/real2sim.ts';
 import type { AcceptResponse, SourceKind } from '../api/real2sim.ts';
+import type { VenueV2 } from '../twin/types.ts';
 import { elapsedLabel } from '../twin/doorAgent.ts';
 import { isRunning, type Real2SimState } from '../twin/real2simFlow.ts';
 import {
@@ -19,9 +20,13 @@ const KINDS: { kind: SourceKind; label: string }[] = [
 
 /** Build stage: a photo, sketch or PDF of a floor plan becomes a checked venue draft the operator accepts.
  *  Argon proposes; the local compiler and graph checks decide; the operator accepts. `onAccepted` is the only output. */
-export function Real2SimPanel({ onAccepted }: { onAccepted?: (venueId: string, accepted: AcceptResponse) => void }) {
+export function Real2SimPanel({ onAccepted, onPreview }: { onAccepted?: (venueId: string, accepted: AcceptResponse) => void; onPreview?: (venue: VenueV2 | null) => void }) {
   const r2s = useReal2Sim(onAccepted);
   const { state } = r2s;
+  // The stage shows the draft's preview compile until it is accepted (then the accepted venue is the active one).
+  const preview = state.view && !state.view.accepted ? state.view.preview : null;
+  useEffect(() => { onPreview?.(preview); }, [preview, onPreview]);
+  useEffect(() => () => onPreview?.(null), [onPreview]);
   const running = isRunning(state.stage);
   const picking = state.stage === 'idle' || state.stage === 'failed';
   return <section className="r2s" aria-label="Build a venue from a drawing" aria-busy={running}>
@@ -178,9 +183,11 @@ function AcceptForm({ r2s }: { r2s: Real2SimController }) {
       <legend>Controllable doors <span className="twin-quiet">(up to {max}; the rest stay fixed)</span></legend>
       {view.controllable_door_candidates.map(door => {
         const on = chosen.includes(door.key);
+        const rooms = door.room_names.length === 2 ? `${door.room_names[0]} ↔ ${door.room_names[1]}` : door.between.join(' ↔ ');
         return <label key={door.key} className={`r2s-door${on ? ' is-on' : ''}`}>
-          <input type="checkbox" checked={on} disabled={!on && chosen.length >= max} onChange={() => setSelected(toggleDoor(chosen, door.key, max))} />
-          <span>{door.room_names.length === 2 ? `${door.room_names[0]} ↔ ${door.room_names[1]}` : door.between.join(' ↔ ')}<small> door {door.key}{door.symbol ? ` · ${door.symbol}` : ''}</small></span>
+          <input type="checkbox" checked={on} disabled={!on && chosen.length >= max} onChange={() => setSelected(toggleDoor(chosen, door.key, max))}
+            aria-label={`Motorized door ${door.key}: ${door.room_names.length === 2 ? `${door.room_names[0]} to ${door.room_names[1]}` : door.between.join(' to ')}`} />
+          <span>{rooms}<small> door {door.key}{door.symbol ? ` · ${door.symbol}` : ''}</small></span>
         </label>;
       })}
     </fieldset>}

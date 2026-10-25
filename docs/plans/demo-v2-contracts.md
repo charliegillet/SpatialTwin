@@ -40,6 +40,12 @@ Worktree (the only implementation root): `/Users/nihalnihalani/Desktop/Github/Sp
 | ui-real2sim (Sonnet, wave 2) | `frontend/src/api/real2sim.ts`, `frontend/src/twin/real2sim*.ts`, `frontend/src/twin/real2sim*.test.mjs`, `frontend/src/components/Real2Sim*.tsx`, `frontend/src/components/Real2Sim.css` |
 | ui-incident (Sonnet, wave 2) | `frontend/src/api/incident.ts`, `frontend/src/twin/incident*.ts`, `frontend/src/twin/incident*.test.mjs`, `frontend/src/components/Incident*.tsx`, `frontend/src/components/Incident.css` |
 
+| ui-agents (Sonnet, wave 3) | `frontend/src/api/agentTeam.ts`, `frontend/src/twin/agentTeam*.ts`, `frontend/src/twin/agentTeam*.test.mjs`, `frontend/src/twin/useAgentTeam.ts`, `frontend/src/components/AgentTeam*.tsx`, `frontend/src/components/AgentTeam.css` |
+| signs (Opus, wave 3) | `backend/app/signs/**`, `tests/signs/**`, `frontend/sign.html`, `frontend/src/sign/**`, `frontend/vite.config.ts` (multi-page input only), `docs/plans/contracts/signs.md` |
+
+Since wave 2 the lead also owns every wave 1–2 file whose teammate has finished (incident, real2sim, compiler, UI
+panels); wave 3 teammates must not edit them, only request changes.
+
 Wave 2 note: `frontend/src/api/real2sim.ts` and `frontend/src/api/incident.ts` are delegated by the lead to those two
 teammates (new files only); everything else under `frontend/src/api/**` stays lead-owned. Wave 2 teammates mount
 nothing: the lead wires their components into `App.tsx` / `TwinWorkspace.tsx` from the exact instructions in their

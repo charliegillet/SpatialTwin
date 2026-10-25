@@ -1,0 +1,80 @@
+/* Agent team panel. Existing tokens only. Warning red is reserved for mismatches and failures; green for reproduced claims and live provenance. */
+.agent-team { display: grid; gap: 10px; min-width: 0; padding-top: 8px; border-top: 1px solid var(--line); }
+.agent-team-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.agent-status { margin: 0; font-size: .75rem; color: var(--muted); }
+
+.agent-lanes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.agent-lane { display: grid; align-content: start; gap: 8px; min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.agent-lane > header { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.agent-lane h4 { margin: 0 auto 0 0; font-size: .875rem; overflow-wrap: anywhere; }
+.agent-lane p { margin: 0; }
+.agent-countdown { font: .6875rem var(--mono); color: var(--muted); }
+
+.agent-chips { display: flex; flex-wrap: wrap; gap: 4px 6px; }
+.agent-chip { padding: 1px 8px; border: 1px solid var(--line); border-radius: 999px; font: .6875rem/1.5 var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+.agent-chip.is-run { color: var(--text); }
+.agent-chip.is-ok, .agent-prov.is-live { color: var(--accent); border-color: #5cf28a55; }
+.agent-chip.is-bad, .agent-prov.is-unavailable { color: var(--warning); border-color: var(--hazard-core); }
+.agent-chip.is-note, .agent-prov.is-fallback { color: var(--pending); border-color: #ffb45466; }
+
+.agent-failure { display: flex; gap: 6px; align-items: flex-start; padding: 6px 8px; border-left: 3px solid var(--hazard-core); background: #2a1415; font-size: .75rem; line-height: 1.5; overflow-wrap: anywhere; }
+.agent-failure svg { flex: none; margin-top: 2px; color: var(--warning); }
+
+.agent-trace summary, .agent-trace-line summary { cursor: pointer; font-size: .75rem; color: var(--muted); }
+.agent-trace > ol { max-height: 220px; margin: 6px 0; padding: 6px 8px; overflow: auto; list-style: none; border: 1px solid var(--line); border-radius: 6px; background: var(--canvas); font: .6875rem/1.6 var(--mono); }
+.agent-trace > ol:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.agent-trace-line { display: flex; gap: 8px; color: var(--muted); overflow-wrap: anywhere; }
+.agent-trace-line > details { min-width: 0; }
+.agent-trace-line summary { display: flex; gap: 8px; font: inherit; color: inherit; list-style: none; }
+.agent-trace-line summary::-webkit-details-marker { display: none; }
+.agent-trace-line summary::before { content: '\25B8'; flex: none; }
+.agent-trace-line details[open] > summary::before { content: '\25BE'; }
+.agent-trace-label { flex: none; min-width: 6ch; color: #5b6862; }
+.agent-trace-text { min-width: 0; }
+.agent-trace-line.is-code .agent-trace-text, .agent-trace-line.is-call .agent-trace-text { color: var(--text); }
+.agent-trace-line.is-tool { color: var(--accent); }
+.agent-trace-line.is-error, .agent-trace-line.is-error .agent-trace-label { color: var(--warning); }
+.agent-trace-line.is-partial .agent-trace-text::after { content: ' \2026'; }
+.agent-trace-line pre { margin: 4px 0 0; padding: 6px; max-height: 160px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface); border-radius: 4px; font: inherit; color: var(--text); }
+
+.agent-recommendation { display: grid; gap: 6px; font-size: .8125rem; line-height: 1.5; }
+.agent-doors { display: grid; gap: 2px; }
+.agent-doors small { font-size: .6875rem; color: var(--muted); }
+.agent-doors ul { display: flex; flex-wrap: wrap; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.agent-doors li { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border: 1px solid var(--line); border-radius: 999px; font: .75rem var(--mono); }
+.agent-doors li.is-open { border-color: #5cf28a55; color: var(--accent); }
+
+.agent-claims { display: grid; gap: 4px; min-width: 0; }
+.agent-claims table { width: 100%; border-collapse: collapse; font-size: .75rem; }
+.agent-claims th, .agent-claims td { padding: 4px 6px; text-align: left; vertical-align: top; border-top: 1px solid var(--line); font-weight: 400; overflow-wrap: anywhere; }
+.agent-claims thead th { border-top: 0; color: var(--muted); font-size: .6875rem; }
+.agent-claims small { display: block; color: var(--muted); font-size: .6875rem; }
+.agent-claims code { font: .75rem var(--mono); }
+.agent-claims tr.is-mismatch td, .agent-claims tr.is-mismatch th { background: #2a1415; }
+.agent-claims tr.is-mismatch .agent-verdict { color: var(--warning); }
+.agent-claims tr.is-ok .agent-verdict { color: var(--accent); }
+.agent-verdict { display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; font-size: .6875rem; }
+.agent-estimate { color: var(--pending); }
+
+.agent-footer { display: grid; gap: 4px; padding: 8px 10px; border-left: 3px solid var(--line); background: var(--surface-raised); font-size: .8125rem; line-height: 1.5; }
+.agent-footer p { margin: 0; }
+.agent-footer .is-ok { color: var(--accent); }
+.agent-footer .is-mismatch { color: var(--warning); }
+
+.agent-followup { display: grid; gap: 8px; }
+.agent-followup label { font-size: .75rem; color: var(--muted); }
+.agent-followup-row { display: flex; gap: 6px; }
+.agent-followup-row input { flex: 1 1 auto; min-width: 0; min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-raised); color: var(--text); font-size: .8125rem; }
+.agent-followup-row input:disabled { opacity: .6; }
+.agent-suggestions { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.agent-followup-result { display: grid; gap: 6px; }
+
+@media (max-width: 767px) {
+  .agent-lanes { grid-template-columns: minmax(0, 1fr); }
+  .agent-team-actions .btn, .agent-followup-row input, .agent-followup-row .btn, .agent-suggestions .btn { min-height: 44px; }
+  .agent-team-actions .btn { flex: 1 1 140px; white-space: normal; }
+  .agent-trace summary, .agent-trace-line summary { min-height: 32px; display: flex; align-items: center; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-team .spin { animation: none; }
+}
