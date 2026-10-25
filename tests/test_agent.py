@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -25,6 +26,12 @@ def graph58(office_graph: VenueGraph) -> VenueGraph:
     zones = [z.model_copy(update={"occupants": {"Z1": 48, "Z4": 10}.get(z.id, z.occupants)})
              for z in office_graph.zones]
     return office_graph.model_copy(update={"zones": zones})
+
+
+@pytest.fixture(autouse=True)
+def no_probe_file(tmp_path, monkeypatch):
+    """Hermetic: never read a real runtime/probes/agent_env.json."""
+    monkeypatch.setattr(agent, "PROBE_PATH", tmp_path / "np.json", raising=False)
 
 
 @pytest.fixture
@@ -136,7 +143,11 @@ async def test_happy_path_sweep_then_verify(graph58, png, tmp_path):
     # Ledger persisted.
     ledger = json.loads((tmp_path / "sessions" / inv.investigation_id / "ledger.json")
                         .read_text())
-    assert [e["call_id"] for e in ledger if e["kind"] == "client_function"] == [
+    assert ledger["graph_revision"] == graph58.revision
+    assert ledger["scenario_hash"] == FIRE_D2.hash
+    assert ledger["network_mode"] == "disabled" == inv.network_mode
+    assert ledger["last_interaction_id"] == "int-3"
+    assert [e["call_id"] for e in ledger["entries"] if e["kind"] == "client_function"] == [
         "fc-eval", "fc-sub"]
 
 
@@ -238,7 +249,7 @@ async def test_incomplete_then_completed(graph58, png, tmp_path):
 
 async def test_request_shape(graph58, png, tmp_path):
     client = FakeClient([completed()])
-    await run(client, graph58, FIRE_D2, png, tmp_path)
+    inv = await run(client, graph58, FIRE_D2, png, tmp_path)
     req = client.requests[0]
     assert req["agent"] == "antigravity-preview-09-2026"
     assert req["agent_config"] == {"type": "antigravity", "model": "gemini-4-argon",
@@ -253,12 +264,40 @@ async def test_request_shape(graph58, png, tmp_path):
     assert len(images) == 1 and images[0]["mime_type"] == "image/png" and images[0]["data"]
     text = next(p["text"] for p in req["input"] if p["type"] == "text")
     assert "40/58" in text and "OPEN:D5" in text and "D2" in text
+    assert "Network: disabled" in text
+    # Full graph, scenario and params JSON embedded as data, with revision and hash.
+    assert graph58.model_dump_json() in text and FIRE_D2.model_dump_json() in text
+    assert graph58.revision in text and FIRE_D2.hash in text
+    assert '"horizon_s": 60' in text
     env = req["environment"]
     assert env["environment_id"] == "env-1" and env["network"] == "disabled"
+    d = f"/workspace/{inv.investigation_id}"
+    assert d in text
     targets = {s["target"]: s for s in env["sources"]}
-    scen = json.loads(targets["/workspace/scenario.json"]["content"])
+    assert set(targets) == {f"{d}/graph.json", f"{d}/scenario.json", f"{d}/params.json"}
+    scen = json.loads(targets[f"{d}/scenario.json"]["content"])
     assert scen["hazards"][0]["door_id"] == "D2"
-    assert "/workspace/accepted_graph.json" in targets
+    assert VenueGraph.model_validate_json(targets[f"{d}/graph.json"]["content"]).revision \
+        == graph58.revision
+    assert FlowParams.model_validate_json(targets[f"{d}/params.json"]["content"]) == P60
+    assert inv.network_mode == "disabled"
+
+
+async def test_network_fallback_is_recorded_and_stated(graph58, png, tmp_path, monkeypatch):
+    probe = tmp_path / "probe.json"
+    probe.write_text(json.dumps({"ok": False, "environment_id_returned": True}))
+    monkeypatch.setattr(agent, "PROBE_PATH", probe)
+    client = FakeClient([completed()])
+    inv = await run(client, graph58, FIRE_D2, png, tmp_path)
+    req = client.requests[0]
+    assert req["environment"]["network"] == agent.PYPI_ALLOWLIST
+    assert inv.network_mode == "allowlist:pypi"
+    text = next(p["text"] for p in req["input"] if p["type"] == "text")
+    assert "PyPI-only allowlist" in text and "Network: disabled" not in text
+    ledger = json.loads((tmp_path / "sessions" / inv.investigation_id / "ledger.json")
+                        .read_text())
+    assert ledger["network_mode"] == "allowlist:pypi"
+    assert json.loads(inv.model_dump_json())["network_mode"] == "allowlist:pypi"
 
 
 async def test_deadline_cancels(graph58, png, tmp_path):
@@ -270,7 +309,8 @@ async def test_deadline_cancels(graph58, png, tmp_path):
 
 
 async def test_resume_reuses_persisted_ledger(graph58, png, tmp_path, monkeypatch):
-    first = FakeClient([requires_action(evaluate(["OPEN:D5"]))], [{"status": "failed"}])
+    first = FakeClient([requires_action(evaluate(["OPEN:D5"]), submit("OPEN:D5", 58))],
+                       [{"status": "failed"}])
     inv1 = await run(first, graph58, FIRE_D2, png, tmp_path)
     calls = []
     real = flow.solve
@@ -281,6 +321,121 @@ async def test_resume_reuses_persisted_ledger(graph58, png, tmp_path, monkeypatc
                      investigation_id=inv1.investigation_id)
     assert calls == []  # stored result reused, solver not re-run
     assert inv2.best.intervention_id == "OPEN:D5"
+    assert inv1.recommendation is not None
+    assert inv2.recommendation is None  # not re-submitted in this run: not restored
+
+
+async def test_resume_resubmitted_recommendation_counts(graph58, png, tmp_path):
+    first = FakeClient([requires_action(submit("OPEN:D5", 58))], [{"status": "failed"}])
+    inv1 = await run(first, graph58, FIRE_D2, png, tmp_path)
+    again = FakeClient([requires_action(submit("OPEN:D5", 58))], [completed()])
+    inv2 = await run(again, graph58, FIRE_D2, png, tmp_path,
+                     investigation_id=inv1.investigation_id)
+    assert inv2.recommendation.intervention_id == "OPEN:D5"
+
+
+@pytest.mark.parametrize("change", ["scenario", "graph", "params"])
+async def test_stale_ledger_refused(graph58, png, tmp_path, change):
+    first = FakeClient([requires_action(evaluate(["OPEN:D5"]))], [completed()])
+    inv1 = await run(first, graph58, FIRE_D2, png, tmp_path)
+    graph, scenario, params = graph58, FIRE_D2, P60
+    if change == "scenario":
+        scenario = Scenario(hazards=[Hazard(door_id="D4", kind="fire")])
+    elif change == "graph":
+        zones = [z.model_copy(update={"occupants": z.occupants + 1}) for z in graph58.zones]
+        graph = graph58.model_copy(update={"zones": zones})
+    else:
+        params = FlowParams(horizon_s=62)
+    with pytest.raises(ValueError, match="stale_ledger"):
+        await run(FakeClient([completed()]), graph, scenario, png, tmp_path, params=params,
+                  investigation_id=inv1.investigation_id)
+
+
+@pytest.fixture
+def graph_d6_closed(graph58):
+    doors = [d.model_copy(update={"state": "closed"}) if d.id == "D6" else d
+             for d in graph58.doors]
+    return graph58.model_copy(update={"doors": doors})
+
+
+async def test_disagreement_when_recommendation_worse_than_best(graph_d6_closed, png,
+                                                                tmp_path):
+    client = FakeClient(
+        [requires_action(evaluate(["OPEN:D5", "OPEN:D6"]))],
+        [requires_action(submit("OPEN:D6", 40))],
+        [completed()],
+    )
+    inv = await run(client, graph_d6_closed, FIRE_D2, png, tmp_path)
+    assert {r.intervention_id: r.reached_exit for r in inv.results} == {
+        "OPEN:D5": 48, "OPEN:D6": 40}
+    assert inv.best.intervention_id == "OPEN:D5"
+    assert "OPEN:D5" in inv.disagreement and "48" in inv.disagreement
+
+
+async def test_disagreement_when_no_change_but_best_exists(graph58, png, tmp_path):
+    client = FakeClient([requires_action(evaluate(["OPEN:D5"]))],
+                        [requires_action(submit(None, None))], [completed()])
+    inv = await run(client, graph58, FIRE_D2, png, tmp_path)
+    assert inv.best.intervention_id == "OPEN:D5"
+    assert "no change" in inv.disagreement and "58" in inv.disagreement
+
+
+async def test_disagreement_when_checker_rejects(graph58, png, tmp_path, monkeypatch):
+    real = agent.check_run
+
+    def failing(graph, scenario, params, run_):
+        res = real(graph, scenario, params, run_)
+        if scenario.interventions:
+            return type(res)(ok=False, run_id=res.run_id, violations=["forced"])
+        return res
+
+    monkeypatch.setattr(agent, "check_run", failing)
+    client = FakeClient([requires_action(evaluate(["OPEN:D5"]))],
+                        [requires_action(submit("OPEN:D5", 58))], [completed()])
+    inv = await run(client, graph58, FIRE_D2, png, tmp_path)
+    assert inv.best is None
+    assert "checker rejected" in inv.disagreement
+
+
+async def test_sweep_summary_stored_unverified(graph58, png, tmp_path):
+    sweep = [{"intervention_id": f"OPEN:D5+V{i}", "claimed_reached_exit": 50 + i}
+             for i in range(13)] + [{"bad": 1}]
+    sweep.insert(0, "not a dict")
+    args = {"intervention_id": "OPEN:D5", "claimed_reached_exit": 58, "rationale": "r",
+            "caveats": [], "sweep_summary": sweep}
+    client = FakeClient(
+        [requires_action(function_call_step("submit_recommendation", args, id="fc-sub"))],
+        [completed()])
+    inv = await run(client, graph58, FIRE_D2, png, tmp_path)
+    ss = inv.recommendation.sweep_summary
+    assert 0 < len(ss) <= 12
+    assert all(c.label == "sandbox, unverified" for c in ss)
+    assert ss[0].claimed_reached_exit == 50
+
+
+async def test_code_execution_output_clipped_in_ledger(graph58, png, tmp_path):
+    out = {"type": "code_execution_result", "call_id": "ce1", "result": "x" * 5000}
+    client = FakeClient([{**completed(), "steps": [code_execution_step("ce1"), out]}])
+    inv = await run(client, graph58, FIRE_D2, png, tmp_path)
+    (entry,) = [e for e in inv.ledger if e.call_id == "ce1"]
+    assert entry.kind == "sandbox_step"
+    assert entry.result["output"].startswith("xxx")
+    assert len(entry.result["output"]) <= agent.RESULT_CLIP + len("...[truncated]")
+
+
+async def test_baseline_solver_failure_is_failed_status(graph58, png, tmp_path, monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError("gate D1@24 violates conservation")
+
+    monkeypatch.setattr(flow, "solve", boom)
+    client = FakeClient()
+    inv = await run(client, graph58, FIRE_D2, png, tmp_path)
+    assert inv.status == "failed" and "baseline" in inv.error
+    assert client.requests == []
+
+
+def test_default_deadline_is_240():
+    assert inspect.signature(agent.investigate).parameters["deadline_s"].default == 240
 
 
 async def test_max_rounds_stops(graph58, png, tmp_path):
@@ -288,7 +443,7 @@ async def test_max_rounds_stops(graph58, png, tmp_path):
     client = FakeClient(*scripts)
     inv = await run(client, graph58, FIRE_D2, png, tmp_path, max_rounds=2)
     assert len(client.requests) == 2
-    assert inv.status == "incomplete"
+    assert inv.status == "incomplete" and inv.error == "max_rounds"
 
 
 async def test_failed_status(graph58, png, tmp_path):
@@ -342,32 +497,79 @@ def _hook():
     return mod
 
 
-@pytest.mark.parametrize("payload, decision", [
+INV = "/workspace/inv-abc123/graph.json"
+
+
+@pytest.mark.parametrize("payload, decision, exists", [
     ({"tool_call": {"name": "write_to_file",
-                    "args": {"path": "/workspace/accepted_graph.json", "content": "{}"}}}, "deny"),
+                    "args": {"path": "/workspace/accepted_graph.json", "content": "{}"}}},
+     "deny", False),
     ({"tool_call": {"name": "replace_file_content",
-                    "args": {"TargetFile": "accepted_graph.json"}}}, "deny"),
+                    "args": {"TargetFile": "accepted_graph.json"}}}, "deny", False),
+    # write-once inputs: creating is allowed, changing an existing one is denied
+    ({"tool_call": {"name": "write_to_file", "args": {"path": INV, "content": "{}"}}},
+     "allow", False),
+    ({"tool_call": {"name": "write_to_file", "args": {"path": INV, "content": "{}"}}},
+     "deny", True),
     ({"tool_call": {"name": "code_execution", "args": {
-        "code": "json.dump(g, open('/workspace/accepted_graph.json', 'w'))"}}}, "deny"),
+        "code": f"json.dump(g, open('{INV}', 'w'))"}}}, "deny", True),
     ({"tool_call": {"name": "code_execution", "args": {
-        "code": "echo {} > /workspace/accepted_graph.json", "language": "bash"}}}, "deny"),
-    ({"tool_call": {"name": "view_file", "args": {"path": "/workspace/accepted_graph.json"}}},
-     "allow"),
+        "code": f"json.dump(g, open('{INV}', 'w'))"}}}, "allow", False),
     ({"tool_call": {"name": "code_execution", "args": {
-        "code": "g = json.load(open('/workspace/accepted_graph.json'))"}}}, "allow"),
-    ({"tool_call": {"name": "write_to_file", "args": {"path": "/workspace/sweep.py"}}}, "allow"),
+        "code": "json.dump(g, open('/workspace/accepted_graph.json', 'w'))"}}}, "deny", False),
     ({"tool_call": {"name": "code_execution", "args": {
-        "code": "cp /workspace/accepted_graph.json /workspace/work/graph.json"}}}, "allow"),
+        "code": f"echo {{}} > {INV}", "language": "bash"}}}, "deny", True),
+    ({"tool_call": {"name": "view_file", "args": {"path": INV}}}, "allow", True),
     ({"tool_call": {"name": "code_execution", "args": {
-        "code": "cp /workspace/work/graph.json /workspace/accepted_graph.json"}}}, "deny"),
+        "code": f"g = json.load(open('{INV}'))"}}}, "allow", True),
+    ({"tool_call": {"name": "write_to_file", "args": {"path": "/workspace/sweep.py"}}},
+     "allow", True),
+    # only known path keys count; the body may mention anything
+    ({"tool_call": {"name": "write_to_file", "args": {
+        "path": "/workspace/inv-abc123/work/notes.md",
+        "content": "do not edit /workspace/accepted_graph.json"}}}, "allow", True),
     ({"tool_call": {"name": "code_execution", "args": {
-        "code": "rm /.agents/hooks.json"}}}, "deny"),
-    ({"tool_call": {"name": "write_to_file", "args": {"path": "/.agents/hooks.json"}}}, "deny"),
-    ({"unexpected": True}, "allow"),
-    ("not a dict", "allow"),
+        "code": f"cp {INV} /workspace/inv-abc123/work/graph.json"}}}, "allow", True),
+    ({"tool_call": {"name": "code_execution", "args": {
+        "code": f"cp /workspace/inv-abc123/work/graph.json {INV}"}}}, "deny", True),
+    # tee only when the protected file is a destination
+    ({"tool_call": {"name": "code_execution", "args": {
+        "code": f"cat {INV} | tee /tmp/copy.json"}}}, "allow", True),
+    ({"tool_call": {"name": "code_execution", "args": {
+        "code": f"echo x | tee -a {INV}"}}}, "deny", True),
+    # .replace( / .rename( only when the receiver is the path
+    ({"tool_call": {"name": "code_execution", "args": {
+        "code": f"t = open('{INV}').read().replace('a', 'b')"}}}, "allow", True),
+    ({"tool_call": {"name": "code_execution", "args": {
+        "code": f"Path('{INV}').replace('/tmp/x')"}}}, "deny", True),
+    ({"tool_call": {"name": "code_execution", "args": {
+        "code": f"Path('{INV}').write_text('x')"}}}, "deny", True),
+    ({"tool_call": {"name": "code_execution", "args": {
+        "code": "rm /.agents/hooks.json"}}}, "deny", False),
+    ({"tool_call": {"name": "write_to_file", "args": {"path": "/.agents/hooks.json"}}},
+     "deny", False),
+    ({"unexpected": True}, "allow", True),
+    ("not a dict", "allow", True),
+    ({"tool_call": {"name": "code_execution", "args": {"code": 7}}}, "allow", True),
 ])
-def test_hook_decision(payload, decision):
-    out = _hook().decide(payload)
+def test_hook_decision(payload, decision, exists):
+    out = _hook().decide(payload, exists=lambda p: exists)
     assert out["decision"] == decision
     if decision == "deny":
         assert out["reason"].startswith(agent.HOOK_DENY_MARKER)
+
+
+def test_hook_decide_is_total():
+    def broken(p):
+        raise OSError("boom")
+
+    payload = {"tool_call": {"name": "write_to_file", "args": {"path": INV}}}
+    assert _hook().decide(payload, exists=broken) == {"decision": "allow"}
+
+
+def test_hook_main_prints_allow_on_garbage(capsys, monkeypatch):
+    import io
+    hook = _hook()
+    monkeypatch.setattr("sys.stdin", io.StringIO("not json"))
+    hook.main()
+    assert json.loads(capsys.readouterr().out) == {"decision": "allow"}

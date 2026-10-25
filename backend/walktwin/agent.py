@@ -42,22 +42,31 @@ AGENT_CONFIG = {"type": "antigravity", "model": MODEL, "max_total_tokens": 30000
 CLIENT_FUNCTIONS = ("evaluate_interventions", "submit_recommendation")
 NO_IMPROVEMENT = "No allowed change improves this case"
 HOOK_DENY_MARKER = "WALKTWIN_AUDIT_DENY"  # must match agent_env/hooks/pre_tool_execution.py
+UNVERIFIED = "sandbox, unverified"
+DEFAULT_DEADLINE_S = 240.0
 MAX_ALLOWED = 6
 MAX_EVAL_IDS = 4
+MAX_SWEEP_SUMMARY = 12
+RESULT_CLIP = 2000  # characters of a code_execution result kept in the ledger
 
 _PKG = Path(__file__).resolve().parent
 REPO_ROOT = _PKG.parents[1]
 RUNTIME_DIR = REPO_ROOT / "runtime"
 AGENT_ENV_DIR = REPO_ROOT / "agent_env"
 PROMPT_PATH = _PKG / "prompts" / "agent.md"
+PROBE_PATH = RUNTIME_DIR / "probes" / "agent_env.json"  # Task 2 probe (f) output
 MOUNTED_MODULES = ("__init__.py", "contracts.py", "flow.py", "graph_checks.py")
-SANDBOX_GRAPH = "/workspace/accepted_graph.json"
-SANDBOX_SCENARIO = "/workspace/scenario.json"
 INLINE_FILE_LIMIT = 1_000_000  # documented: 1 MB per inline file
 INLINE_TOTAL_LIMIT = 2_000_000  # documented: 2 MB across inline files
 
 # Environment preparation needs PyPI only (pip's default index and file host).
 PYPI_ALLOWLIST = {"allowlist": [{"domain": "pypi.org"}, {"domain": "files.pythonhosted.org"}]}
+NETWORK_TEXT = {
+    "disabled": "Network: disabled for this investigation.",
+    "allowlist:pypi": ("Network: ON with a PyPI-only allowlist (pypi.org, "
+                       "files.pythonhosted.org), because offline reuse of the environment "
+                       "could not be confirmed. Do not fetch or install anything."),
+}
 PREP_INPUT = ("Run `pip install networkx pydantic` in the sandbox. Then run "
               "`cd /workspace && python -c \"from walktwin import flow, contracts, graph_checks; "
               "import networkx, pydantic; print(networkx.__version__, pydantic.VERSION)\"` "
@@ -74,6 +83,10 @@ HOOKS_CONFIG = {
         }],
     }
 }
+
+
+def sandbox_dir(investigation_id: str) -> str:
+    return f"/workspace/{investigation_id}"
 
 
 # --- contracts ---------------------------------------------------------------------
@@ -93,11 +106,20 @@ class InterventionResult(_Frozen):
     limiting_doors: list[str]
 
 
+class SweepClaim(_Frozen):
+    """One sandbox variant the agent reports exploring. Never checker verified."""
+    intervention_id: str = Field(max_length=80)
+    claimed_reached_exit: int
+    label: Literal["sandbox, unverified"] = UNVERIFIED
+
+
 class Recommendation(_Frozen):
     intervention_id: str | None
     claimed_reached_exit: int | None
     rationale: str = Field(max_length=600)
     caveats: list[str] = Field(max_length=5)
+    sweep_summary: list[SweepClaim] = Field(default_factory=list,
+                                            max_length=MAX_SWEEP_SUMMARY)
 
 
 class LedgerEntry(_Frozen):
@@ -124,7 +146,8 @@ class Investigation(_Frozen):
     disagreement: str | None
     hook_denials: int
     receipt: Receipt | None
-    error: str | None = None  # provider/transport error text when status is failed
+    error: str | None = None  # why the run is not completed (provider error, max_rounds...)
+    network_mode: str | None = None  # effective sandbox network: "disabled" | "allowlist:pypi"
 
     @property
     def verdict(self) -> str:
@@ -207,6 +230,11 @@ def _clip(obj: Any, n: int = 2000) -> Any:
     return obj
 
 
+def _text(obj: Any) -> str:
+    obj = _plain(obj)
+    return obj if isinstance(obj, str) else json.dumps(obj, default=str)
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -223,15 +251,30 @@ def _as_int(v: Any) -> int | None:
     return None
 
 
+def _params_json(params: FlowParams) -> str:
+    return json.dumps(params.model_dump(mode="json"), sort_keys=True)
+
+
+def network_mode_of(network: Any) -> str:
+    if network == "disabled":
+        return "disabled"
+    if network == PYPI_ALLOWLIST:
+        return "allowlist:pypi"
+    return "allowlist:custom" if isinstance(network, dict) else f"other:{network}"
+
+
 # --- session state ------------------------------------------------------------------
 
 
 class _Session:
-    def __init__(self, graph: VenueGraph, scenario: Scenario, params: FlowParams,
-                 ledger_path: Path) -> None:
+    def __init__(self, graph: VenueGraph, scenario: Scenario, params: FlowParams, *,
+                 investigation_id: str, ledger_path: Path, network_mode: str,
+                 current_run, current_check) -> None:
         self.graph, self.scenario, self.params = graph, scenario, params
+        self.investigation_id = investigation_id
+        self.network_mode = network_mode
         self.allowed = allowed_interventions(graph, scenario)
-        self.current_run, self.current_check = _solve_checked(graph, scenario, params)
+        self.current_run, self.current_check = current_run, current_check
         self.results: dict[str, InterventionResult] = {}
         self.recommendation: Recommendation | None = None
         self.ledger_path = ledger_path
@@ -239,29 +282,49 @@ class _Session:
         self.by_call: dict[str, LedgerEntry] = {}
         self.code_runs: set[str] = set()
         self.denied_calls: set[str] = set()
-        if ledger_path.exists():  # resuming an investigation: stored results are reused
-            for raw in json.loads(ledger_path.read_text()):
-                entry = LedgerEntry.model_validate(raw)
-                self._remember(entry)
-                if entry.name == "evaluate_interventions" and entry.result:
-                    for r in entry.result.get("results", []):
-                        if "error" not in r:
-                            res = InterventionResult.model_validate(r)
-                            self.results.setdefault(res.intervention_id, res)
-                elif entry.name == "submit_recommendation":
-                    self.submit_recommendation(entry.args)
+        self.last_interaction_id: str | None = None
+        if ledger_path.exists():
+            self._load()
 
     # ledger
-    def _remember(self, entry: LedgerEntry) -> None:
-        self.ledger.append(entry)
-        self.by_call[entry.call_id] = entry
+    def _header(self) -> dict:
+        return {"investigation_id": self.investigation_id,
+                "graph_revision": self.graph.revision, "scenario_hash": self.scenario.hash,
+                "params": _params_json(self.params), "network_mode": self.network_mode,
+                "last_interaction_id": self.last_interaction_id}
+
+    def _load(self) -> None:
+        """Resume: reuse stored client-function results, but only for the same graph
+        revision, scenario hash and declared params. A recommendation is never restored;
+        it counts only if the current run re-submits it."""
+        data = json.loads(self.ledger_path.read_text())
+        if (not isinstance(data, dict)
+                or data.get("graph_revision") != self.graph.revision
+                or data.get("scenario_hash") != self.scenario.hash
+                or data.get("params") != _params_json(self.params)):
+            raise ValueError("stale_ledger")
+        self.last_interaction_id = data.get("last_interaction_id")
+        for raw in data.get("entries", []):
+            entry = LedgerEntry.model_validate(raw)
+            self.ledger.append(entry)
+            self.by_call[entry.call_id] = entry
+            if entry.name == "evaluate_interventions" and entry.result:
+                for r in entry.result.get("results", []):
+                    if "error" not in r:
+                        res = InterventionResult.model_validate(r)
+                        self.results.setdefault(res.intervention_id, res)
+
+    def persist(self) -> None:
+        self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
+        data = {**self._header(), "entries": [e.model_dump(mode="json") for e in self.ledger]}
+        tmp = self.ledger_path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, indent=1))
+        tmp.replace(self.ledger_path)
 
     def _record(self, entry: LedgerEntry) -> None:
-        self._remember(entry)
-        self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.ledger_path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps([e.model_dump(mode="json") for e in self.ledger], indent=1))
-        tmp.replace(self.ledger_path)
+        self.ledger.append(entry)
+        self.by_call[entry.call_id] = entry
+        self.persist()
 
     # client functions
     def _evaluate_one(self, iid: str) -> InterventionResult | None:
@@ -304,12 +367,22 @@ class _Session:
         caveats = args.get("caveats") or []
         if not isinstance(caveats, list):
             caveats = [caveats]
+        sweep = []
+        raw_sweep = args.get("sweep_summary")
+        for item in (raw_sweep if isinstance(raw_sweep, list) else [])[:MAX_SWEEP_SUMMARY]:
+            if not isinstance(item, dict):
+                continue
+            n = _as_int(item.get("claimed_reached_exit"))
+            sid = item.get("intervention_id")
+            if n is not None and isinstance(sid, str) and sid:
+                sweep.append(SweepClaim(intervention_id=sid[:80], claimed_reached_exit=n))
         self.recommendation = Recommendation(
             intervention_id=iid,
             claimed_reached_exit=_as_int(args.get("claimed_reached_exit")),
             rationale=str(args.get("rationale") or "")[:600],
-            caveats=[str(c)[:300] for c in caveats if c][:5])
-        return {"recorded": True,
+            caveats=[str(c)[:300] for c in caveats if c][:5],
+            sweep_summary=sweep)
+        return {"recorded": True, "sweep_summary_kept": len(sweep),
                 "note": "WalkTwin decides the verdict from checker-verified figures; "
                         "a human approves."}
 
@@ -331,6 +404,9 @@ class _Session:
                 entry = LedgerEntry(call_id=cid, kind="client_function", name=name,
                                     args=_clip(args), result=result, executed_at=_now())
                 self._record(entry)
+            elif entry.name == "submit_recommendation":
+                # Re-submitted in this run: re-record it (pure, no solver).
+                self.submit_recommendation(entry.args)
             out.append({"type": "function_result", "name": entry.name, "call_id": cid,
                         "result": entry.result})
         return out
@@ -343,14 +419,17 @@ class _Session:
             if _g(s, "type") in ("code_execution_result", "function_result"):
                 cid = str(_g(s, "call_id"))
                 results[cid] = s
-                if HOOK_DENY_MARKER in json.dumps(_plain(_g(s, "result")), default=str):
+                if HOOK_DENY_MARKER in _text(_g(s, "result")):
                     self.denied_calls.add(cid)
 
-        def outcome(cid: str) -> dict | None:
+        def outcome(cid: str, keep_output: bool) -> dict | None:
             r = results.get(cid)
             if r is None:
                 return None
-            return {"is_error": bool(_g(r, "is_error")), "hook_denied": cid in self.denied_calls}
+            out = {"is_error": bool(_g(r, "is_error")), "hook_denied": cid in self.denied_calls}
+            if keep_output:
+                out["output"] = _clip(_text(_g(r, "result")), RESULT_CLIP)
+            return out
 
         for s in steps:
             st, cid = _g(s, "type"), str(_g(s, "id"))
@@ -361,14 +440,14 @@ class _Session:
                 if cid not in self.by_call:
                     self._record(LedgerEntry(
                         call_id=cid, kind="sandbox_step", name="code_execution",
-                        args=_clip(_plain(_g(s, "arguments") or {})), result=outcome(cid),
-                        executed_at=_now()))
+                        args=_clip(_plain(_g(s, "arguments") or {})),
+                        result=outcome(cid, keep_output=True), executed_at=_now()))
             elif st == "function_call" and _g(s, "name") not in CLIENT_FUNCTIONS:
                 if cid not in self.by_call:
                     self._record(LedgerEntry(
                         call_id=cid, kind="sandbox_step", name=str(_g(s, "name")),
-                        args=_clip(_plain(_g(s, "arguments") or {})), result=outcome(cid),
-                        executed_at=_now()))
+                        args=_clip(_plain(_g(s, "arguments") or {})),
+                        result=outcome(cid, keep_output=False), executed_at=_now()))
 
     # verdict, decided locally
     def best(self) -> InterventionResult | None:
@@ -381,12 +460,18 @@ class _Session:
         if rec is None:
             return None
         claimed = rec.claimed_reached_exit
+        cur = self.current_run.reached_exit
+        msgs: list[str] = []
         if rec.intervention_id is None:
-            cur = self.current_run.reached_exit
             if claimed is not None and claimed != cur:
-                return (f"Argon proposed no change and claimed {claimed}; checker verified "
-                        f"{cur} for the current scenario.")
-            return None
+                msgs.append(f"Argon proposed no change and claimed {claimed}; checker "
+                            f"verified {cur} for the current scenario.")
+            best = self.best()
+            if best is not None:
+                msgs.append(f"Argon proposed no change, but checker verified "
+                            f"{best.intervention_id} reaches {best.reached_exit} "
+                            f"(current {cur}).")
+            return " ".join(msgs) or None
         iid = rec.intervention_id
         if iid not in self.allowed:
             return f"Argon proposed {iid}, which is not an allowed intervention."
@@ -394,9 +479,15 @@ class _Session:
         if res is None:
             return f"Argon proposed {iid}; the local solver could not evaluate it."
         if claimed is not None and claimed != res.reached_exit:
-            return (f"Argon proposed {iid} and claimed {claimed} reach a modeled exit; "
-                    f"checker verified {res.reached_exit}.")
-        return None
+            msgs.append(f"Argon proposed {iid} and claimed {claimed} reach a modeled exit; "
+                        f"checker verified {res.reached_exit}.")
+        if not res.check_ok:
+            msgs.append(f"The checker rejected the run for {iid}.")
+        best = self.best()
+        if best is not None and res.reached_exit < best.reached_exit:
+            msgs.append(f"Argon proposed {iid} ({res.reached_exit}), but checker verified "
+                        f"{best.intervention_id} reaches {best.reached_exit}.")
+        return " ".join(msgs) or None
 
 
 # --- request building ---------------------------------------------------------------
@@ -428,7 +519,15 @@ def build_tools(allowed: list[str]) -> list[dict]:
                  "The evaluate_interventions figure for that id. Omit with no id.")},
              "rationale": {"type": "string", "description": "At most 600 characters."},
              "caveats": {"type": "array", "items": {"type": "string"},
-                         "description": "At most 5 one-sentence caveats."}},
+                         "description": "At most 5 one-sentence caveats."},
+             "sweep_summary": {
+                 "type": "array", "maxItems": MAX_SWEEP_SUMMARY,
+                 "description": ("Optional, at most 12: variants you explored in the "
+                                 "sandbox and their sandbox figures (shown as unverified)."),
+                 "items": {"type": "object", "properties": {
+                     "intervention_id": {"type": "string"},
+                     "claimed_reached_exit": {"type": "integer"}},
+                     "required": ["intervention_id", "claimed_reached_exit"]}}},
              "required": ["rationale", "caveats"]}},
     ]
 
@@ -439,7 +538,7 @@ def _fmt_rect(r) -> str:
 
 def build_prompt(graph: VenueGraph, scenario: Scenario, params: FlowParams, *,
                  investigation_id: str, current_reached: int, total: int,
-                 allowed: list[str]) -> str:
+                 allowed: list[str], network_mode: str) -> str:
     zones = "\n".join(f"- {z.id} {z.name!r} occupants={z.occupants} rect={_fmt_rect(z.rect)}"
                       for z in graph.zones)
     doors = "\n".join(
@@ -453,13 +552,15 @@ def build_prompt(graph: VenueGraph, scenario: Scenario, params: FlowParams, *,
         hazards += f" (zones with no open route to OUTSIDE: {', '.join(cut_off)})"
     tmpl = string.Template(PROMPT_PATH.read_text())
     return tmpl.substitute(
-        investigation_id=investigation_id, graph_revision=graph.revision,
-        scenario_hash=scenario.hash, horizon_s=params.horizon_s, zones=zones, doors=doors,
-        hazards=hazards, interventions=", ".join(scenario.interventions) or "none",
+        investigation_id=investigation_id, inv_dir=sandbox_dir(investigation_id),
+        graph_revision=graph.revision, scenario_hash=scenario.hash,
+        horizon_s=params.horizon_s, zones=zones, doors=doors, hazards=hazards,
+        interventions=", ".join(scenario.interventions) or "none",
         reached_exit=current_reached, total=total,
         allowed=", ".join(allowed) or "none (no allowed change)",
-        params=json.dumps(params.model_dump(mode="json"), sort_keys=True),
-        scenario_json=scenario.model_dump_json())
+        params_json=_params_json(params), network=NETWORK_TEXT.get(
+            network_mode, f"Network: {network_mode}. Do not fetch or install anything."),
+        graph_json=graph.model_dump_json(), scenario_json=scenario.model_dump_json())
 
 
 def _offline_network() -> Any:
@@ -467,11 +568,11 @@ def _offline_network() -> Any:
 
     UNVERIFIED (no key): whether ``network: "disabled"`` may be set when reusing an
     environment by ``environment_id``. If the probe recorded that reuse with the
-    network off failed, fall back to network-on with a PyPI-only allowlist.
+    network off failed, fall back to network-on with a PyPI-only allowlist. The
+    effective mode is recorded on the Investigation and stated in the prompt.
     """
-    probe = RUNTIME_DIR / "probes" / "agent_env.json"
     try:
-        data = json.loads(probe.read_text())
+        data = json.loads(Path(PROBE_PATH).read_text())
     except (OSError, ValueError):
         return "disabled"
     if data.get("ok") is False and data.get("environment_id_returned"):
@@ -535,8 +636,8 @@ async def prepare_environment(client, *, cache_path: Path | None = None,
 
     Network on (PyPI allowlist) for ``pip install networkx pydantic``. Inline sources
     have no read-only flag in google-genai 2.33.0; the docs recommend read-only
-    repository mounts for tamper resistance, so the audit hook guards the accepted
-    graph and the hook files instead. The cache is keyed on the mounted content.
+    repository mounts for tamper resistance, so the inputs and hook files are
+    audit-hooked instead. The cache is keyed on the mounted content.
     """
     cache_path = Path(cache_path or RUNTIME_DIR / "agent_env.json")
     sources = mount_sources()
@@ -564,42 +665,71 @@ async def prepare_environment(client, *, cache_path: Path | None = None,
     return str(env_id)
 
 
+def _failed(inv_id: str, graph: VenueGraph, scenario: Scenario, environment_id: str,
+            network_mode: str, error: str) -> Investigation:
+    return Investigation(
+        investigation_id=inv_id, graph_revision=graph.revision, scenario_hash=scenario.hash,
+        status="failed", interaction_id=None, environment_id=environment_id, ledger=[],
+        sandbox_runs=0, results=[], recommendation=None, best=None, disagreement=None,
+        hook_denials=0, receipt=None, error=error, network_mode=network_mode)
+
+
 async def investigate(client, graph: VenueGraph, scenario: Scenario, params: FlowParams, *,
-                      environment_id: str, topdown_png: Path, deadline_s: float = 180,
-                      max_rounds: int = 4, poll_s: float = 3.0,
-                      sessions_dir: Path | None = None, investigation_id: str | None = None,
+                      environment_id: str, topdown_png: Path,
+                      deadline_s: float = DEFAULT_DEADLINE_S, max_rounds: int = 4,
+                      poll_s: float = 3.0, sessions_dir: Path | None = None,
+                      investigation_id: str | None = None,
                       network: Any = None) -> Investigation:
+    """Raises ``ValueError("stale_ledger")`` when resuming ``investigation_id`` against
+    a different graph revision, scenario hash or declared params."""
     started = time.monotonic()
     inv_id = investigation_id or "inv-" + uuid.uuid4().hex[:12]
     sessions_dir = Path(sessions_dir or RUNTIME_DIR / "sessions")
-    sess = _Session(graph, scenario, params, sessions_dir / inv_id / "ledger.json")
+    network = network if network is not None else _offline_network()
+    net_mode = network_mode_of(network)
+
+    try:
+        current_run, current_check = _solve_checked(graph, scenario, params)
+    except Exception as exc:  # noqa: BLE001 - a failed baseline is a failed run
+        return _failed(inv_id, graph, scenario, environment_id, net_mode,
+                       f"baseline solve failed: {type(exc).__name__}: {exc}")
+    if not current_check.ok:
+        return _failed(inv_id, graph, scenario, environment_id, net_mode,
+                       "baseline run failed the checker: "
+                       + "; ".join(current_check.violations[:3]))
+    sess = _Session(graph, scenario, params, investigation_id=inv_id,
+                    ledger_path=sessions_dir / inv_id / "ledger.json",
+                    network_mode=net_mode, current_run=current_run,
+                    current_check=current_check)
+    sess.persist()
 
     text = build_prompt(graph, scenario, params, investigation_id=inv_id,
-                        current_reached=sess.current_run.reached_exit,
-                        total=sess.current_run.total, allowed=sess.allowed)
+                        current_reached=current_run.reached_exit, total=current_run.total,
+                        allowed=sess.allowed, network_mode=net_mode)
     image = {"type": "image", "mime_type": "image/png",
              "data": base64.b64encode(Path(topdown_png).read_bytes()).decode("ascii")}
     # Every round repeats agent_config (never fall back to the default Flash model)
     # and tools (passing tools replaces the defaults, so search stays off).
     base = {"agent": AGENT, "agent_config": dict(AGENT_CONFIG),
             "tools": build_tools(sess.allowed)}
-    # Reuse the prepared environment with the network off and write this
-    # investigation's graph and scenario into it. UNVERIFIED (no key): sources on
-    # an environment_id update follow EnvironmentParam ("update the existing
-    # environment"); the prompt also carries the scenario JSON as a fallback.
+    # Reuse the prepared environment and write this investigation's inputs to fresh
+    # per-investigation paths (the environment's filesystem persists across runs).
+    # UNVERIFIED (no key): sources on an environment_id update follow
+    # EnvironmentParam ("update the existing environment"); the prompt also embeds
+    # the graph, scenario and params JSON, and the agent checks revision and hash.
+    d = sandbox_dir(inv_id)
     first_env = {
-        "type": "remote", "environment_id": environment_id,
-        "network": network if network is not None else _offline_network(),
+        "type": "remote", "environment_id": environment_id, "network": network,
         "sources": [
-            {"type": "inline", "target": SANDBOX_GRAPH, "content": graph.model_dump_json()},
-            {"type": "inline", "target": SANDBOX_SCENARIO,
-             "content": scenario.model_dump_json()}]}
+            {"type": "inline", "target": f"{d}/graph.json", "content": graph.model_dump_json()},
+            {"type": "inline", "target": f"{d}/scenario.json",
+             "content": scenario.model_dump_json()},
+            {"type": "inline", "target": f"{d}/params.json", "content": _params_json(params)}]}
     kwargs: dict = {**base, "environment": first_env,
                     "input": [{"type": "text", "text": text}, image]}
 
     status: str | None = None
     error: str | None = None
-    interaction = None
     last_id: str | None = None
     env_id: str | None = environment_id
     receipts: list[Receipt] = []
@@ -608,11 +738,11 @@ async def investigate(client, graph: VenueGraph, scenario: Scenario, params: Flo
     while status is None:
         remaining = deadline_s - (time.monotonic() - started)
         if remaining <= 0:
-            status = "timeout"
+            status, error = "timeout", "deadline reached between rounds"
             await _cancel_quietly(client, last_id)
             break
         if rounds >= max_rounds:
-            status = "incomplete"
+            status, error = "incomplete", "max_rounds"
             break
         rounds += 1
         try:
@@ -629,7 +759,9 @@ async def investigate(client, graph: VenueGraph, scenario: Scenario, params: Flo
         receipts.append(receipt)
         last_id = receipt.interaction_id or last_id
         env_id = _g(interaction, "environment_id") or env_id
+        sess.last_interaction_id = last_id
         sess.observe(interaction)
+        sess.persist()
         st = str(_g(interaction, "status"))
         cont = {**base, "previous_interaction_id": last_id, "environment": env_id}
         if st == "completed":
@@ -642,7 +774,7 @@ async def investigate(client, graph: VenueGraph, scenario: Scenario, params: Flo
                 status, error = "failed", "requires_action with no client function pending"
         elif st in ("incomplete", "budget_exceeded"):
             if resumed or deadline_s - (time.monotonic() - started) <= 0:
-                status = "incomplete"
+                status, error = "incomplete", f"provider status {st!r}"
             else:
                 resumed = True  # resumed interaction gets a fresh max_total_tokens budget
                 kwargs = {**cont, "input": "continue"}
@@ -650,6 +782,8 @@ async def investigate(client, graph: VenueGraph, scenario: Scenario, params: Flo
             status = "cancelled"
         else:
             status, error = "failed", f"provider status {st!r}"
+    sess.last_interaction_id = last_id
+    sess.persist()
 
     disagreement = sess.disagreement()
     return Investigation(
@@ -658,7 +792,8 @@ async def investigate(client, graph: VenueGraph, scenario: Scenario, params: Flo
         ledger=list(sess.ledger), sandbox_runs=len(sess.code_runs),
         results=sorted(sess.results.values(), key=lambda r: _door_key(r.intervention_id)),
         recommendation=sess.recommendation, best=sess.best(), disagreement=disagreement,
-        hook_denials=len(sess.denied_calls), receipt=_combine(receipts, started), error=error)
+        hook_denials=len(sess.denied_calls), receipt=_combine(receipts, started),
+        error=error, network_mode=net_mode)
 
 
 # --- CLI (live: pending key) --------------------------------------------------------
@@ -674,7 +809,7 @@ async def _cli(argv: list[str] | None = None) -> int:
     inv.add_argument("--topdown", type=Path, help="top-down PNG (skips rendering)")
     inv.add_argument("--base-url", default="http://127.0.0.1:4173",
                      help="origin serving frontend/dist, used to render the top-down view")
-    inv.add_argument("--deadline", type=float, default=180)
+    inv.add_argument("--deadline", type=float, default=DEFAULT_DEADLINE_S)
     inv.add_argument("--network", choices=["disabled", "pypi"], default=None)
     args = ap.parse_args(argv)
 
@@ -701,8 +836,9 @@ async def _cli(argv: list[str] | None = None) -> int:
     session_dir.mkdir(parents=True, exist_ok=True)
     (session_dir / "investigation.json").write_text(result.model_dump_json(indent=2))
     print(json.dumps({
-        "status": result.status, "provider_model": result.receipt and
-        result.receipt.provider_model, "sandbox_runs (unverified)": result.sandbox_runs,
+        "status": result.status, "network_mode": result.network_mode,
+        "provider_model": result.receipt and result.receipt.provider_model,
+        "sandbox_runs (unverified)": result.sandbox_runs,
         "verdict": result.verdict, "disagreement": result.disagreement,
         "hook_denials": result.hook_denials, "error": result.error,
         "saved": str(session_dir)}, indent=2))
