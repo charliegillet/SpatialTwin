@@ -40,7 +40,11 @@ def venue_model_line(venue: VenueV2) -> str:
     """The first assumption names the venue; building-v2 keeps its published wording."""
     if venue.venue_id == "building-v2":
         return MODEL_ASSUMPTIONS[0]
-    return f"{venue.venue_id} model: {venue.provenance}"
+    line = f"{venue.venue_id} model: {venue.provenance.strip()}"
+    # The caveat is stated in code, not left to whatever provenance text a caller supplied.
+    if "not a surveyed plan" not in line:
+        line = line.rstrip(".") + "; synthetic population and declared rates; not a surveyed plan."
+    return line
 
 
 @dataclass

@@ -18,6 +18,10 @@ from backend.app.state.store import SQLiteStore
 from backend.app.venues.model import BUILTIN_VENUE_ID, VenueV2, load_building_v2
 
 
+# Words used as route segments under /api/venues and /api/real2sim can never be venue ids.
+RESERVED_VENUE_IDS = frozenset({"active", "drafts", "saved", "checks", "door-plan", "investigate"})
+
+
 class RegistryConflict(Exception):
     """The caller's expected revision is no longer current."""
 
@@ -118,13 +122,28 @@ class VenueRegistry:
                            "created_at": row["created_at_iso"], "source_kind": record.get("source_kind")})
         return listed
 
-    def _save_venue(self, conn: sqlite3.Connection, venue: VenueV2, record: Dict[str, Any]) -> int:
+    def _save_venue(self, conn: sqlite3.Connection, venue: VenueV2, record: Dict[str, Any],
+                    expected_revision: Optional[int]) -> int:
+        """Create-only unless the caller names the revision it replaces, so one judge's Accept can never silently
+        redraw another judge's venue under the same id."""
         if venue.venue_id == BUILTIN_VENUE_ID:
             raise RegistryConflict("builtin_venue_read_only")
+        if venue.venue_id in RESERVED_VENUE_IDS:
+            raise RegistryConflict("reserved_venue_id")
         now = _now()
-        row = conn.execute("SELECT revision FROM venues WHERE venue_id = ?", (venue.venue_id,)).fetchone()
-        revision = (row["revision"] + 1) if row else 1
-        payload = (json.dumps(venue.to_json(), sort_keys=True), json.dumps(record, sort_keys=True))
+        row = conn.execute("SELECT revision, venue_json FROM venues WHERE venue_id = ?", (venue.venue_id,)).fetchone()
+        current = row["revision"] if row else 0
+        if row and expected_revision is None:
+            raise RegistryConflict("venue_exists")
+        if expected_revision is not None and expected_revision != current:
+            raise RegistryConflict("stale_venue_revision")
+        venue_json = json.dumps(venue.to_json(), sort_keys=True)
+        if row and row["venue_json"] != venue_json and \
+                json.loads(row["venue_json"])["geometry_revision"] == venue.geometry_revision:
+            # Plans, caches and screens key on geometry_revision; a changed body must carry a new one.
+            raise RegistryConflict("geometry_revision_reused")
+        payload = (venue_json, json.dumps(record, sort_keys=True))
+        revision = current + 1
         if row:
             conn.execute("UPDATE venues SET revision = ?, venue_json = ?, record_json = ?, updated_at_iso = ? "
                          "WHERE venue_id = ?", (revision, *payload, now, venue.venue_id))
@@ -132,10 +151,12 @@ class VenueRegistry:
             conn.execute("INSERT INTO venues VALUES (?, ?, ?, ?, ?, ?)", (venue.venue_id, revision, *payload, now, now))
         return revision
 
-    def save_venue(self, venue: VenueV2, record: Dict[str, Any]) -> int:
-        """Store an accepted venue directly (seeded saved runs and tests). Returns its new revision."""
+    def save_venue(self, venue: VenueV2, record: Dict[str, Any], expected_revision: Optional[int] = None) -> int:
+        """Store an accepted venue directly (seeded saved runs and tests). Returns its new revision.
+
+        ``expected_revision`` is required to replace an existing venue (its current revision)."""
         with self._transaction() as conn:
-            return self._save_venue(conn, venue, record)
+            return self._save_venue(conn, venue, record, expected_revision)
 
     # --- active venue ---------------------------------------------------------------------------------------
 
@@ -177,6 +198,8 @@ class VenueRegistry:
     def create_draft(self, draft_id: str, status: str, payload: Dict[str, Any]) -> int:
         now = _now()
         with self._transaction() as conn:
+            if conn.execute("SELECT 1 FROM venue_drafts WHERE draft_id = ?", (draft_id,)).fetchone():
+                raise RegistryConflict("draft_exists")
             conn.execute("INSERT INTO venue_drafts VALUES (?, 1, ?, ?, ?, ?)",
                          (draft_id, status, json.dumps(payload, sort_keys=True), now, now))
         return 1
@@ -209,15 +232,22 @@ class VenueRegistry:
         return revision
 
     def accept_draft(self, draft_id: str, expected_revision: int, venue: VenueV2, record: Dict[str, Any],
-                     payload: Dict[str, Any], make_active: bool = True) -> Dict[str, Any]:
-        """Atomically: close the draft at the expected revision, store the venue and (by default) activate it."""
+                     payload: Dict[str, Any], make_active: bool = True,
+                     expected_venue_revision: Optional[int] = None,
+                     expected_active_revision: Optional[int] = None) -> Dict[str, Any]:
+        """Atomically: close the draft at the expected revision, store the venue and (by default) activate it.
+
+        The venue is created unless ``expected_venue_revision`` names the revision it replaces; the active pointer
+        moves under compare-and-set when ``expected_active_revision`` is given.
+        """
         with self._transaction() as conn:
             row = conn.execute("SELECT status FROM venue_drafts WHERE draft_id = ?", (draft_id,)).fetchone()
             if row is not None and row["status"] != "ready":
                 raise RegistryConflict("draft_not_ready")
             draft_revision = self._update_draft(conn, draft_id, expected_revision, "accepted", payload)
-            venue_revision = self._save_venue(conn, venue, record)
-            active_revision = self._set_active(conn, venue.venue_id, None) if make_active else None
+            venue_revision = self._save_venue(conn, venue, record, expected_venue_revision)
+            active_revision = (self._set_active(conn, venue.venue_id, expected_active_revision)
+                               if make_active else None)
         return {"venue_id": venue.venue_id, "venue_revision": venue_revision, "draft_revision": draft_revision,
                 "active_revision": active_revision}
 

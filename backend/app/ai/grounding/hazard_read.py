@@ -281,7 +281,7 @@ class HazardCardReader:
                 cards.append(CardReading(**card.model_dump(), confidence=confidence, low_confidence_reason=reason))
             _check_timestamp(timestamp_iso)  # no result outlives the capture freshness window
             corners = [CornerReading(**corner.model_dump()) for corner in output.corners]
-            record_live_receipt("camera_card_read", self.adapter.model)
+            record_live_receipt("camera_card_read", provider_model)
             return result("completed", cards=cards, corners=corners)
 
         try:

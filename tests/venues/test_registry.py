@@ -3,10 +3,12 @@ import json
 from pathlib import Path
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from backend.app import main
 from backend.app.hazard.door_planner import plan_doors
+from backend.app.venues.camera import _venue_or_404 as camera_venue
 from backend.app.venues.model import VenueV2, get_venue
 from backend.app.venues.registry import RegistryConflict, VenueRegistry, venue_registry
 from backend.app.venues.schemas import DoorPlanRequest
@@ -32,10 +34,30 @@ def test_saved_venue_resolves_and_revisions_grow(home):
     assert get_venue("home-flat") is None
     assert registry.save_venue(home, {"name": "Test flat", "source_kind": "hand_written"}) == 1
     assert get_venue("home-flat") == home
-    assert registry.save_venue(home, {"name": "Test flat"}) == 2
+    assert registry.save_venue(home, {"name": "Test flat"}, expected_revision=1) == 2
     listed = registry.list_venues()[1]
     assert listed["venue_id"] == "home-flat" and listed["revision"] == 2 and listed["name"] == "Test flat"
     assert registry.venue_record("home-flat")["revision"] == 2
+
+
+def test_an_accepted_venue_is_never_silently_replaced(home):
+    registry = venue_registry()
+    registry.save_venue(home, {})
+    with pytest.raises(RegistryConflict, match="venue_exists"):
+        registry.save_venue(home, {})
+    with pytest.raises(RegistryConflict, match="stale_venue_revision"):
+        registry.save_venue(home, {}, expected_revision=7)
+    changed = VenueV2.model_validate({**HOME, "default_horizon_seconds": 60})
+    with pytest.raises(RegistryConflict, match="geometry_revision_reused"):
+        registry.save_venue(changed, {}, expected_revision=1)
+    registry.create_draft("dr-x", "ready", {})
+    with pytest.raises(RegistryConflict, match="venue_exists"):
+        registry.accept_draft("dr-x", 1, home, {}, {})
+    assert registry.draft("dr-x")["status"] == "ready"   # the failed accept rolled back
+    with pytest.raises(RegistryConflict, match="reserved_venue_id"):
+        registry.save_venue(VenueV2.model_validate({**HOME, "venue_id": "active"}), {})
+    with pytest.raises(RegistryConflict, match="draft_exists"):
+        registry.create_draft("dr-x", "ready", {})
 
 
 def test_active_pointer_compare_and_set(home):
@@ -97,7 +119,9 @@ def test_routes_list_activate_plan_and_check(home):
     assert [v["venue_id"] for v in listed["venues"]] == ["building-v2", "home-flat"]
     assert listed["active"] == {"venue_id": "building-v2", "revision": 0}
     assert client.put("/api/venues/active", json={"venue_id": "home-flat", "expected_revision": 5}).status_code == 409
-    assert client.put("/api/venues/active", json={"venue_id": "missing-venue"}).status_code == 404
+    assert client.put("/api/venues/active", json={"venue_id": "missing-venue", "expected_revision": 0}).status_code == 404
+    # The pointer only moves under compare-and-set: a PUT without the revision is refused.
+    assert client.put("/api/venues/active", json={"venue_id": "home-flat"}).status_code == 422
     assert client.put("/api/venues/active", json={"venue_id": "home-flat", "expected_revision": 0}).json()["revision"] == 1
     assert client.get("/api/venues/active").json() == {"venue_id": "home-flat", "revision": 1}
     assert client.get("/api/venues/home-flat").json() == home.to_json()
@@ -107,5 +131,8 @@ def test_routes_list_activate_plan_and_check(home):
                        json={"hazards": [{"id": "h1", "type": "SMOKE", "position": {"x": 9, "y": 8}, "source": "simulated"}]})
     assert plan.status_code == 200 and plan.json()["venue_id"] == "home-flat"
     # The camera twin calibrates against the printed building-v2 sheet only.
-    assert client.post("/api/venues/home-flat/camera/calibration", json={}).status_code in (404, 422)
+    assert camera_venue("building-v2").venue_id == "building-v2"
+    with pytest.raises(HTTPException) as refused:
+        camera_venue("home-flat")
+    assert refused.value.status_code == 404
     assert client.get("/api/venues/Bad_Id").status_code == 404

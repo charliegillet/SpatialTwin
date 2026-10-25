@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { BUILTIN_VENUE_ID, parseActiveVenue, parseDoorPlan, parseVenue, twinErrorMessage, VENUE_ID_PATTERN } from '../api/twin.ts';
+import { BUILTIN_VENUE_ID, parseActiveVenue, parseDoorPlan, parseVenue, twinErrorMessage, VENUE_CHANGED, VENUE_ID_PATTERN } from '../api/twin.ts';
 import { ApiError } from '../api/client.ts';
 import { lightsView } from './lightsView.ts';
 import { modelTag, twinHero } from './twinHero.ts';
@@ -20,6 +20,13 @@ test('a compiled venue id passes; the plan must be for the venue that was asked 
   const plan = makePlan({ venue_id: 'home-flat' });
   assert.equal(parseDoorPlan(plan, 'home-flat'), plan);
   assert.throws(() => parseDoorPlan(plan), ApiError);
+});
+
+test('a plan solved on other geometry for the same venue id is refused as venue_changed', () => {
+  const plan = makePlan({ venue_id: 'home-flat', geometry_revision: 'geom-new' });
+  assert.equal(parseDoorPlan(plan, 'home-flat', 'geom-new'), plan);
+  assert.throws(() => parseDoorPlan(plan, 'home-flat', 'geom-old'),
+    error => error instanceof ApiError && error.status === 409 && error.detail === VENUE_CHANGED);
 });
 
 test('the active pointer is validated', () => {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BUILTIN_VENUE_ID, fetchVenue, fetchVenueList, postDoorPlan, putActiveVenue } from '../api/twin.ts';
+import { BUILTIN_VENUE_ID, fetchVenue, fetchVenueList, postDoorPlan, putActiveVenue, VENUE_CHANGED } from '../api/twin.ts';
 import { ApiError } from '../api/client.ts';
 import { SMOKE_DEFAULT, stepSmokeSeconds } from '../ai/hazardTools.ts';
 import { modeAfterReset } from './modes.ts';
@@ -42,7 +42,15 @@ export function useTwin({ mode, notify, log }: Options) {
   const flowRef = useRef<ReturnType<typeof createTwinFlow<DoorPlanResponse>> | null>(null);
   if (!flowRef.current) {
     flowRef.current = createTwinFlow<DoorPlanResponse>({
-      fetchPlan: (hazards, signal) => postDoorPlan(venueIdRef.current, hazards, signal),
+      fetchPlan: async (hazards, signal) => {
+        try {
+          return await postDoorPlan(venueIdRef.current, hazards, signal, venueRef.current?.geometry_revision);
+        } catch (error) {
+          // The server's venue moved on (another judge accepted a new reading): redraw from the server.
+          if (error instanceof ApiError && error.detail === VENUE_CHANGED) setVenue(null);
+          throw error;
+        }
+      },
       onState: setFlow,
       onPlan: (plan, _hazards, ms) => {
         const names = Object.fromEntries((venueRef.current?.zones ?? []).map(zone => [zone.id, zone.name]));
@@ -60,35 +68,19 @@ export function useTwin({ mode, notify, log }: Options) {
     if (!active) return;
     const controller = new AbortController();
     fetchVenueList(controller.signal).then(
-      list => { setVenues(list.venues); setActiveVenue(list.active); },
+      list => {
+        setVenues(list.venues); setActiveVenue(list.active);
+        // Same id, new geometry (a re-accepted reading): drop the drawn copy so it is fetched again.
+        const listed = list.venues.find(item => item.venue_id === venueRef.current?.venue_id);
+        if (listed && venueRef.current && listed.geometry_revision !== venueRef.current.geometry_revision) setVenue(null);
+      },
       () => { /* the venue fetch below reports an unreachable backend */ },
     );
     return () => controller.abort();
   }, [active, listTick]);
 
-  // Venue: fetched when the twin opens or the venue changes; the bundled fixture covers an unreachable backend.
-  useEffect(() => {
-    if (!active || venue?.venue_id === venueId) return;
-    const controller = new AbortController();
-    fetchVenue(venueId, controller.signal).then(
-      loaded => { setVenue(loaded); setFixtureVenue(false); },
-      async () => {
-        if (controller.signal.aborted) return;
-        if (venueId !== BUILTIN_VENUE_ID) {
-          logRef.current(`Venue ${venueId} could not be loaded. Showing building-v2.`, 'warning');
-          setActiveVenue({ venue_id: BUILTIN_VENUE_ID, revision: activeVenue.revision });
-          return;
-        }
-        const bundled = (await import('./fixtures/building-v2.json')).default as unknown as VenueV2;
-        if (controller.signal.aborted) return;
-        setVenue(bundled); setFixtureVenue(true);
-        logRef.current('Backend venue unavailable. Using the bundled fixture venue.', 'warning');
-      },
-    );
-    return () => controller.abort();
-  }, [active, venue, venueId, activeVenue.revision]);
-
-  /** Makes another accepted venue active for every screen; a stale pointer refreshes the list instead. */
+  /** Moves the shared active-venue pointer (incident state, approvals and phone signs follow it) under
+   *  compare-and-set. The screen only ever shows the venue the server confirms, so they cannot drift apart. */
   const switchVenue = useCallback(async (nextId: string) => {
     if (nextId === activeVenue.venue_id) return true;
     try {
@@ -100,6 +92,34 @@ export function useTwin({ mode, notify, log }: Options) {
       return false;
     }
   }, [activeVenue, notify, refreshVenues]);
+
+  // Venue: fetched when the twin opens or the venue changes; the bundled fixture covers an unreachable backend.
+  useEffect(() => {
+    if (!active || venue?.venue_id === venueId) return;
+    const controller = new AbortController();
+    fetchVenue(venueId, controller.signal).then(
+      loaded => { setVenue(loaded); setFixtureVenue(false); },
+      async () => {
+        if (controller.signal.aborted) return;
+        if (venueId !== BUILTIN_VENUE_ID) {
+          // Point everyone back at building-v2 on the server too, not just this screen.
+          logRef.current(`Venue ${venueId} could not be loaded. Switching to building-v2.`, 'warning');
+          void switchVenue(BUILTIN_VENUE_ID);
+          return;
+        }
+        const bundled = (await import('./fixtures/building-v2.json')).default as unknown as VenueV2;
+        if (controller.signal.aborted) return;
+        setVenue(bundled); setFixtureVenue(true);
+        logRef.current('Backend venue unavailable. Using the bundled fixture venue.', 'warning');
+      },
+    );
+    return () => controller.abort();
+  }, [active, venue, venueId, switchVenue]);
+
+  // The camera twin plans on building-v2 (its printed sheet), so the shared pointer follows it there.
+  useEffect(() => {
+    if (cameraOnly && activeVenue.venue_id !== BUILTIN_VENUE_ID) void switchVenue(BUILTIN_VENUE_ID);
+  }, [cameraOnly, activeVenue.venue_id, switchVenue]);
 
   // Every change to the hazards (or a smoke time) re-plans; the first plan for a visit skips the debounce.
   const planned = useRef(false);

@@ -306,7 +306,8 @@ class GroundingAdapter:
                 return result("failed", "invalid_provider_output")
             # No result can outlive the capture freshness window.
             self._validate_context(capture, context, live=True)
-            record_live_receipt("direct_grounding", self.model)
+            # The receipt names a model only when the provider echoed it (and it matched, checked above).
+            record_live_receipt("direct_grounding", provider_model)
             return result("completed", proposal=proposal)
 
         try:

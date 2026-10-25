@@ -10,7 +10,7 @@ POST /api/venues/{venue_id}/door-plan -> checked door plan
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
@@ -28,7 +28,8 @@ router = APIRouter(prefix="/api/venues")
 class ActiveVenueRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     venue_id: str = Field(pattern=VENUE_ID_PATTERN)
-    expected_revision: Optional[int] = Field(default=None, ge=0)
+    # Always compare-and-set: a screen that has not seen the latest pointer gets 409, never a silent switch.
+    expected_revision: int = Field(ge=0)
 
 
 def _venue_or_404(venue_id: str):

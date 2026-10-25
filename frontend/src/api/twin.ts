@@ -29,8 +29,12 @@ export function twinErrorMessage(status: number, code: string): string {
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const bad = (what: string): never => { throw new ApiError(`The planner returned an unexpected ${what}.`, 502, 'invalid_response'); };
 
-/** Minimal shape check: enough that the UI never reads through an undefined. Extra fields pass. A plan for another venue is rejected. */
-export function parseDoorPlan(raw: unknown, expectedVenueId: string = BUILTIN_VENUE_ID): DoorPlanResponse {
+/** Thrown when a plan was solved on different geometry than the venue on screen; the caller refetches the venue. */
+export const VENUE_CHANGED = 'venue_changed';
+
+/** Minimal shape check: enough that the UI never reads through an undefined. Extra fields pass. A plan for another
+ *  venue is rejected, and so is a plan for the same venue id solved on different geometry than the one drawn. */
+export function parseDoorPlan(raw: unknown, expectedVenueId: string = BUILTIN_VENUE_ID, expectedGeometry?: string): DoorPlanResponse {
   if (!isRecord(raw)) return bad('response');
   const { chosen, baseline, lights } = raw;
   for (const key of ['hazards', 'doors', 'exits', 'zones', 'routes', 'alternatives', 'advisories'] as const) {
@@ -40,6 +44,9 @@ export function parseDoorPlan(raw: unknown, expectedVenueId: string = BUILTIN_VE
   if (!isRecord(baseline) || !Number.isFinite(baseline.completed_crossings)) bad('baseline');
   if (!isRecord(lights) || typeof lights.px !== 'string') bad('light plan');
   if (typeof raw.plan_id !== 'string' || raw.venue_id !== expectedVenueId) bad('plan');
+  if (expectedGeometry !== undefined && raw.geometry_revision !== expectedGeometry) {
+    throw new ApiError('The venue changed. Reloading it.', 409, VENUE_CHANGED);
+  }
   return raw as unknown as DoorPlanResponse;
 }
 
@@ -54,11 +61,11 @@ export function parseVenue(raw: unknown, expectedVenueId?: string): VenueV2 {
 export const fetchVenue = async (venueId: string, signal?: AbortSignal): Promise<VenueV2> =>
   parseVenue(await requestJson<unknown>(venuePath(venueId), { signal, timeoutMs: 10_000, fallback: 'The building could not be loaded' }), venueId);
 
-export const postDoorPlan = async (venueId: string, hazards: HazardInput[], signal?: AbortSignal): Promise<DoorPlanResponse> =>
+export const postDoorPlan = async (venueId: string, hazards: HazardInput[], signal?: AbortSignal, expectedGeometry?: string): Promise<DoorPlanResponse> =>
   parseDoorPlan(await requestJson<unknown>(`${venuePath(venueId)}/door-plan`, {
     method: 'POST', body: { hazards }, signal, timeoutMs: 30_000, fallback: 'The door plan could not be calculated',
     describe: (status, _detail, code) => twinErrorMessage(status, code),
-  }), venueId);
+  }), venueId, expectedGeometry);
 
 export function parseActiveVenue(raw: unknown): ActiveVenue {
   if (!isRecord(raw) || typeof raw.venue_id !== 'string' || !VENUE_ID_PATTERN.test(raw.venue_id) || !Number.isInteger(raw.revision)) return bad('active venue');

@@ -39,6 +39,7 @@ import { cleanHazardEvents, toHazardView } from './ai/hazardView';
 import { TwinWorkspace } from './components/TwinWorkspace';
 import { preloadScene3D } from './components/TwinStage';
 import { canSwitchMode, DEFAULT_TWIN_MODE, MODE_LOCKED, modeAfterReset } from './twin/modes';
+import { BUILTIN_VENUE_ID } from './api/twin';
 import { useTwin } from './twin/useTwin';
 import type { TwinMode } from './twin/types';
 
@@ -535,7 +536,8 @@ export function App() {
   const resetMessage = reset.phase === 'waiting' ? (pendingMessage(resetFacts, physical) ?? reset.message) : reset.message;
   const resetNow = async () => {
     if (reset.phase === 'running' || !snapshotRef.current) return;
-    setTwinMode(modeAfterReset()); twin.reset(); setImageFile(null);
+    // The next judge starts on the built-in venue, for every screen, not on the previous judge's building.
+    setTwinMode(modeAfterReset()); twin.reset(); void twin.switchVenue(BUILTIN_VENUE_ID); setImageFile(null);
     setReset({ phase: 'running', message: 'Cancelling any run…' });
     try {
       if (activeInvestigation) {

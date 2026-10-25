@@ -79,7 +79,8 @@ export default function TwinScene3D(props: TwinScene3DProps) {
       >
         <ambientLight intensity={1.3} color="#a9bfb3" />
         <directionalLight position={[10, 25, 12]} intensity={0.9} color="#dfeee6" />
-        <CameraRig extent={venue.extent} preset={preset} nonce={nonce} />
+        {/* Keyed by geometry so a new venue with the same footprint still re-frames from scratch. */}
+        <CameraRig key={venue.geometry_revision} extent={venue.extent} preset={preset} nonce={nonce} />
         <PickBridge pickRef={pickRef} />
         <LabelProjector labels={labels} refs={labelRefs} />
         <Building venue={venue} plan={plan} fills={fills} />

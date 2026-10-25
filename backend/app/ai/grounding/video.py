@@ -322,7 +322,7 @@ async def ground_video(
         if not proposal.validate_semantic_soundness()[0]:
             return result("failed", "invalid_provider_output:semantic")
         GroundingAdapter._validate_context(capture, context, live=True)
-        record_live_receipt(f"video_{mode}", adapter.model)
+        record_live_receipt(f"video_{mode}", provider_model)
         return result("completed", proposal=proposal)
 
     try:

@@ -17,6 +17,7 @@ from typing import Any, Optional
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RECEIPTS_DIR_ENV = "SPATIALTWIN_RECEIPTS_DIR"
+MAX_FUTURE_SKEW_SECONDS = 300
 _write_lock = threading.Lock()
 
 
@@ -25,7 +26,10 @@ def receipts_dir() -> Path:
 
 
 def record_live_receipt(kind: str, model: Optional[str], now: Optional[datetime] = None) -> None:
-    """Called after a provider call completed live and its model was verified."""
+    """Called after a provider call completed live and its output validated.
+
+    ``model`` is the model the provider echoed (already checked against the requested one), or None when the
+    provider did not echo one; the receipt never claims a model nobody confirmed."""
     record = {"kind": kind, "model": model, "at": (now or datetime.now(timezone.utc)).isoformat()}
     path = receipts_dir() / "last_live.json"
     with _write_lock:
@@ -72,9 +76,11 @@ def last_live_receipt(probe_dir: Path, now: Optional[datetime] = None) -> Option
         # Probe receipts write both "pass" and "passed"; only an explicit True counts.
         if data and data.get("pass") is True and (at := _timestamp(data.get("timestamp_utc"))):
             found.append((at, f"probe:{data.get('probe_id') or path.stem}", data.get("requested_model")))
+    now = now or datetime.now(timezone.utc)
+    # A receipt from the future (clock skew or a hand-edited file) must not read as fresh.
+    found = [item for item in found if (item[0] - now).total_seconds() <= MAX_FUTURE_SKEW_SECONDS]
     if not found:
         return None
     at, kind, model = max(found, key=lambda item: item[0])
-    age = ((now or datetime.now(timezone.utc)) - at).total_seconds()
     return {"kind": kind, "model": model if isinstance(model, str) else None,
-            "at": at.isoformat(), "age_seconds": max(0.0, age)}
+            "at": at.isoformat(), "age_seconds": max(0.0, (now - at).total_seconds())}
