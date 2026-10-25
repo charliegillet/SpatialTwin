@@ -90,6 +90,7 @@ class ManagedAgentAdapter:
                  environment: Any = "remote"):
         self.model = model
         self.agent = agent_ref.agent_id if agent_ref else AGENT
+        self.agent_verified_model = agent_ref.verified_model if agent_ref else None
         self.environment = environment
         self.scenario_service = scenario_service
         key = os.environ.get("GEMINI_API_KEY", "").strip() if api_key is None else api_key.strip()
@@ -112,6 +113,11 @@ class ManagedAgentAdapter:
 
     def is_live_configured(self) -> bool:
         return self.client is not None
+
+    def bind_agent(self, ref: AgentRef) -> None:
+        """Route runs to a saved agent and keep the model verified in its definition."""
+        self.agent = ref.agent_id
+        self.agent_verified_model = ref.verified_model
 
     def _run_config(self, budget: int) -> dict:
         """Interaction-time agent_config. The base agent takes the model here; a named agent fixes its
@@ -426,6 +432,11 @@ class ManagedAgentAdapter:
                 raise InvestigationError("provider_environment_changed")
             environment_id = next_environment or environment_id
             actual_model = field(interaction, "model") or field(field(interaction, "agent_config"), "model")
+            if not actual_model and self.agent != BASE_AGENT and self.agent_verified_model == self.model:
+                # A named agent may echo no model. Its definition, verified at creation, is the only fallback;
+                # a mismatched echo still fails below.
+                actual_model = self.agent_verified_model
+                await progress("model_from_agent_definition", model=self.model)
             if actual_model:
                 provider_model = actual_model
                 if actual_model != self.model:

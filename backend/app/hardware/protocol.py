@@ -5,6 +5,7 @@ Contract v: 1
 
 import json
 from typing import Any, Dict, List, Optional
+from backend.app.hardware.display import NUM_PIXELS, PX_CODE_RGB
 from backend.app.contracts import (
     DeviceObservation,
     GateObservedState,
@@ -68,15 +69,25 @@ def make_gate_target_command(
     return cmd.model_dump_json() + "\n"
 
 
-def make_display_command(session_id: str, command_id: str, pixels: List[int]) -> str:
+# The UNO R4 receive buffer is 384 bytes; the display line stays far below it and is asserted in tests.
+MAX_DISPLAY_LINE_BYTES = 128
+
+
+def make_display_command(session_id: str, command_id: str, px: str) -> str:
+    """One compact line: {"v":1,"type":"SET_DISPLAY","session_id":..,"command_id":..,"px":"<24 chars>"}."""
+    if len(px) != NUM_PIXELS or any(c not in PX_CODE_RGB for c in px):
+        raise ValueError("px must be 24 characters from the px code table")
     cmd = HostCommandEnvelope(
         v=1,
         type=SerialCommandType.SET_DISPLAY,
         session_id=session_id,
         command_id=command_id,
-        display_pixels=pixels,
+        px=px,
     )
-    return cmd.model_dump_json() + "\n"
+    line = cmd.model_dump_json(exclude_none=True) + "\n"
+    if len(line.encode("utf-8")) > MAX_DISPLAY_LINE_BYTES:
+        raise ValueError("SET_DISPLAY line exceeds the compact budget")
+    return line
 
 
 # A device envelope is a few hundred bytes; anything near this size is noise or an attack.

@@ -126,6 +126,10 @@ class FakeManaged:
         self.result, self.raises, self.agents = result, raises, agents or FakeAgents()
         self.client = NS(aio=NS(agents=self.agents))
         self.agent = None
+        self.agent_verified_model = None
+
+    def bind_agent(self, ref):
+        self.agent, self.agent_verified_model = ref.agent_id, ref.verified_model
 
     async def investigate_scenario(self, context, deadline_seconds=60, mode='live'):
         if self.raises:
@@ -138,7 +142,7 @@ class FakeManaged:
 
 def ensure_ok(client, enabled=None, cache_path=None):
     async def go():
-        return NS(agent_id='spatialtwin-evac-v1', created=True)
+        return NS(agent_id='spatialtwin-evac-v1', created=True, verified_model='gemini-4-argon')
     return go()
 
 

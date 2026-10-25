@@ -91,6 +91,73 @@ def main(argv: list[str] | None = None) -> int:
     check.record("frontend assets load", bool(assets) and all(http.get(a).status_code == 200 for a in assets),
                  f"{len(assets)} assets")
 
+    # 1b. building-v2 venue and local door planner (stateless; no provider, no hardware)
+    venue = http.get("/api/venues/building-v2")
+    venue_json = venue.json() if venue.status_code == 200 else {}
+    check.record("GET /api/venues/building-v2", venue.status_code == 200 and len(venue_json.get("zones", [])) == 8
+                 and len(venue_json.get("doors", [])) == 10 and len(venue_json.get("exits", [])) == 4,
+                 f"zones={len(venue_json.get('zones', []))} doors={len(venue_json.get('doors', []))}")
+    unknown = http.get("/api/venues/unknown-venue")
+    check.record("GET unknown venue -> 404 unknown_venue",
+                 unknown.status_code == 404 and unknown.json().get("detail", {}).get("code") == "unknown_venue",
+                 str(unknown.status_code))
+    fire = http.post("/api/venues/building-v2/door-plan", json={"hazards": [
+        {"id": "smoke-fire", "type": "FIRE", "position": {"x": 20, "y": 4}, "source": "simulated"}]})
+    door_plan = fire.json() if fire.status_code == 200 else {}
+    chosen = door_plan.get("chosen", {})
+    check.record("POST door-plan FIRE in LOBBY (checked, local)",
+                 fire.status_code == 200 and chosen.get("validator_report", {}).get("is_valid") is True
+                 and door_plan.get("provenance") == "local_door_planner_v1" and door_plan.get("hypothetical") is True,
+                 f"completed={chosen.get('completed_crossings')} baseline={door_plan.get('baseline', {}).get('completed_crossings')} "
+                 f"of {chosen.get('initial_population')} in {door_plan.get('timings_ms')} ms")
+    gas = http.post("/api/venues/building-v2/door-plan", json={"hazards": [
+        {"id": "smoke-gas", "type": "GAS", "position": {"x": 20, "y": 14}, "source": "simulated"}]})
+    gas_doors = {d["id"]: d for d in (gas.json().get("doors", []) if gas.status_code == 200 else [])}
+    check.record("POST door-plan GAS in HALL (servo locked, nothing switched)",
+                 gas.status_code == 200 and gas_doors.get("D4", {}).get("locked") is True
+                 and not any(d["decided_by"] == "door_planner" for d in gas_doors.values()),
+                 f"D4 decided_by={gas_doors.get('D4', {}).get('decided_by')}")
+    bad = http.post("/api/venues/building-v2/door-plan", json={"hazards": [
+        {"id": "x", "type": "FIRE", "position": {"x": 99, "y": 99}, "source": "simulated"}]})
+    check.record("POST door-plan outside building -> 422 outside_building",
+                 bad.status_code == 422 and bad.json().get("detail", {}).get("code") == "outside_building", str(bad.status_code))
+
+    # 1c. Camera twin with a synthetic top-down still (fixture cards; no provider call)
+    image = (1000, 600)
+    # Fiducials at (-2.5..42.5, -2.5..26.5) m mapped linearly onto the still, north up.
+    def to_px(x: float, y: float) -> tuple[float, float]:
+        return (50 + (x + 2.5) / 45 * 900, 550 - (y + 2.5) / 29 * 500)
+    corners = {"TL": to_px(-2.5, 26.5), "TR": to_px(42.5, 26.5), "BR": to_px(42.5, -2.5), "BL": to_px(-2.5, -2.5)}
+    cal = http.post("/api/venues/building-v2/camera/calibration",
+                    json={"corners_px": {k: list(v) for k, v in corners.items()}, "image_size": list(image)})
+    cal_json = cal.json() if cal.status_code == 200 else {}
+    check.record("POST camera calibration (4 clicked corners)", cal.status_code == 200
+                 and cal_json.get("reprojection_error_m", 1) < 0.01, f"error={cal_json.get('reprojection_error_m')}")
+    lobby_px = to_px(20, 4)
+    point = [round(lobby_px[1] / image[1] * 1000), round(lobby_px[0] / image[0] * 1000)]
+    read = http.post("/api/venues/building-v2/camera/hazard-read", json={
+        "capture_id": f"smoke-{int(time.time())}", "timestamp_iso": datetime.now(timezone.utc).isoformat(),
+        "dimensions": list(image), "calibration_id": cal_json.get("calibration_id"), "mode": "fixture",
+        "fixture_cards": [{"type": "FIRE", "point": point, "box_2d": [point[0] - 15, point[1] - 15, point[0] + 15, point[1] + 15]}],
+    })
+    read_json = read.json() if read.status_code == 200 else {}
+    cards = read_json.get("candidates", [])
+    check.record("POST camera hazard-read (fixture card -> Lobby)", read.status_code == 200 and read_json.get("provenance") == "fixture"
+                 and len(cards) == 1 and cards[0].get("zone_id") == "LOBBY", f"status={read.status_code} cards={len(cards)}")
+    forged = [{"id": f"cam-{cards[0]['candidate_id']}" if cards else "cam-x", "type": "FIRE", "position": {"x": 20, "y": 4},
+               "source": "camera", "proposal_id": read_json.get("read_id")}]
+    refused = http.post("/api/venues/building-v2/door-plan", json={"hazards": forged})
+    check.record("POST door-plan with unconfirmed camera card -> 422",
+                 refused.status_code == 422 and refused.json().get("detail", {}).get("code") == "unconfirmed_camera_hazard",
+                 str(refused.status_code))
+    confirm = http.post(f"/api/venues/building-v2/camera/reads/{read_json.get('read_id')}/confirm",
+                        json={"candidate_ids": [c["candidate_id"] for c in cards]})
+    confirmed = confirm.json().get("hazards", []) if confirm.status_code == 200 else []
+    planned = http.post("/api/venues/building-v2/door-plan", json={"hazards": confirmed})
+    check.record("POST confirm + door-plan with confirmed camera card", confirm.status_code == 200 and planned.status_code == 200
+                 and any(e["id"] == "E1" and not e["safe"] for e in planned.json().get("exits", [])),
+                 f"confirm={confirm.status_code} plan={planned.status_code}")
+
     # 2. Live event stream
     listener = EventListener(base)
     listener.start()

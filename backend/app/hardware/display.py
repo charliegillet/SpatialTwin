@@ -9,11 +9,50 @@ Projects independently checked numerical routing results onto 24 physical NeoPix
 from typing import Dict, List, Optional, Set
 from backend.app.contracts import EvaluationEnvelope, GateObservedState
 
+NUM_PIXELS = 24
+
+# SET_DISPLAY wire code table: one ASCII character per pixel. The firmware keeps the same table
+# (px_codec.h / spatialtwin_board.ino); change both together. Lowercase codes are the flashing
+# variants (blinkPhase toggled every 400 ms on the device). The projector only emits steady codes
+# today; the flashing codes are accepted by the device and decoded by the simulator.
+PX_CODE_RGB: Dict[str, int] = {
+    "0": 0x000000,  # off
+    "G": 0x00A000,  # green: model flow / gate open
+    "R": 0xB40000,  # red: blocked / fault
+    "A": 0xB45000,  # amber: gate in transit
+    "B": 0x000028,  # dim blue: idle / gate closed
+    "U": 0x5A005A,  # purple: gate state unknown
+    "g": 0x00A000,  # flashing green
+    "r": 0xB40000,  # flashing red
+    "a": 0xB45000,  # flashing amber
+    "u": 0x5A005A,  # flashing purple
+}
+PX_ALPHABET = "".join(PX_CODE_RGB)
+_STEADY_RGB_TO_CODE: Dict[int, str] = {rgb: code for code, rgb in PX_CODE_RGB.items() if code.isupper() or code == "0"}
+
+
+def encode_px(pixels: List[int]) -> str:
+    """Packs 24 steady 0xRRGGBB pixels into the 24-character SET_DISPLAY `px` string."""
+    if len(pixels) != NUM_PIXELS:
+        raise ValueError(f"expected {NUM_PIXELS} pixels, got {len(pixels)}")
+    try:
+        return "".join(_STEADY_RGB_TO_CODE[p] for p in pixels)
+    except KeyError as error:
+        raise ValueError(f"pixel colour {error.args[0]:#08x} has no px code") from None
+
+
+def decode_px(px: str) -> List[int]:
+    """Inverse of encode_px for the simulator; flashing codes decode to their steady colour."""
+    if len(px) != NUM_PIXELS or any(c not in PX_CODE_RGB for c in px):
+        raise ValueError("invalid px string")
+    return [PX_CODE_RGB[c] for c in px]
+
 
 class DisplayProjector:
     def __init__(self):
         # 24 pixels, each represented as 0xRRGGBB integer
         self.current_pixels: List[int] = [0] * 24
+        self.current_px: str = "0" * NUM_PIXELS
 
     @staticmethod
     def rgb_to_int(r: int, g: int, b: int) -> int:
@@ -74,4 +113,5 @@ class DisplayProjector:
             pixels[i] = p3_color
 
         self.current_pixels = pixels
+        self.current_px = encode_px(pixels)
         return pixels

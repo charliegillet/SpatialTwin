@@ -313,7 +313,7 @@ class HostCommandEnvelope(BaseModel):
     calibration_id: Optional[str] = None
     gate_id: Optional[str] = None
     target: Optional[GateTarget] = None
-    display_pixels: Optional[List[int]] = None  # 24 RGB 3-tuples or packed ints
+    px: Optional[str] = None  # SET_DISPLAY: 24 chars, one code per pixel (see hardware/display.py PX_CODE_RGB)
 
 
 class DeviceObservation(BaseModel):

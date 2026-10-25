@@ -3,6 +3,8 @@ import { Check, LoaderCircle, RotateCcw, X } from 'lucide-react';
 import type { InvestigationMode } from '../types';
 import type { PreflightItem, ResetFacts } from '../ai/resetFlow';
 import { ResetChecklist } from './ResetChecklist';
+import { MODE_LABEL, MODE_LOCKED, visibleModes } from '../twin/modes';
+import type { TwinMode } from '../twin/types';
 
 interface Props {
   open: boolean;
@@ -26,11 +28,20 @@ interface Props {
   onReset: () => void;
   onClearHazards: () => void;
   clearMessage: string | null;
+  twinMode: TwinMode;
+  onTwinMode: (mode: TwinMode) => void;
+  /** Locked while an analysis or investigation runs. */
+  twinLocked: boolean;
+  /** Camera twin only: freeze a frame and click the sheet's corner markers. */
+  onCalibrate: () => void;
+  /** Rehearsal without a camera: an image of the sheet replaces the live frame, and every read says so. */
+  imageFile: File | null;
+  onImageFile: (file: File | null) => void;
   children?: ReactNode;
 }
 
 /** Everything a presenter sets before a judge arrives. The stage itself shows only the live view, Read the board and the proposal. */
-export function PresenterMenu({ open, onClose, triggerRef, boardSlot, mode, onModeChange, modeLocked, apiConfigured, localEnabled, physical, operatorToken, onOperatorToken, preflight, facts, resetMessage, isResetting, canReset, onReset, onClearHazards, clearMessage }: Props) {
+export function PresenterMenu({ open, onClose, triggerRef, boardSlot, mode, onModeChange, modeLocked, apiConfigured, localEnabled, physical, operatorToken, onOperatorToken, preflight, facts, resetMessage, isResetting, canReset, onReset, onClearHazards, clearMessage, twinMode, onTwinMode, twinLocked, onCalibrate, imageFile, onImageFile }: Props) {
   const uid = useId();
   const panel = useRef<HTMLElement>(null);
   const opened = useRef(false);
@@ -42,6 +53,19 @@ export function PresenterMenu({ open, onClose, triggerRef, boardSlot, mode, onMo
   return <section ref={panel} id="presenter-menu" className="presenter-menu" role="dialog" aria-label="Presenter menu" aria-modal="false" hidden={!open}
     onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); onClose(); } }}>
     <header><h2>Presenter</h2><button type="button" className="btn btn-icon" onClick={onClose} aria-label="Close presenter menu"><X size={16} aria-hidden="true" /></button></header>
+
+    <div className="pm-group">
+      <h3 id={`${uid}-twin`}>Twin</h3>
+      <div className="seg" role="group" aria-labelledby={`${uid}-twin`}>
+        {visibleModes().map(item => <button key={item} type="button" aria-pressed={twinMode === item} disabled={twinLocked} onClick={() => onTwinMode(item)}>{MODE_LABEL[item]}</button>)}
+      </div>
+      {twinMode === 'camera' && <>
+        <button type="button" className="btn pm-reset" onClick={onCalibrate}>Calibrate sheet</button>
+        <label className="btn pm-reset pm-file">{imageFile ? `Image: ${imageFile.name.slice(0, 24)}` : 'Use an uploaded image'}<input type="file" accept="image/*" aria-label="Image of the sheet" onChange={event => { const file = event.target.files?.[0]; if (file) onImageFile(file); event.target.value = ''; }} /></label>
+        {imageFile && <button type="button" className="btn pm-reset" onClick={() => onImageFile(null)}>Use the live camera</button>}
+      </>}
+      {twinLocked && <p className="pm-note">{MODE_LOCKED}</p>}
+    </div>
 
     <div className="pm-group">
       <h3 id={`${uid}-analysis`}>Analysis</h3>

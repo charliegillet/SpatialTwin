@@ -15,6 +15,7 @@
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
 #include <Adafruit_NeoPixel.h>
+#include "px_codec.h"
 
 #define PIN_OPEN_SW    2
 #define PIN_CLOSED_SW  3
@@ -33,6 +34,7 @@
 #define HEARTBEAT_TIMEOUT_MS  1500
 #define MOVEMENT_TIMEOUT_MS   2000
 #define DEBOUNCE_DELAY_MS     50
+#define BLINK_PERIOD_MS       400
 
 Adafruit_PWMServoDriver pca = Adafruit_PWMServoDriver(PCA_I2C_ADDR);
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUM_PIXELS, PIN_PIXEL_DATA, NEO_GRB + NEO_KHZ800);
@@ -64,8 +66,17 @@ int lastClosedRead = HIGH;
 int debouncedClosed = HIGH;
 uint32_t lastClosedDebounceTime = 0;
 
-char rxBuffer[256];
-uint8_t rxIndex = 0;
+// A SET_DISPLAY line is ~110 bytes; 384 leaves headroom for every other host command.
+char rxBuffer[384];
+uint16_t rxIndex = 0;
+
+// LED frame from the last accepted SET_DISPLAY. Flashing pixels are shown while blinkPhase is true.
+uint32_t pxRgb[PX_COUNT];
+uint8_t pxFlash[PX_COUNT];
+bool blinkPhase = true;
+uint32_t lastBlinkToggle = 0;
+// STOP_OUTPUTS darkens the LEDs and keeps them dark: SET_DISPLAY is refused until the next ARM.
+bool displayStopped = false;
 
 void emitMessage(const char* type, const String& extraJson) {
   seq++;
@@ -82,6 +93,26 @@ void emitMessage(const char* type, const String& extraJson) {
     Serial.print(extraJson);
   }
   Serial.println("}");
+}
+
+void renderPixels() {
+  for (uint8_t i = 0; i < PX_COUNT; i++) {
+    uint32_t rgb = (pxFlash[i] && !blinkPhase) ? 0 : pxRgb[i];
+    strip.setPixelColor(i, rgb);
+  }
+  strip.show();
+}
+
+// Non-blocking blink: toggles blinkPhase every BLINK_PERIOD_MS and redraws only if a pixel flashes.
+void updateBlink() {
+  uint32_t now = millis();
+  if (now - lastBlinkToggle < BLINK_PERIOD_MS) return;
+  lastBlinkToggle = now;
+  blinkPhase = !blinkPhase;
+  if (displayStopped) return;
+  for (uint8_t i = 0; i < PX_COUNT; i++) {
+    if (pxFlash[i]) { renderPixels(); return; }
+  }
 }
 
 void emitObservation(const char* cmdId = nullptr, const char* fault = nullptr) {
@@ -213,6 +244,7 @@ void parseCommand(char* jsonStr) {
   else if (s.indexOf("\"type\":\"ARM\"") >= 0) {
     lastHeartbeatTime = millis();
     isArmed = true;
+    displayStopped = false;
     digitalWrite(PIN_PCA_OE, LOW); // Enable PCA9685 driver outputs
     emitMessage("ACK", "\"command_id\":\"" + extractCommandId(s) + "\",\"status\":\"ARMED\"");
     emitObservation();
@@ -256,9 +288,33 @@ void parseCommand(char* jsonStr) {
     emitMessage("ACK", ackExtra);
     emitObservation(cmdId.c_str());
   }
+  else if (s.indexOf("\"type\":\"SET_DISPLAY\"") >= 0) {
+    // Informational only: does not need ARM and never touches the servo path. The reply always
+    // echoes command_id so the host can match it; a rejected frame leaves the LEDs unchanged.
+    String cmdId = extractCommandId(s);
+    if (displayStopped) {
+      emitMessage("FAULT", "\"command_id\":\"" + cmdId + "\",\"fault\":\"DISPLAY_STOPPED\"");
+      return;
+    }
+    uint32_t newRgb[PX_COUNT];
+    uint8_t newFlash[PX_COUNT];
+    if (px_parse(jsonStr, newRgb, newFlash) != PX_OK) {
+      emitMessage("FAULT", "\"command_id\":\"" + cmdId + "\",\"fault\":\"BAD_PX\"");
+      return;
+    }
+    memcpy(pxRgb, newRgb, sizeof(pxRgb));
+    memcpy(pxFlash, newFlash, sizeof(pxFlash));
+    blinkPhase = true;
+    lastBlinkToggle = millis();
+    renderPixels();
+    emitMessage("ACK", "\"command_id\":\"" + cmdId + "\",\"status\":\"DISPLAY_UPDATED\"");
+  }
   else if (s.indexOf("\"type\":\"STOP_OUTPUTS\"") >= 0) {
     isArmed = false;
+    displayStopped = true;
     digitalWrite(PIN_PCA_OE, HIGH);
+    memset(pxRgb, 0, sizeof(pxRgb));
+    memset(pxFlash, 0, sizeof(pxFlash));
     strip.clear();
     strip.show();
     emitMessage("ACK", "\"command_id\":\"" + extractCommandId(s) + "\",\"status\":\"STOPPED\"");
@@ -296,6 +352,7 @@ void setup() {
 
 void loop() {
   updateGateStateMachine();
+  updateBlink();
 
   // Read incoming NDJSON from USB serial
   while (Serial.available()) {

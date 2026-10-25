@@ -43,6 +43,7 @@ logger = logging.getLogger("spatialtwin.hardware")
 
 ACK_TIMEOUT_S = 3.0
 # "device_not_armed" is the host's own reason; the firmware reports NOT_ARMED.
+DISPLAY_UPDATED = "DISPLAY_UPDATED"
 NOT_ARMED_FAULTS = frozenset({"device_not_armed", "not_armed"})
 
 
@@ -67,6 +68,7 @@ class HardwareBridge:
         self.simulator: Optional[HardwareSimulator] = None
         self.is_simulator = False
         self.unavailable_reason: Optional[str] = None
+        self.last_display_status: Optional[str] = None
 
         self.boot_id: Optional[str] = None
         self.gate_epoch: int = 1
@@ -215,18 +217,41 @@ class HardwareBridge:
         return (True, cmd_id) if ok else (False, reason)
 
     async def update_display(self) -> None:
-        pixels = self.projector.project(
+        """Sends the LED frame and returns at once; the outcome is watched in the background.
+
+        The display is informational: a late, missing or rejected ACK never blocks or fails a gate
+        command, but it is logged and kept in `last_display_status` so it is never silent.
+        """
+        self.projector.project(
             current_plan=self.state_manager.current_plan,
             blocked_portals=self.state_manager.blocked_portals,
             gate_state=self.state_manager.physical_gate_state,
         )
         cmd_id = self._next_cmd_id()
-        line = make_display_command(self.session_id, cmd_id, pixels)
+        line = make_display_command(self.session_id, cmd_id, self.projector.current_px)
+        future = asyncio.get_running_loop().create_future()
+        self._pending[cmd_id] = future
         try:
             self._send_raw(line)
         except HardwareUnavailable as error:
-            # The LED display is informational; a missing transport must not fail a route.
+            self._pending.pop(cmd_id, None)
+            self.last_display_status = f"unavailable:{error}"
             logger.warning(f"Display not updated: {error}")
+            return
+        self._spawn(self._watch_display_ack(cmd_id, future))
+
+    async def _watch_display_ack(self, command_id: str, future: asyncio.Future) -> None:
+        try:
+            ok, detail = await asyncio.wait_for(future, ACK_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            ok, detail = False, "ack_timeout"
+        finally:
+            self._pending.pop(command_id, None)
+        if ok and detail == DISPLAY_UPDATED:
+            self.last_display_status = DISPLAY_UPDATED
+        else:
+            self.last_display_status = f"failed:{detail}"
+            logger.warning(f"Display update not confirmed ({command_id}): {detail}")
 
     def _resolve_pending(self, msg_type: str, data: Dict[str, Any]) -> bool:
         """A reply resolves only the outstanding command whose command_id it echoes.

@@ -1,0 +1,282 @@
+"""Independent checker for the building-v2 time-expanded flow (fork of checker.py / schedule_checker.py).
+
+It shares no code with flow_solver_v2: the allowed arc set and every capacity are rebuilt here from the venue and
+the solve inputs, and the claimed witness, totals and timeline are verified against that rebuild.
+"""
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass, field
+from typing import Any, Dict, FrozenSet, List, Optional, Tuple
+
+from backend.app.venues.model import VenueV2
+
+SOURCE = "SOURCE"
+EXIT_COLLECTOR = "EXIT_COLLECTOR"
+UNASSIGNED = "UNASSIGNED_COLLECTOR"
+
+Mult = Tuple[float, float]  # (throughput factor, travel factor)
+
+
+@dataclass(frozen=True)
+class SolveInputs:
+    """Everything the solver may vary. All times are seconds, even multiples of dt, 0 <= t < horizon."""
+
+    closed_doors: FrozenSet[str] = frozenset()
+    no_entry_from: Dict[str, int] = field(default_factory=dict)
+    untenable_at: Dict[str, int] = field(default_factory=dict)
+    exit_closed_from: Dict[str, int] = field(default_factory=dict)
+    multipliers: Dict[str, Mult] = field(default_factory=dict)
+
+    def canonical(self) -> dict:
+        return {
+            "closed_doors": sorted(self.closed_doors),
+            "no_entry_from": sorted(self.no_entry_from.items()),
+            "untenable_at": sorted(self.untenable_at.items()),
+            "exit_closed_from": sorted(self.exit_closed_from.items()),
+            "multipliers": sorted((k, list(v)) for k, v in self.multipliers.items()),
+        }
+
+
+def validate_inputs(venue: VenueV2, inputs: SolveInputs, horizon: int, dt: int) -> None:
+    zones = {z.id for z in venue.zones}
+    doors = {d.id for d in venue.doors}
+    exits = {e.id for e in venue.exits}
+    for door in inputs.closed_doors:
+        if door not in doors:
+            raise ValueError(f"Unknown door id in closed_doors: {door!r}")
+    for name, mapping, known in (("no_entry_from", inputs.no_entry_from, zones),
+                                 ("untenable_at", inputs.untenable_at, zones),
+                                 ("exit_closed_from", inputs.exit_closed_from, exits)):
+        for key, when in mapping.items():
+            if key not in known:
+                raise ValueError(f"Unknown id in {name}: {key!r}")
+            if type(when) is not int or when < 0 or when % dt or when >= horizon:
+                raise ValueError(f"{name}[{key}] must be a non-negative multiple of {dt}s before the {horizon}s horizon")
+    for key, (thr, trv) in inputs.multipliers.items():
+        if key not in doors and key not in exits:
+            raise ValueError(f"Unknown element id in multipliers: {key!r}")
+        if thr <= 0 or trv <= 0:
+            raise ValueError(f"Multipliers for {key} must be positive")
+
+
+@dataclass
+class ClaimedResult:
+    initial_population: int
+    completed_crossings: int
+    remaining_population: int
+    exit_breakdown: Dict[str, int]
+    zone_remaining: Dict[str, int]
+    status: str
+    timeline: List[Dict[str, Any]]
+    witness: Dict[Any, Dict[Any, int]]
+
+
+def _floor(x: float) -> int:
+    return int(math.floor(x + 1e-9))
+
+
+def _ceil(x: float) -> int:
+    return int(math.ceil(x - 1e-9))
+
+
+def expected_arcs(venue: VenueV2, inputs: SolveInputs, horizon: int, dt: int) -> Dict[Tuple[Any, Any], int]:
+    """Every arc the plan may use, with its capacity, rebuilt from first principles."""
+    T = horizon // dt
+    arcs: Dict[Tuple[Any, Any], int] = {}
+    zone_ids = [z.id for z in venue.zones]
+    for zone in venue.zones:
+        if zone.initial_occupants > 0:
+            arcs[(SOURCE, (zone.id, 0))] = zone.initial_occupants
+        for t in range(T):
+            arcs[((zone.id, t), (zone.id, t + 1))] = zone.max_capacity
+        arcs[((zone.id, T), UNASSIGNED)] = zone.max_capacity
+
+    def cutoff(zone_id: str) -> int:
+        # first departure step at which departures out of the zone stop
+        return inputs.untenable_at[zone_id] // dt if zone_id in inputs.untenable_at else T + 1
+
+    for door in venue.doors:
+        if door.id in inputs.closed_doors:
+            continue
+        thr, trv = inputs.multipliers.get(door.id, (1.0, 1.0))
+        steps = max(1, _ceil(door.travel_time_seconds * trv / dt))
+        cap = max(1, _floor(door.throughput_per_sec * dt * thr))
+        for origin, dest in ((door.zones[0], door.zones[1]), (door.zones[1], door.zones[0])):
+            last = T - steps + 1
+            if dest in inputs.no_entry_from:
+                last = min(last, inputs.no_entry_from[dest] // dt)
+            last = min(last, cutoff(origin))
+            for t in range(max(0, last)):
+                arcs[((origin, t), (dest, t + steps))] = cap
+    for ex in venue.exits:
+        thr, _ = inputs.multipliers.get(ex.id, (1.0, 1.0))
+        cap = max(1, _floor(ex.service_rate_per_sec * dt * thr))
+        last = T + 1
+        if ex.id in inputs.exit_closed_from:
+            last = min(last, inputs.exit_closed_from[ex.id] // dt)
+        last = min(last, cutoff(ex.zone))
+        for t in range(max(0, last)):
+            node = f"X_{ex.id}_{t}"
+            arcs[((ex.zone, t), node)] = cap
+            arcs[(node, EXIT_COLLECTOR)] = cap
+    del zone_ids
+    return arcs
+
+
+def check(venue: VenueV2, inputs: SolveInputs, horizon: int, dt: int, claim: ClaimedResult) -> Dict[str, Any]:
+    checks: List[str] = []
+    reasons: List[str] = []
+    T = horizon // dt
+    N = sum(z.initial_occupants for z in venue.zones)
+
+    # 1. inputs well formed
+    checks.append("inputs_well_formed")
+    try:
+        validate_inputs(venue, inputs, horizon, dt)
+    except ValueError as error:
+        reasons.append(str(error))
+
+    allowed = expected_arcs(venue, inputs, horizon, dt)
+
+    # 2. witness arcs: non-negative integers, only allowed arcs, capacity respected
+    checks.append("witness_non_negative_integral")
+    checks.append("no_flow_on_disallowed_arcs")
+    checks.append("arc_capacities")
+    flow: Dict[Tuple[Any, Any], int] = {}
+    for u, dests in (claim.witness or {}).items():
+        for v, amount in dests.items():
+            if type(amount) is not int or amount < 0:
+                reasons.append(f"Flow on {u}->{v} is {amount!r}; must be a non-negative integer")
+                continue
+            if amount == 0:
+                continue
+            flow[(u, v)] = amount
+            if (u, v) not in allowed:
+                reasons.append(f"Flow {amount} on disallowed arc {u}->{v}")
+            elif amount > allowed[(u, v)]:
+                reasons.append(f"Flow {amount} exceeds capacity {allowed[(u, v)]} on arc {u}->{v}")
+
+    # 3. conservation at every interior node, and source injection
+    checks.append("flow_conservation")
+    inflow: Dict[Any, int] = {}
+    outflow: Dict[Any, int] = {}
+    for (u, v), amount in flow.items():
+        outflow[u] = outflow.get(u, 0) + amount
+        inflow[v] = inflow.get(v, 0) + amount
+    for node in set(inflow) | set(outflow):
+        if node in (SOURCE, EXIT_COLLECTOR, UNASSIGNED):
+            continue
+        if inflow.get(node, 0) != outflow.get(node, 0):
+            reasons.append(f"Conservation violated at {node}: in {inflow.get(node, 0)} != out {outflow.get(node, 0)}")
+    checks.append("source_injection_matches_initial_occupants")
+    for zone in venue.zones:
+        injected = flow.get((SOURCE, (zone.id, 0)), 0)
+        if injected != zone.initial_occupants:
+            reasons.append(f"Zone {zone.id} injected {injected} != initial occupants {zone.initial_occupants}")
+    if claim.initial_population != N:
+        reasons.append(f"Initial population {claim.initial_population} != venue total {N}")
+
+    # 4. totals recomputed from the witness
+    checks.append("completed_equals_exit_service")
+    served: Dict[str, int] = {e.id: 0 for e in venue.exits}
+    # Exit service nodes are mapped from the rebuilt arc set; ids may contain "_", and arcs that are not
+    # allowed were already reported above, so they are never parsed here.
+    node_exit = {u: ex.id for ex in venue.exits for (u, v) in allowed
+                 if v == EXIT_COLLECTOR and isinstance(u, str) and u.startswith(f"X_{ex.id}_")
+                 and u[len(f"X_{ex.id}_"):].isdigit()}
+    for (u, v), amount in flow.items():
+        if v == EXIT_COLLECTOR and (u, v) in allowed and u in node_exit:
+            served[node_exit[u]] += amount
+    total_served = sum(served.values())
+    if total_served != inflow.get(EXIT_COLLECTOR, 0):
+        reasons.append("Exit service total differs from collector inflow")
+    if claim.completed_crossings != total_served:
+        reasons.append(f"Completed {claim.completed_crossings} != total exit service {total_served}")
+    if claim.exit_breakdown != served:
+        reasons.append(f"Exit breakdown {claim.exit_breakdown} != witness service {served}")
+    checks.append("remaining_equals_initial_minus_completed")
+    if claim.remaining_population != claim.initial_population - claim.completed_crossings:
+        reasons.append("Remaining population != initial - completed")
+    witness_remaining = {z.id: flow.get(((z.id, T), UNASSIGNED), 0) for z in venue.zones}
+    if claim.zone_remaining != witness_remaining:
+        reasons.append(f"Zone remaining {claim.zone_remaining} != witness horizon occupancy {witness_remaining}")
+    if sum(witness_remaining.values()) != claim.remaining_population:
+        reasons.append("Sum of horizon occupancy != remaining population")
+
+    # 5. timeline
+    checks.append("timeline_shape")
+    timeline = claim.timeline
+    if len(timeline) != T + 1:
+        reasons.append(f"Timeline has {len(timeline)} frames; expected {T + 1}")
+    zone_ids = [z.id for z in venue.zones]
+    exit_ids = [e.id for e in venue.exits]
+    expected_frames: List[Dict[str, Any]] = []
+    cum = {e: 0 for e in exit_ids}
+    for t in range(T + 1):
+        occ: Dict[str, int] = {}
+        for z in venue.zones:
+            node = (z.id, t)
+            arrived = inflow.get(node, 0)
+            exited = sum(flow.get((node, f"X_{e.id}_{t}"), 0) for e in venue.exits if e.zone == z.id)
+            occ[z.id] = arrived - exited
+        for e in venue.exits:
+            cum[e.id] += flow.get(((e.zone, t), f"X_{e.id}_{t}"), 0)
+        transit = sum(a for (u, v), a in flow.items()
+                      if isinstance(u, tuple) and isinstance(v, tuple) and u[0] != v[0] and u[1] < t < v[1])
+        expected_frames.append({"occupancy": occ, "exits_cumulative": dict(cum), "in_transit": transit,
+                                "total_completed": sum(cum.values())})
+    checks.append("timeline_matches_witness")
+    checks.append("timeline_population_conservation")
+    checks.append("timeline_initial_frame")
+    checks.append("timeline_exit_rates")
+    checks.append("timeline_terminal_consistency")
+    if len(timeline) == T + 1:
+        previous = {e: 0 for e in exit_ids}
+        for t, frame in enumerate(timeline):
+            exp = expected_frames[t]
+            if frame.get("step") != t or frame.get("time_seconds") != t * dt:
+                reasons.append(f"Frame {t} has wrong step/time")
+            if set(frame.get("occupancy", {})) != set(zone_ids) or set(frame.get("exits_cumulative", {})) != set(exit_ids):
+                reasons.append(f"Frame {t} has wrong occupancy/exit keys")
+                continue
+            if frame["occupancy"] != exp["occupancy"] or frame["exits_cumulative"] != exp["exits_cumulative"] \
+                    or frame["in_transit"] != exp["in_transit"] or frame["total_completed"] != exp["total_completed"]:
+                reasons.append(f"Frame {t} does not match the flow witness")
+            total = sum(frame["occupancy"].values()) + frame["in_transit"] + frame["total_completed"]
+            if total != N:
+                reasons.append(f"Frame {t} accounts for {total} people; expected {N}")
+            if frame["total_completed"] != sum(frame["exits_cumulative"].values()):
+                reasons.append(f"Frame {t} total_completed != sum of exit cumulatives")
+            for e in venue.exits:
+                step_served = frame["exits_cumulative"][e.id] - previous[e.id]
+                thr, _ = inputs.multipliers.get(e.id, (1.0, 1.0))
+                if step_served < 0:
+                    reasons.append(f"Exit {e.id} cumulative decreased at frame {t}")
+                if step_served > max(1, _floor(e.service_rate_per_sec * dt * thr)):
+                    reasons.append(f"Exit {e.id} served {step_served} at frame {t}, above its slot capacity")
+            previous = dict(frame["exits_cumulative"])
+        first = timeline[0]
+        for z in venue.zones:
+            served0 = sum(first["exits_cumulative"][e.id] for e in venue.exits if e.zone == z.id)
+            if first["occupancy"][z.id] + served0 != z.initial_occupants:
+                reasons.append(f"First frame for {z.id} does not match its initial occupants")
+        last = timeline[-1]
+        if last["total_completed"] != claim.completed_crossings:
+            reasons.append("Final frame total_completed != completed crossings")
+        if sum(last["occupancy"].values()) != claim.remaining_population:
+            reasons.append("Final frame occupancy != remaining population")
+
+    # 6. status consistency
+    checks.append("computation_status_consistency")
+    done, init = claim.completed_crossings, claim.initial_population
+    if claim.status in ("SOLVER_INFEASIBLE", "INVALID_INPUT", "SOLVER_TIMEOUT", "STALE"):
+        reasons.append(f"Solver did not produce a feasible plan (status {claim.status})")
+    elif done == init and claim.status != "COMPLETE_WITHIN_MODEL":
+        reasons.append(f"All occupants completed but status is {claim.status}")
+    elif 0 < done < init and claim.status != "PARTIAL_WITHIN_HORIZON":
+        reasons.append(f"Partial completion ({done}/{init}) but status is {claim.status}")
+    elif done == 0 and claim.status != "NO_FEASIBLE_EXIT":
+        reasons.append(f"0 completed but status is {claim.status}")
+
+    return {"is_valid": not reasons, "checks_run": checks, "reasons": reasons}

@@ -10,6 +10,7 @@ import json
 import time
 from typing import Any, Callable, Dict, List, Optional
 from backend.app.contracts import GateObservedState, GateTarget, SerialResponseType
+from backend.app.hardware.display import decode_px
 
 
 class HardwareSimulator:
@@ -25,6 +26,8 @@ class HardwareSimulator:
         self.on_message = on_message
         self._moving_task: Optional[asyncio.Task] = None
         self.display_pixels: List[int] = [0] * 24
+        # Like the firmware: after STOP_OUTPUTS the LEDs stay dark until the next ARM.
+        self.display_stopped = False
 
     def emit(self, msg_type: SerialResponseType, payload: Dict[str, Any]) -> None:
         self.seq += 1
@@ -70,6 +73,7 @@ class HardwareSimulator:
         elif cmd_type == "ARM":
             self.last_heartbeat = time.time()
             self.armed = True
+            self.display_stopped = False
             self.emit(SerialResponseType.ACK, {"command_id": cmd_id, "status": "ARMED"})
             self._send_observation(cmd_id)
 
@@ -107,11 +111,19 @@ class HardwareSimulator:
             )
 
         elif cmd_type == "SET_DISPLAY":
-            self.display_pixels = cmd.get("display_pixels", [0] * 24)
+            if self.display_stopped:
+                self.emit(SerialResponseType.FAULT, {"command_id": cmd_id, "fault": "DISPLAY_STOPPED"})
+                return
+            try:
+                self.display_pixels = decode_px(str(cmd.get("px", "")))
+            except ValueError:
+                self.emit(SerialResponseType.FAULT, {"command_id": cmd_id, "fault": "BAD_PX"})
+                return
             self.emit(SerialResponseType.ACK, {"command_id": cmd_id, "status": "DISPLAY_UPDATED"})
 
         elif cmd_type == "STOP_OUTPUTS":
             self.armed = False
+            self.display_stopped = True
             if self._moving_task and not self._moving_task.done():
                 self._moving_task.cancel()
             self.display_pixels = [0] * 24

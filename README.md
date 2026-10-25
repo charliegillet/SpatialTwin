@@ -1,121 +1,103 @@
 # SpatialTwin — Gemini 4 Argon Hackathon Demonstrator
 
-A physical and digital tabletop evacuation twin: a judge places a physical blockage token on a tabletop floor plan, **Gemini 4 Argon** perceives and proposes the blockage, a **Managed Antigravity Agent** autonomously investigates candidate interventions using client-executed local numerical tools, and an operator authorizes a miniature physical servo gate whose independent microswitch confirmation triggers a fresh re-solve and live NeoPixel route illumination.
+An evacuation digital twin you can touch. A judge blocks a passage on a physical tabletop, **Gemini 4 Argon** reads the board, a **Gemini managed agent** investigates in Google's cloud using numbers only this laptop can compute, a local checker decides, and the judge approves a miniature servo gate whose endpoint switch confirms it moved. Then the judge breaks a larger building on screen, dropping fire, smoke, gas, chemical or water anywhere, and watches doors close to entry, exits turn red or green and routes re-plan.
 
-**AI verification:** the hardened direct and managed paths passed real-provider smoke checks on 24 October 2026. The image was synthetic; real-board accuracy and physical bench gates remain separate. See [integration assurance](docs/ai/integration-assurance-2026-10-24.md) and [operation/release gates](docs/ai/production-readiness.md). Live errors never silently become fixtures; fixtures and local comparisons are explicit demo actions.
+AI proposes; the local checker decides; a human approves anything physical. Every count is a modeled crossing of synthetic occupants, never a survival figure.
 
-**Repository:** <https://github.com/charliegillet/SpatialTwin>  
-**Project Root:** `/Users/nihalnihalani/Desktop/Github/SpatialTwin`  
-**Contributors:** Nihal, Charlie, Codex, Claude  
+**Repository:** <https://github.com/charliegillet/SpatialTwin> · **Contributors:** Nihal, Charlie, Codex, Claude
 
 ---
 
-## Architecture Overview
+## Three modes (presenter menu → Twin)
 
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                      Physical Tabletop & Hardware                        │
-│  Overhead Camera  ──►  Arduino UNO R4 Minima  ──►  Adafruit PCA9685 PWM  │
-│  BLOCKED Tokens   ──►  Dual Microswitches (D2/D3) ──► 24 WS2812B NeoPixels│
-└────────────────────────────────────┬─────────────────────────────────────┘
-                                     │ USB Serial / NDJSON Protocol (v: 1)
-                                     ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│                        Local Authoritative Backend                       │
-│  FastAPI + SQLite (WAL Mode) • StateManager • HardwareBridge & Simulator │
-│                                                                          │
-│  ┌───────────────────────┐             ┌──────────────────────────────┐  │
-│  │ Two-Phase Network Flow│             │ Independent Checker          │  │
-│  │ Planner (NetworkX)    │             │ Total Population Conservation│  │
-│  └───────────────────────┘             └──────────────────────────────┘  │
-└───────────────────▲──────────────────────────────────────▲───────────────┘
-                    │                                      │
-     Direct Vision  │                  Client-Executed     │
-     Grounding      │                  Local Tools         │
-                    ▼                                      ▼
-┌───────────────────────────────┐     ┌───────────────────────────────────┐
-│       gemini-4-argon          │     │    antigravity-preview-09-2026    │
-│  Direct Model (Structured)    │     │  Managed Agent (gemini-4-argon)   │
-└───────────────────────────────┘     └───────────────────────────────────┘
-```
+| Mode | What the judge does | What decides |
+| --- | --- | --- |
+| **Tabletop** (default) | Places a red token on the 4-zone board (or drops Fire/Smoke on the model). Gemini reads the still, the managed agent investigates, the judge approves the servo gate P3. | Two-phase min-cost flow planner + independent checker: 120 → 60 with P2 blocked → 117 with P3 open. |
+| **Simulation** | Drops typed hazards anywhere in a 3D eight-room building (`building-v2`, 125 people, 40 s). | Local door planner: tries every state of the controllable doors, solves and checks each, picks the best checked plan. |
+| **Camera twin** | Places red cards (FIRE, SMOKE, GAS, CHEMICAL, WATER) on a printed floor sheet; Gemini reads them; the operator confirms. | Card positions are mapped onto the authored plan through four corner markers; the same local door planner decides. |
+
+Hazard rules in building-v2 (declared model assumptions, inspired by dynamic exit signage and fire/gas/chemical guidance):
+
+- **Fire / Chemical** — no entry; doors around the room close to entry (egress still allowed); people inside leave until it becomes untenable; exits in the room show a red X.
+- **Smoke** — half speed, then untenable at T s; smoke doors close to entry.
+- **Gas** — no entry; nothing near it is switched or moved (motorised doors next to it lock, signs set static red once); responders are told to vent to the outside.
+- **Water** — passable at half speed; no door changes.
+
+Real outcomes are generated from the planner, never typed in: see [building-v2 matrix](docs/demo/building-v2-matrix.md). Example: fire in the Lobby closes D1/D5/D6 to entry, marks E1 unsafe and opens the dock door D9 → 125 of 125 vs 96 with doors at default.
 
 ---
 
-## Key Invariants & Features
+## Architecture
 
-1. **Direct Gemini 4 Argon Grounding**: Uses `google-genai` SDK (`from google import genai`) with `await client.aio.interactions.create(model="gemini-4-argon", ...)` to identify tokens on allowlisted pads (`portal:P1`, `portal:P2`, `boundary:B2`). Strict schema and local validation reject malformed/out-of-catalog proposals; an operator still reviews visual accuracy.
-2. **Managed Antigravity Agent Investigation**: Uses `await client.aio.interactions.create(agent="antigravity-preview-09-2026", agent_config={"type":"antigravity","model":"gemini-4-argon"}, ...)` to run multi-turn autonomous investigations comparing `KEEP_CURRENT` vs `OPEN_P3` using client-executed local tools (`get_reviewed_scenario`, `evaluate_allowed_alternative`, `get_checked_comparison`).
-3. **Rigorous Population Conservation**: An all-population two-phase min-cost network flow solver tracks every single synthetic occupant ($N_{initial} = 120 = N_{completed} + N_{remaining}$) across a finite 40s horizon. If an egress is blocked, occupants remain accounted for in physical holding states.
-4. **Honest No-Improvement Handling**: When downstream boundary `B2` is blocked, opening internal gate `P3` yields exactly +0 net gain. Both the solver and managed agent truthfully report zero benefit rather than manufacturing exit capacity.
-5. **Physical Position Confirmation**: Microcontroller `ACK` only acknowledges command receipt. Route lights and digital state are updated only after debounced microswitches (D2 LOW, D3 HIGH) independently confirm the gate has arrived at the open endpoint.
+```
+ Physical tabletop                      Browser (React 19 + Vite; three.js loaded only for Simulation/Camera twin)
+ overhead camera, red token,            ├─ Tabletop stage: isometric SVG twin, hazard palette, approval ladder
+ UNO R4 + PCA9685 servo gate,           ├─ Simulation: React Three Fiber scene, door plan, exit signs, playback
+ 2 endpoint switches, 24 NeoPixels      └─ Camera twin: calibration, card chips, confirm
+        │ USB serial, NDJSON v1                 │ HTTP + server-sent events
+        ▼                                       ▼
+ ┌────────────────────────────── Local authoritative backend (FastAPI + SQLite) ─────────────────────────────┐
+ │ HardwareBridge / simulator (ACK ≠ arrival) · StateManager · network guard · operator tokens · STOP       │
+ │ tabletop-v1: flow_solver + checker + schedule checker        building-v2: flow_solver_v2 + checker_v2     │
+ │ hazard forecasts + exposure                                  hazard effects + door planner + announcer   │
+ │ grounding (still / video)                                    camera calibration + card reader + confirm  │
+ └───────────────▲─────────────────────────────────────────────────────────────────▲─────────────────────────┘
+                 │ structured perception (proposals only)                          │ client-executed local tools
+        gemini-4-argon (Interactions API)                    antigravity-preview-09-2026 managed agent (gemini-4-argon,
+                                                             network-disabled environment)
+```
+
+## Invariants
+
+1. **AI proposes, the checker decides.** Gemini returns schema-validated proposals (a pad id and box, or typed cards); nothing changes until an operator confirms. The managed agent can only call local tools that return checked numbers.
+2. **No cloud tool reaches hardware.** Only the operator-approve route moves the servo, with an operator token on physical hardware and a live result as evidence.
+3. **ACK is not arrival.** The gate counts as open only after the independent endpoint switch reports it.
+4. **Honest provenance.** Live Gemini, Fixture, Local solver, Uploaded image and Simulated are always labelled; live errors never become fixtures. building-v2 doors are simulated; the physical gate is on the tabletop.
+5. **Every occupant accounted for.** N_initial = N_completed + N_remaining in every frame of every plan; the checker rebuilds the allowed network on its own and rejects any witness that breaks it.
 
 ---
 
 ## Quickstart
 
-### 1. Backend Setup
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate
 uv pip sync --python .venv/bin/python requirements.lock
+cd frontend && npm ci && npm run build && cd ..
+.venv/bin/python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 ```
 
-### 2. Frontend Setup
+Open <http://127.0.0.1:8000>. Without `GEMINI_API_KEY` everything local works (planner, Simulation, simulator hardware, fixtures); Gemini paths report "not configured". Keep `SERIAL_PORT` empty to use the hardware simulator.
+
+**Stage runbook:** [docs/demo/judge-experience.md](docs/demo/judge-experience.md) — the two-minute script, judge questions, failure plan and reset. A frozen copy of the tabletop demo is tagged `demo-v1`.
+
+**Printables for the Camera twin:** `.venv/bin/python -m tools.print_assets` writes `venue/print/building_v2_sheet.svg` (A3, four corner markers) and `venue/print/hazard_cards.svg` (A4).
+
+## Tests
+
 ```bash
-cd frontend
-npm ci
-npm run build
-cd ..
+.venv/bin/python -m pytest -q                      # backend: planner, checkers, goldens, hazards, camera, hardware, AI contracts
+cd frontend && npm test && npx tsc --noEmit && npm run build
+.venv/bin/python -m tools.smoke_connections --base http://127.0.0.1:8000   # 40 end-to-end checks against a running server
 ```
 
-### 3. Run Application
-```bash
-source .venv/bin/activate
-uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
-```
-Open **`http://localhost:8000`** in your browser.
+The offline harness blocks provider, network and device access and isolates SQLite. Ten recorded tabletop envelopes guard the original planner byte for byte.
 
-### Demo without the physical board
+## Verification status (25 October 2026)
 
-Keep `SERIAL_PORT` empty when starting the backend to use the hardware simulator. With server-side Gemini credentials configured, select **Demo board**, place the token at **P2**, and choose **Analyze board**. This sends the displayed synthetic board image to the real provider; **Fixture** remains a separate option that uses no Gemini tokens.
+- Verified live (24–25 October, Gemini 4 Argon, receipts in `runtime/probes` and `runtime/live-checks-2026-10-25`):
+  - direct grounding of the synthetic tabletop board and a full tabletop managed-agent run (P2 → 117);
+  - the building-v2 managed agent: fire in the Lobby, 50 s, one `plan_doors` call, recommended D4 closed / D9 open, agreeing with the checker (125 of 125 vs 96 at defaults);
+  - Camera twin card reads on a **synthetic** tilted still of the printed sheet: FIRE, GAS and WATER read with the right type and room, positions within 8 cm, both with clicked corners (24 s) and with Gemini locating the corner markers (13 s); confirmed cards produced a checked plan;
+  - the static-video probe (P3), after the provider schema stopped asking the model for the application-owned `operation` field.
+- Verified offline and in the browser: Simulation end to end, the Camera twin UI, the compact LED protocol (host, simulator and a native C test of the firmware parser).
+- Not yet verified: a real overhead camera and printed sheet, and the firmware sketch compiled and flashed on the board (every LED claim depends on it).
 
-Review the proposed `portal:P2`, then **Apply closure**. The checked illustrative model changes from 120 crossings to 60 out of 120 synthetic occupants. In Intervention analysis, select **Live Gemini** and run the analysis. A successful managed response compares the checked current layout with opening P3: 60 versus 117 crossings over the same 40-second horizon.
+## Documentation
 
-After reviewing the comparison, open **Device** and approve P3 while the workspace explicitly says **Simulator**. A simulated open endpoint creates a new physical revision and checked result. Provider receipts, original image/hash and tool evidence are available through **Inspect evidence**. Old proposals and predictions become stale after their context changes. **Reset scenario** clears blockages but preserves the reported gate position; restart the simulator backend to rehearse from a closed gate again.
-
-This demonstrates live Gemini on a synthetic image and simulated hardware. It does not verify real-camera accuracy, a surveyed venue plan or physical gate behavior.
-
-### Explore and share a scenario
-
-- **Inspect plan** opens the computed schedule: scrub or play stored frames, inspect B1/B2 crossings, and account for every synthetic occupant in holding or transfer. This is aggregate numerical playback.
-- **Scenarios** opens a read-only lab. Optionally predict which closure benefits most, choose reported P3 or an explicitly closed-reserve benchmark, then **Run four cases**. Baseline/P1/P2/B2 each receive two independently checked local solves. The accepted scenario and hardware stay unchanged.
-- **Evidence → Prepare printable brief → Download HTML** prepares a self-contained HTML snapshot with an inline preview and an explicit download link with current/historical labels, sources, assumptions, checker findings and any recorded equal-condition comparison. Open it locally and use your browser's Print command. The existing JSON export remains available.
-
-See [feature research and verification](docs/research/feature-additions-2026-10-24.md) for comparable tools, verified winning-project references and implementation limits.
-
----
-
-## Running the Automated Test Suite
-
-Run all unit, integration, and devil's advocate adversarial tests:
-```bash
-source .venv/bin/activate
-pytest tests/ -v
-```
-The offline harness blocks provider/network/device access and isolates SQLite. It covers SDK response types, error/retry behavior, deadlines, cancellation, durable duplicate/restart handling, capture/admission/provenance and the existing numerical/simulator cases. Also run `npm test` and `npm run build` in `frontend/`. See the dated verification record for counts and actual live receipts.
-
----
-
-## Detailed Documentation Links
-
-- [Interface System](DESIGN.md) — Design tokens, responsive behavior, keyboard flow and UI research sources.
-- [UI Quality Toolkit](docs/ui-toolkit.md) — Installed design/testing skills and the isolated responsive + axe accessibility review (`cd frontend && npm run review:ui`).
-
-- [Production Operation & Release Gates](docs/ai/production-readiness.md) — Modes, retention, bounded execution and remaining real-camera/physical validation.
-- [Integration Assurance](docs/ai/integration-assurance-2026-10-24.md) — Offline, browser and actual provider evidence.
-- [Managed Agent Guide](docs/ai/managed.md) — Multi-turn Antigravity agent integration, tool interfaces, and token budgeting.
-- [Vision Grounding Guide](docs/ai/grounding.md) — Direct Gemini 4 Argon structured vision, coordinate conventions, and semantic validation.
-- [Setup & Stage Playbook](docs/ai/setup.md) — Hardware wiring, simulator options, and two-minute judge trial script.
-- [Adversarial Review Report](docs/ai/devils-advocate.md) — Historical review; the dated audit and verification supersede its old completion claims.
-- [Team Status & Milestones](docs/ai/team-status.md) — Project milestones, SDK versions, and deliverables.
-- [Firmware Arduino Sketch](firmware/spatialtwin_board/README.md) — Pin map, Adafruit PCA9685 configuration, and upload instructions.
+- [Stage runbook](docs/demo/judge-experience.md) · [building-v2 matrix](docs/demo/building-v2-matrix.md)
+- [Interface system](DESIGN.md) · [UI quality toolkit](docs/ui-toolkit.md)
+- [Production operation & release gates](docs/ai/production-readiness.md) · [Integration assurance](docs/ai/integration-assurance-2026-10-24.md)
+- [Managed agent guide](docs/ai/managed.md) · [Vision grounding guide](docs/ai/grounding.md) · [Setup & stage playbook](docs/ai/setup.md)
+- [Firmware](firmware/README.md) (SET_DISPLAY codes, bench steps) · [Sketch notes](firmware/spatialtwin_board/README.md)
+- [Winning-feature research](docs/research/winner-feature-analysis-2026-10-24.md) · [Feature research](docs/research/feature-additions-2026-10-24.md)
+- [Adversarial review](docs/ai/devils-advocate.md) (historical) · [Team status](docs/ai/team-status.md)

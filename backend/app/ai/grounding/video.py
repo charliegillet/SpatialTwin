@@ -58,6 +58,25 @@ the physical token pads in the reviewed catalog are selectable.
 """
 
 
+
+class _VideoGroundingOutput(_GroundingOutput):
+    """The image proposal shape with `operation` owned by the application.
+
+    `operation` is always SET_UNAVAILABLE; it is not perception. The live static-video probe on 25 October 2026
+    failed only on this field, so the provider schema omits it and it is filled here. Any other value the model
+    still sends fails closed.
+    """
+
+    operation: Literal["SET_UNAVAILABLE"] = "SET_UNAVAILABLE"
+
+
+def _video_response_schema() -> dict:
+    schema = _VideoGroundingOutput.model_json_schema()
+    schema.get("properties", {}).pop("operation", None)
+    if "required" in schema:
+        schema["required"] = [name for name in schema["required"] if name != "operation"]
+    return schema
+
 def video_enabled(mode: str, receipt_dir: Optional[Path] = None) -> bool:
     """True only if the probe receipt for this mode records "pass": true.
 
@@ -262,7 +281,7 @@ async def ground_video(
                  "processing": processing_for(mode, fps, start_offset, end_offset)},
             ],
             generation_config={"thinking_level": thinking_level, "max_output_tokens": 8192},
-            response_format={"type": "text", "mime_type": "application/json", "schema": _GroundingOutput.model_json_schema()},
+            response_format={"type": "text", "mime_type": "application/json", "schema": _video_response_schema()},
             store=True, stream=False,
             timeout=max(.001, deadline_seconds - (time.monotonic() - started)),
         )
@@ -304,10 +323,11 @@ async def ground_video(
         except (ValueError, TypeError):
             return result("failed", "invalid_provider_output:json")
         try:
-            output = _GroundingOutput.model_validate(parsed)
+            output = _VideoGroundingOutput.model_validate(parsed)
         except ValidationError as error:
             # Field names only (never values) so a failing schema is diagnosable without exposing content.
-            fields = sorted({".".join(str(part) for part in item["loc"]) for item in error.errors()})[:6]
+            fields = sorted({".".join(str(part) for part in item["loc"]) + f"({item['type']})"
+                             for item in error.errors()})[:6]
             return result("failed", "invalid_provider_output:schema:" + ",".join(fields))
         proposal = GroundingProposalV1(
             capture_id=clip_id, source_context=context, status=GroundingStatus(output.status),

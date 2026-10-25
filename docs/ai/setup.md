@@ -69,6 +69,8 @@ Open browser to: **`http://localhost:5173`** (proxies `/api` and `/health` to ba
 
 ## 5. Intended Two-Minute Judge Demo Script
 
+> Superseded for the stage by [docs/demo/judge-experience.md](../demo/judge-experience.md), which has the current script, the Simulation and Camera twin hand-off, judge questions and the reset procedure. The text below is kept for history.
+
 Run only after the corresponding live capture and physical bench gates pass. Numbers below are illustrative model outputs, not observed real-building results. Current UI supports separate live/fixture and live/local actions; use the displayed receipts to identify the source.
 
 1. **Baseline View (0:00 - 0:30)**:

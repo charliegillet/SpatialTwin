@@ -1,3 +1,6 @@
+/** Next judge always lands on the tabletop and clears the simulation. */
+export { modeAfterReset } from '../twin/modes.ts';
+
 export interface ResetFacts {
   scenarioClear: boolean;
   gateClosedObserved: boolean;

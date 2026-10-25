@@ -36,6 +36,11 @@ import { ClipPicker, type GroundingSelection } from './features/grounding-media/
 import { readVideoSize } from './features/grounding-media/clip';
 import { ReviewPanel } from './features/proposal-evidence/ReviewPanel';
 import { cleanHazardEvents, toHazardView } from './ai/hazardView';
+import { TwinWorkspace } from './components/TwinWorkspace';
+import { preloadScene3D } from './components/TwinStage';
+import { canSwitchMode, MODE_LOCKED, modeAfterReset } from './twin/modes';
+import { useTwin } from './twin/useTwin';
+import type { TwinMode } from './twin/types';
 
 type Target = 'portal:P1' | 'portal:P2' | 'boundary:B2';
 const targets: { id: Target; title: string }[] = [
@@ -104,6 +109,7 @@ export function App() {
   const [smokeError, setSmokeError] = useState<string | null>(null);
   const [stageNotice, setStageNotice] = useState<string | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [twinMode, setTwinMode] = useState<TwinMode>('tabletop');
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuSlot, setMenuSlot] = useState<HTMLDivElement | null>(null);
   const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -451,6 +457,20 @@ export function App() {
     noticeTimer.current = setTimeout(() => setStageNotice(null), 4000);
   };
   useEffect(() => () => clearTimeout(noticeTimer.current), []);
+  useEffect(() => preloadScene3D(), []);
+
+  // Simulation never touches the v1 investigation: switching only changes what the stage shows, and leaving clears the twin.
+  const twin = useTwin({ mode: twinMode, notify: showNotice, log: (message, level = 'info') => addEvent('analysis', message, level) });
+  const sim = twinMode !== 'tabletop';
+  const [calibrateTick, setCalibrateTick] = useState(0);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const changeTwinMode = (next: TwinMode) => {
+    if (!canSwitchMode(isInvestigating)) { showNotice(MODE_LOCKED); return; }
+    if (next === twinMode) return;
+    setTool(null); setStageNotice(null);
+    if (next !== 'camera') setImageFile(null);
+    setTwinMode(next);
+  };
 
   /** Live Gemini when configured, otherwise the local solver; the presenter menu choice wins when it is available. */
   const startAutoInvestigation = () => {
@@ -515,6 +535,7 @@ export function App() {
   const resetMessage = reset.phase === 'waiting' ? (pendingMessage(resetFacts, physical) ?? reset.message) : reset.message;
   const resetNow = async () => {
     if (reset.phase === 'running' || !snapshotRef.current) return;
+    setTwinMode(modeAfterReset()); twin.reset(); setImageFile(null);
     setReset({ phase: 'running', message: 'Cancelling any run…' });
     try {
       if (activeInvestigation) {
@@ -567,8 +588,8 @@ export function App() {
   return <div className={`app${presenting ? ' presenting' : ''}`}>
     <a className="skip-link" href="#workspace-main">Skip to workspace</a>
     <TopBar hardware={hardwareChip(health?.hardware_mode)} checked={checkedChip(Boolean(snapshot), planCurrent)} connection={connection} presenting={presenting} presenterRef={presenterTriggerRef} onTogglePresenting={() => setPresenting(value => !value)} onStop={stop} onOpenDetails={() => openSheet()} onToggleMenu={toggleMenu} menuOpen={menuOpen} menuRef={menuTriggerRef} onResetJudge={() => void resetNow()} isResetting={reset.phase === 'running'} canReset={Boolean(snapshot) && connection === 'connected'} />
-    <PresenterMenu open={menuOpen} onClose={() => setMenuOpen(false)} triggerRef={menuTriggerRef} boardSlot={setMenuSlot} mode={mode} onModeChange={setSelectedMode} modeLocked={isInvestigating} apiConfigured={apiConfigured} localEnabled={localEnabled} physical={physical} operatorToken={operatorToken} onOperatorToken={setOperatorToken} preflight={preflight} facts={resetFacts} resetMessage={resetMessage} isResetting={reset.phase === 'running'} canReset={Boolean(snapshot) && connection === 'connected'} onReset={() => void resetNow()} onClearHazards={() => void clearHazards()} clearMessage={clearMessage} />
-    <main id="workspace-main" className="main" tabIndex={-1}>
+    <PresenterMenu open={menuOpen} onClose={() => setMenuOpen(false)} triggerRef={menuTriggerRef} boardSlot={setMenuSlot} mode={mode} onModeChange={setSelectedMode} modeLocked={isInvestigating} apiConfigured={apiConfigured} localEnabled={localEnabled} physical={physical} operatorToken={operatorToken} onOperatorToken={setOperatorToken} preflight={preflight} facts={resetFacts} resetMessage={resetMessage} isResetting={reset.phase === 'running'} canReset={Boolean(snapshot) && connection === 'connected'} onReset={() => void resetNow()} onClearHazards={() => void clearHazards()} clearMessage={clearMessage} twinMode={twinMode} onTwinMode={changeTwinMode} twinLocked={isInvestigating} onCalibrate={() => { setMenuOpen(false); setCalibrateTick(value => value + 1); }} imageFile={imageFile} onImageFile={setImageFile} />
+    <main id="workspace-main" className={`main${sim ? ' is-sim' : ''}`} tabIndex={-1}>
       <div className="alerts">
         {loadError && <div className="alert" role="alert"><span>{loadError}</span><button type="button" onClick={() => void refresh()}>Reconnect<RotateCcw size={13} aria-hidden="true" /></button></div>}
         {mutationError && <div className="alert" role="alert"><span>{mutationError}</span><button type="button" onClick={() => setMutationError(null)} aria-label="Dismiss error"><X size={16} aria-hidden="true" /></button></div>}
@@ -580,6 +601,7 @@ export function App() {
         {isEditing && selectedTarget && <TargetReview reviewRef={reviewRef} targets={targets} target={selectedTarget} blocked={targetBlocked} busy={isMutating} disabled={!canChange} onChange={value => setSelectedTarget(value as Target)} onApply={() => void mutate(selectedTarget)} onClose={closeEditor} />}
         {reset.phase !== 'idle' && <ResetChecklist facts={resetFacts} message={resetMessage} physical={physical} />}
       </div>
+      {sim && <TwinWorkspace twin={twin} notice={stageNotice} mode={twinMode} calibrateTick={calibrateTick} imageFile={imageFile} analysisMode={mode} />}
       <ObservationPanel resetKey={epochKey} physical={physical} proposal={proposal} result={grounding} currentContext={snapshot?.context} liveConfigured={health?.ai?.direct.configured ?? health?.live_api_configured ?? false} fixturesEnabled={health?.ai?.fixtures_enabled ?? false} appliedCaptureId={appliedCaptureId} isLoading={isGrounding} isApplying={isMutating} isProposalCurrent={proposalCurrent} availabilityMessage={availabilityMessage} error={groundingError} onCapture={capture} onApply={applyProposal} onClearProposal={clearProposal} isAvailable={connection === 'connected' && Boolean(snapshot)} uploadSlot={uploadPanel} settingsSlot={menuSlot} locked={isInvestigating} onLockedTap={() => showNotice(ANALYSIS_RUNNING)} readSeconds={readSeconds} onCameraLive={setCameraLive} onBoardView={setBoardView} />
       <div className="stage-decision">
         <WhyStrip snapshot={snapshot} isCurrent={connection === 'connected' && planCurrent} closeKey={`${epochKey}:${snapshot?.physical_gate_state}`} />

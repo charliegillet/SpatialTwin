@@ -34,6 +34,9 @@ from backend.app.ai.managed.model_probe import resolve_model
 from backend.app.hazard.model import HazardToolError, ToolContext
 from backend.app.hazard.tools import execute_hazard_tool
 from backend.app.review.routes import build_review_router
+from backend.app.venues.camera import build_camera_router
+from backend.app.venues.routes import router as venues_router
+from backend.app.venues.agent import build_door_agent_router
 from backend.app.ai.managed.adapter import ManagedAgentAdapter
 from backend.app.ai.requests import CommandRequest, GateApprovalRequest, GroundingRequest, InvestigationRequest, InvestigationCancellationRequest
 from backend.app.contracts import (
@@ -229,6 +232,9 @@ def require_context(value: Any) -> RunContext:
 
 app.include_router(build_review_router(
     state_manager, lambda: "simulator" if hardware_bridge.is_simulator else "physical_serial"))
+app.include_router(venues_router)
+app.include_router(build_camera_router(grounding_adapter, fixtures_enabled))
+app.include_router(build_door_agent_router(managed_agent_adapter, _investigation_slots, fixtures_enabled))
 
 
 @app.get("/api/ai/capabilities")
@@ -414,7 +420,7 @@ async def handle_command(scenario_id: str, payload: CommandRequest) -> Dict[str,
 
 
 async def _interpret_video(payload: GroundingRequest, ctx: RunContext) -> Dict[str, Any]:
-    if payload.mode == "fixture" or payload.fixture_target is not None:
+    if payload.mode == "fixture" or payload.fixture_target is not None or payload.source_kind == "fixture":
         raise HTTPException(422, "Video requests cannot contain fixture controls")
     if not video_enabled(payload.video_mode):
         result = GroundingResult(status="unavailable", provenance="unavailable", errors=[IMAGE_FALLBACK_ERROR])
@@ -423,6 +429,20 @@ async def _interpret_video(payload: GroundingRequest, ctx: RunContext) -> Dict[s
             clip = base64.b64decode(payload.video_base64 or payload.image_base64 or "", validate=True)
         except (ValueError, binascii.Error):
             raise HTTPException(422, "Invalid clip encoding")
+        # The capture record lets a reviewed live video proposal be applied within the freshness window,
+        # exactly like a still. The clip itself is not stored; its digest is.
+        capture_record = {
+            "capture_id": payload.capture_id, "timestamp_iso": payload.timestamp_iso,
+            "source_kind": payload.source_kind, "source_geometry_revision": ctx.geometry_revision,
+            "expected_scenario_revision": ctx.scenario_revision,
+            "expected_physical_revision": ctx.physical_revision,
+            "source_context": ctx.model_dump(mode="json"), "dimensions": list(payload.dimensions),
+            "media_kind": "video", "video_mode": payload.video_mode, "video_mime": payload.video_mime,
+            "video_duration_seconds": payload.video_duration_seconds,
+            "video_sha256": hashlib.sha256(clip).hexdigest(),
+        }
+        if not await asyncio.to_thread(state_manager.store.save_capture, capture_record, state_manager._now_iso()):
+            raise HTTPException(409, "Capture ID already exists; recapture with a fresh ID")
         result = await ground_video(
             clip, payload.video_mime, ctx, payload.video_mode, adapter=grounding_adapter,
             captured_at_iso=payload.timestamp_iso, duration_seconds=payload.video_duration_seconds,

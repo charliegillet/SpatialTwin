@@ -25,7 +25,7 @@ FALLBACK_MODEL = 'gemini-3.8-flash'
 RECEIPT_DIR = REPO_ROOT / 'runtime' / 'probes'  # anchored to the repo, like video.py's receipt dir
 RECEIPT_FIELDS = ('probe_id', 'timestamp_utc', 'sdk_version', 'requested_model', 'echoed_model', 'http_status_class',
                   'error_code', 'token_usage', 'interaction_id_hash', 'passed', 'reason')
-OPTIONAL_FIELDS = ('mode', 'deletion_result', 'fallback_note')
+OPTIONAL_FIELDS = ('mode', 'deletion_result', 'fallback_note', 'model_source')
 EXCLUDED_PROBES = {'P7': 'excluded_by_call_cap'}
 
 
@@ -365,9 +365,11 @@ class LiveExecutors:
         live = result.provenance == 'live' and bool(result.provider_interaction_id)
         fell_back = 'environment_fallback' in json.dumps(result.provider_progress, default=str) or any(
             error == 'network_deny_rejected' for error in (result.errors or []))
+        # 'agent_definition' means the interaction echoed no model and the verified saved-agent model was used.
+        from_definition = any(e.get('phase') == 'model_from_agent_definition' for e in (result.provider_progress or []))
         return {'http_status': 200 if live else None, 'model': result.provider_model, 'usage': _usage_ints(result.token_usage),
-                'interaction_id': result.provider_interaction_id, 'calls': calls,
-                'error_code': result.errors[0] if result.errors else None,
+                'model_source': 'agent_definition' if from_definition else 'echo', 'interaction_id': result.provider_interaction_id,
+                'calls': calls, 'error_code': result.errors[0] if result.errors else None,
                 'completed': completed and live, 'fell_back': fell_back}
 
     async def _p5(self, manager, tmp):
@@ -380,7 +382,7 @@ class LiveExecutors:
             ref = await ensure(adapter.client, enabled=True, cache_path=str(tmp / 'agent_ref.json'))
             created = bool(ref and ref.created)
             if created:
-                adapter.agent = ref.agent_id
+                adapter.bind_agent(ref)
                 calls += 1
                 result = await adapter.investigate_scenario(manager.context, deadline_seconds=240, mode='live')
         finally:

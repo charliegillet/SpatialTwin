@@ -1,0 +1,987 @@
+{
+  "plan_id": "dp-3b84cea1ba71497ab276ff52e83563c8",
+  "venue_id": "building-v2",
+  "geometry_revision": "geom-building-v2",
+  "hypothetical": true,
+  "provenance": "local_door_planner_v1",
+  "hazards": [
+    {
+      "id": "h1",
+      "type": "GAS",
+      "position": {
+        "x": 20.0,
+        "y": 14.0
+      },
+      "zone_id": "HALL",
+      "source": "simulated",
+      "untenable_s": 10,
+      "proposal_id": null,
+      "effective": true,
+      "effects": [
+        "Gas in Hall: no entry, no door opened or released, lights held static red",
+        "Locked in default state: D4",
+        "No entry into Hall; untenable at 10 s"
+      ],
+      "camera_provenance": null
+    }
+  ],
+  "doors": [
+    {
+      "id": "D1",
+      "state": "open",
+      "lamp": "red_static",
+      "entry_denied_into": [
+        "HALL"
+      ],
+      "reason": "Gas in Hall: lamp held static red; nothing is switched near the gas",
+      "actuation": "hold_open",
+      "changed": false,
+      "locked": false,
+      "decided_by": "hazard_rule"
+    },
+    {
+      "id": "D2",
+      "state": "open",
+      "lamp": "red_static",
+      "entry_denied_into": [
+        "HALL"
+      ],
+      "reason": "Gas in Hall: lamp held static red; nothing is switched near the gas",
+      "actuation": "hold_open",
+      "changed": false,
+      "locked": false,
+      "decided_by": "hazard_rule"
+    },
+    {
+      "id": "D3",
+      "state": "open",
+      "lamp": "red_static",
+      "entry_denied_into": [
+        "HALL"
+      ],
+      "reason": "Gas in Hall: lamp held static red; nothing is switched near the gas",
+      "actuation": "hold_open",
+      "changed": false,
+      "locked": false,
+      "decided_by": "hazard_rule"
+    },
+    {
+      "id": "D4",
+      "state": "closed",
+      "lamp": "red_static",
+      "entry_denied_into": [
+        "HALL"
+      ],
+      "reason": "Gas in Hall: lamp held static red; nothing is switched near the gas; Locked in its default state (closed) because of gas in Hall",
+      "actuation": "simulated_servo",
+      "changed": false,
+      "locked": true,
+      "decided_by": "gas_lock"
+    },
+    {
+      "id": "D5",
+      "state": "open",
+      "lamp": "green",
+      "entry_denied_into": [],
+      "reason": "Default state",
+      "actuation": "hold_open",
+      "changed": false,
+      "locked": false,
+      "decided_by": "default"
+    },
+    {
+      "id": "D6",
+      "state": "open",
+      "lamp": "green",
+      "entry_denied_into": [],
+      "reason": "Default state",
+      "actuation": "hold_open",
+      "changed": false,
+      "locked": false,
+      "decided_by": "default"
+    },
+    {
+      "id": "D7",
+      "state": "open",
+      "lamp": "green",
+      "entry_denied_into": [],
+      "reason": "Default state",
+      "actuation": "indicator_only",
+      "changed": false,
+      "locked": false,
+      "decided_by": "default"
+    },
+    {
+      "id": "D8",
+      "state": "open",
+      "lamp": "green",
+      "entry_denied_into": [],
+      "reason": "Default state",
+      "actuation": "indicator_only",
+      "changed": false,
+      "locked": false,
+      "decided_by": "default"
+    },
+    {
+      "id": "D9",
+      "state": "closed",
+      "lamp": "off",
+      "entry_denied_into": [],
+      "reason": "Default state (closed, kept closed)",
+      "actuation": "motorized",
+      "changed": false,
+      "locked": false,
+      "decided_by": "default"
+    },
+    {
+      "id": "D10",
+      "state": "open",
+      "lamp": "green",
+      "entry_denied_into": [],
+      "reason": "Default state",
+      "actuation": "fixed",
+      "changed": false,
+      "locked": false,
+      "decided_by": "default"
+    }
+  ],
+  "exits": [
+    {
+      "id": "E1",
+      "zone": "LOBBY",
+      "safe": true,
+      "lamp": "green_flash",
+      "reason": "Safe: 64 modeled crossings",
+      "modeled_crossings": 64
+    },
+    {
+      "id": "E2",
+      "zone": "STAIR_N",
+      "safe": true,
+      "lamp": "green_flash",
+      "reason": "Safe: 33 modeled crossings",
+      "modeled_crossings": 33
+    },
+    {
+      "id": "E3",
+      "zone": "DOCK",
+      "safe": true,
+      "lamp": "green",
+      "reason": "Safe; no modeled flow",
+      "modeled_crossings": 0
+    },
+    {
+      "id": "E4",
+      "zone": "ROOM_A",
+      "safe": true,
+      "lamp": "green_flash",
+      "reason": "Safe: 28 modeled crossings",
+      "modeled_crossings": 28
+    }
+  ],
+  "zones": [
+    {
+      "id": "HALL",
+      "status": "no_entry",
+      "hazard_type": "GAS",
+      "untenable_at_s": 10,
+      "throughput_multiplier": null,
+      "initial_occupants": 80,
+      "remaining_at_horizon": 0
+    },
+    {
+      "id": "LOBBY",
+      "status": "passable",
+      "hazard_type": null,
+      "untenable_at_s": null,
+      "throughput_multiplier": null,
+      "initial_occupants": 20,
+      "remaining_at_horizon": 0
+    },
+    {
+      "id": "ROOM_A",
+      "status": "passable",
+      "hazard_type": null,
+      "untenable_at_s": null,
+      "throughput_multiplier": null,
+      "initial_occupants": 20,
+      "remaining_at_horizon": 0
+    },
+    {
+      "id": "KITCHEN",
+      "status": "passable",
+      "hazard_type": null,
+      "untenable_at_s": null,
+      "throughput_multiplier": null,
+      "initial_occupants": 5,
+      "remaining_at_horizon": 0
+    },
+    {
+      "id": "WEST_CORR",
+      "status": "passable",
+      "hazard_type": null,
+      "untenable_at_s": null,
+      "throughput_multiplier": null,
+      "initial_occupants": 0,
+      "remaining_at_horizon": 0
+    },
+    {
+      "id": "EAST_CORR",
+      "status": "passable",
+      "hazard_type": null,
+      "untenable_at_s": null,
+      "throughput_multiplier": null,
+      "initial_occupants": 0,
+      "remaining_at_horizon": 0
+    },
+    {
+      "id": "STAIR_N",
+      "status": "passable",
+      "hazard_type": null,
+      "untenable_at_s": null,
+      "throughput_multiplier": null,
+      "initial_occupants": 0,
+      "remaining_at_horizon": 0
+    },
+    {
+      "id": "DOCK",
+      "status": "passable",
+      "hazard_type": null,
+      "untenable_at_s": null,
+      "throughput_multiplier": null,
+      "initial_occupants": 0,
+      "remaining_at_horizon": 0
+    }
+  ],
+  "routes": [
+    {
+      "origin": "HALL",
+      "path": [
+        "HALL",
+        "EAST_CORR",
+        "LOBBY"
+      ],
+      "via_doors": [
+        "D3",
+        "D6"
+      ],
+      "exit_id": "E1",
+      "people": 21,
+      "slowed": false
+    },
+    {
+      "origin": "HALL",
+      "path": [
+        "HALL",
+        "WEST_CORR",
+        "STAIR_N"
+      ],
+      "via_doors": [
+        "D2",
+        "D10"
+      ],
+      "exit_id": "E2",
+      "people": 21,
+      "slowed": false
+    },
+    {
+      "origin": "LOBBY",
+      "path": [
+        "LOBBY"
+      ],
+      "via_doors": [],
+      "exit_id": "E1",
+      "people": 20,
+      "slowed": false
+    },
+    {
+      "origin": "ROOM_A",
+      "path": [
+        "ROOM_A"
+      ],
+      "via_doors": [],
+      "exit_id": "E4",
+      "people": 20,
+      "slowed": false
+    },
+    {
+      "origin": "HALL",
+      "path": [
+        "HALL",
+        "LOBBY"
+      ],
+      "via_doors": [
+        "D1"
+      ],
+      "exit_id": "E1",
+      "people": 18,
+      "slowed": false
+    },
+    {
+      "origin": "HALL",
+      "path": [
+        "HALL",
+        "LOBBY",
+        "WEST_CORR",
+        "STAIR_N"
+      ],
+      "via_doors": [
+        "D1",
+        "D5",
+        "D10"
+      ],
+      "exit_id": "E2",
+      "people": 12,
+      "slowed": false
+    },
+    {
+      "origin": "KITCHEN",
+      "path": [
+        "KITCHEN",
+        "EAST_CORR",
+        "LOBBY"
+      ],
+      "via_doors": [
+        "D8",
+        "D6"
+      ],
+      "exit_id": "E1",
+      "people": 5,
+      "slowed": false
+    },
+    {
+      "origin": "HALL",
+      "path": [
+        "HALL",
+        "EAST_CORR",
+        "LOBBY",
+        "WEST_CORR",
+        "ROOM_A"
+      ],
+      "via_doors": [
+        "D3",
+        "D6",
+        "D5",
+        "D7"
+      ],
+      "exit_id": "E4",
+      "people": 4,
+      "slowed": false
+    },
+    {
+      "origin": "HALL",
+      "path": [
+        "HALL",
+        "WEST_CORR",
+        "ROOM_A"
+      ],
+      "via_doors": [
+        "D2",
+        "D7"
+      ],
+      "exit_id": "E4",
+      "people": 4,
+      "slowed": false
+    }
+  ],
+  "chosen": {
+    "run_id": "run-951c6efa32f84aada028a7377ede4443",
+    "candidate_hash": "de3f0f001e61b594",
+    "status": "COMPLETE_WITHIN_MODEL",
+    "initial_population": 125,
+    "completed_crossings": 125,
+    "remaining_population": 0,
+    "horizon_seconds": 40,
+    "time_step_seconds": 2,
+    "exit_breakdown": {
+      "E1": 64,
+      "E2": 33,
+      "E3": 0,
+      "E4": 28
+    },
+    "timeline": [
+      {
+        "step": 0,
+        "time_seconds": 0,
+        "occupancy": {
+          "HALL": 80,
+          "LOBBY": 16,
+          "ROOM_A": 18,
+          "KITCHEN": 5,
+          "WEST_CORR": 0,
+          "EAST_CORR": 0,
+          "STAIR_N": 0,
+          "DOCK": 0
+        },
+        "exits_cumulative": {
+          "E1": 4,
+          "E2": 0,
+          "E3": 0,
+          "E4": 2
+        },
+        "in_transit": 0,
+        "total_completed": 6
+      },
+      {
+        "step": 1,
+        "time_seconds": 2,
+        "occupancy": {
+          "HALL": 64,
+          "LOBBY": 18,
+          "ROOM_A": 16,
+          "KITCHEN": 1,
+          "WEST_CORR": 5,
+          "EAST_CORR": 9,
+          "STAIR_N": 0,
+          "DOCK": 0
+        },
+        "exits_cumulative": {
+          "E1": 8,
+          "E2": 0,
+          "E3": 0,
+          "E4": 4
+        },
+        "in_transit": 0,
+        "total_completed": 12
+      },
+      {
+        "step": 2,
+        "time_seconds": 4,
+        "occupancy": {
+          "HALL": 48,
+          "LOBBY": 24,
+          "ROOM_A": 15,
+          "KITCHEN": 1,
+          "WEST_CORR": 5,
+          "EAST_CORR": 10,
+          "STAIR_N": 0,
+          "DOCK": 0
+        },
+        "exits_cumulative": {
+          "E1": 12,
+          "E2": 0,
+          "E3": 0,
+          "E4": 6
+        },
+        "in_transit": 4,
+        "total_completed": 18
+      },
+      {
+        "step": 3,
+        "time_seconds": 6,
+        "occupancy": {
+          "HALL": 32,
+          "LOBBY": 30,
+          "ROOM_A": 14,
+          "KITCHEN": 1,
+          "WEST_CORR": 5,
+          "EAST_CORR": 11,
+          "STAIR_N": 1,
+          "DOCK": 0
+        },
+        "exits_cumulative": {
+          "E1": 16,
+          "E2": 3,
+          "E3": 0,
+          "E4": 8
+        },
+        "in_transit": 4,
+        "total_completed": 27
+      },
+      {
+        "step": 4,
+        "time_seconds": 8,
+        "occupancy": {
+          "HALL": 16,
+          "LOBBY": 36,
+          "ROOM_A": 13,
+          "KITCHEN": 1,
+          "WEST_CORR": 5,
+          "EAST_CORR": 12,
+          "STAIR_N": 2,
+          "DOCK": 0
+        },
+        "exits_cumulative": {
+          "E1": 20,
+          "E2": 6,
+          "E3": 0,
+          "E4": 10
+        },
+        "in_transit": 4,
+        "total_completed": 36
+      },
+      {
+        "step": 5,
+        "time_seconds": 10,
+        "occupancy": {
+          "HALL": 0,
+          "LOBBY": 39,
+          "ROOM_A": 12,
+          "KITCHEN": 1,
+          "WEST_CORR": 9,
+          "EAST_CORR": 16,
+          "STAIR_N": 3,
+          "DOCK": 0
+        },
+        "exits_cumulative": {
+          "E1": 24,
+          "E2": 9,
+          "E3": 0,
+          "E4": 12
+        },
+        "in_transit": 0,
+        "total_completed": 45
+      },
+      {
+        "step": 6,
+        "time_seconds": 12,
+        "occupancy": {
+          "HALL": 0,
+          "LOBBY": 39,
+          "ROOM_A": 10,
+          "KITCHEN": 1,
+          "WEST_CORR": 6,
+          "EAST_CORR": 12,
+          "STAIR_N": 0,
+          "DOCK": 0
+        },
+        "exits_cumulative": {
+          "E1": 28,
+          "E2": 12,
+          "E3": 0,
+          "E4": 14
+        },
+        "in_transit": 3,
+        "total_completed": 54
+      },
+      {
+        "step": 7,
+        "time_seconds": 14,
+        "occupancy": {
+          "HALL": 0,
+          "LOBBY": 37,
+          "ROOM_A": 8,
+          "KITCHEN": 1,
+          "WEST_CORR": 4,
+          "EAST_CORR": 8,
+          "STAIR_N": 0,
+          "DOCK": 0
+        },
+        "exits_cumulative": {
+          "E1": 32,
+          "E2": 15,
+          "E3": 0,
+          "E4": 16
+        },
+        "in_transit": 4,
+        "total_completed": 63
+      },
+      {
+        "step": 8,
+        "time_seconds": 16,
+        "occupancy": {
+          "HALL": 0,
+          "LOBBY": 33,
+          "ROOM_A": 6,
+          "KITCHEN": 1,
+          "WEST_CORR": 4,
+          "EAST_CORR": 4,
+          "STAIR_N": 1,
+          "DOCK": 0
+        },
+        "exits_cumulative": {
+          "E1": 36,
+          "E2": 18,
+          "E3": 0,
+          "E4": 18
+        },
+        "in_transit": 4,
+        "total_completed": 72
+      },
+      {
+        "step": 9,
+        "time_seconds": 18,
+        "occupancy": {
+          "HALL": 0,
+          "LOBBY": 25,
+          "ROOM_A": 4,
+          "KITCHEN": 1,
+          "WEST_CORR": 4,
+          "EAST_CORR": 4,
+          "STAIR_N": 2,
+          "DOCK": 0
+        },
+        "exits_cumulative": {
+          "E1": 40,
+          "E2": 21,
+          "E3": 0,
+          "E4": 20
+        },
+        "in_transit": 4,
+        "total_completed": 81
+      },
+      {
+        "step": 10,
+        "time_seconds": 20,
+        "occupancy": {
+          "HALL": 0,
+          "LOBBY": 23,
+          "ROOM_A": 2,
+          "KITCHEN": 0,
+          "WEST_CORR": 2,
+          "EAST_CORR": 1,
+          "STAIR_N": 3,
+          "DOCK": 0
+        },
+        "exits_cumulative": {
+          "E1": 44,
+          "E2": 24,
+          "E3": 0,
+          "E4": 22
+        },
+        "in_transit": 4,
+        "total_completed": 90
+      },
+      {
+        "step": 11,
+        "time_seconds": 22,
+        "occupancy": {
+          "HALL": 0,
+          "LOBBY": 16,
+          "ROOM_A": 0,
+          "KITCHEN": 0,
+          "WEST_CORR": 4,
+          "EAST_CORR": 0,
+          "STAIR_N": 4,
+          "DOCK": 0
+        },
+        "exits_cumulative": {
+          "E1": 48,
+          "E2": 27,
+          "E3": 0,
+          "E4": 24
+        },
+        "in_transit": 2,
+        "total_completed": 99
+      },
+      {
+        "step": 12,
+        "time_seconds": 24,
+        "occupancy": {
+          "HALL": 0,
+          "LOBBY": 12,
+          "ROOM_A": 2,
+          "KITCHEN": 0,
+          "WEST_CORR": 0,
+          "EAST_CORR": 0,
+          "STAIR_N": 3,
+          "DOCK": 0
+        },
+        "exits_cumulative": {
+          "E1": 52,
+          "E2": 30,
+          "E3": 0,
+          "E4": 26
+        },
+        "in_transit": 0,
+        "total_completed": 108
+      },
+      {
+        "step": 13,
+        "time_seconds": 26,
+        "occupancy": {
+          "HALL": 0,
+          "LOBBY": 8,
+          "ROOM_A": 0,
+          "KITCHEN": 0,
+          "WEST_CORR": 0,
+          "EAST_CORR": 0,
+          "STAIR_N": 0,
+          "DOCK": 0
+        },
+        "exits_cumulative": {
+          "E1": 56,
+          "E2": 33,
+          "E3": 0,
+          "E4": 28
+        },
+        "in_transit": 0,
+        "total_completed": 117
+      },
+      {
+        "step": 14,
+        "time_seconds": 28,
+        "occupancy": {
+          "HALL": 0,
+          "LOBBY": 4,
+          "ROOM_A": 0,
+          "KITCHEN": 0,
+          "WEST_CORR": 0,
+          "EAST_CORR": 0,
+          "STAIR_N": 0,
+          "DOCK": 0
+        },
+        "exits_cumulative": {
+          "E1": 60,
+          "E2": 33,
+          "E3": 0,
+          "E4": 28
+        },
+        "in_transit": 0,
+        "total_completed": 121
+      },
+      {
+        "step": 15,
+        "time_seconds": 30,
+        "occupancy": {
+          "HALL": 0,
+          "LOBBY": 0,
+          "ROOM_A": 0,
+          "KITCHEN": 0,
+          "WEST_CORR": 0,
+          "EAST_CORR": 0,
+          "STAIR_N": 0,
+          "DOCK": 0
+        },
+        "exits_cumulative": {
+          "E1": 64,
+          "E2": 33,
+          "E3": 0,
+          "E4": 28
+        },
+        "in_transit": 0,
+        "total_completed": 125
+      },
+      {
+        "step": 16,
+        "time_seconds": 32,
+        "occupancy": {
+          "HALL": 0,
+          "LOBBY": 0,
+          "ROOM_A": 0,
+          "KITCHEN": 0,
+          "WEST_CORR": 0,
+          "EAST_CORR": 0,
+          "STAIR_N": 0,
+          "DOCK": 0
+        },
+        "exits_cumulative": {
+          "E1": 64,
+          "E2": 33,
+          "E3": 0,
+          "E4": 28
+        },
+        "in_transit": 0,
+        "total_completed": 125
+      },
+      {
+        "step": 17,
+        "time_seconds": 34,
+        "occupancy": {
+          "HALL": 0,
+          "LOBBY": 0,
+          "ROOM_A": 0,
+          "KITCHEN": 0,
+          "WEST_CORR": 0,
+          "EAST_CORR": 0,
+          "STAIR_N": 0,
+          "DOCK": 0
+        },
+        "exits_cumulative": {
+          "E1": 64,
+          "E2": 33,
+          "E3": 0,
+          "E4": 28
+        },
+        "in_transit": 0,
+        "total_completed": 125
+      },
+      {
+        "step": 18,
+        "time_seconds": 36,
+        "occupancy": {
+          "HALL": 0,
+          "LOBBY": 0,
+          "ROOM_A": 0,
+          "KITCHEN": 0,
+          "WEST_CORR": 0,
+          "EAST_CORR": 0,
+          "STAIR_N": 0,
+          "DOCK": 0
+        },
+        "exits_cumulative": {
+          "E1": 64,
+          "E2": 33,
+          "E3": 0,
+          "E4": 28
+        },
+        "in_transit": 0,
+        "total_completed": 125
+      },
+      {
+        "step": 19,
+        "time_seconds": 38,
+        "occupancy": {
+          "HALL": 0,
+          "LOBBY": 0,
+          "ROOM_A": 0,
+          "KITCHEN": 0,
+          "WEST_CORR": 0,
+          "EAST_CORR": 0,
+          "STAIR_N": 0,
+          "DOCK": 0
+        },
+        "exits_cumulative": {
+          "E1": 64,
+          "E2": 33,
+          "E3": 0,
+          "E4": 28
+        },
+        "in_transit": 0,
+        "total_completed": 125
+      },
+      {
+        "step": 20,
+        "time_seconds": 40,
+        "occupancy": {
+          "HALL": 0,
+          "LOBBY": 0,
+          "ROOM_A": 0,
+          "KITCHEN": 0,
+          "WEST_CORR": 0,
+          "EAST_CORR": 0,
+          "STAIR_N": 0,
+          "DOCK": 0
+        },
+        "exits_cumulative": {
+          "E1": 64,
+          "E2": 33,
+          "E3": 0,
+          "E4": 28
+        },
+        "in_transit": 0,
+        "total_completed": 125
+      }
+    ],
+    "validator_report": {
+      "is_valid": true,
+      "checks_run": [
+        "inputs_well_formed",
+        "witness_non_negative_integral",
+        "no_flow_on_disallowed_arcs",
+        "arc_capacities",
+        "flow_conservation",
+        "source_injection_matches_initial_occupants",
+        "completed_equals_exit_service",
+        "remaining_equals_initial_minus_completed",
+        "timeline_shape",
+        "timeline_matches_witness",
+        "timeline_population_conservation",
+        "timeline_initial_frame",
+        "timeline_exit_rates",
+        "timeline_terminal_consistency",
+        "computation_status_consistency"
+      ],
+      "reasons": []
+    },
+    "modeled_exposure_people_seconds": 480,
+    "exposure_label": "Modeled people-seconds in hazard zones; not a casualty or survival prediction"
+  },
+  "baseline": {
+    "completed_crossings": 125,
+    "run_id": "run-951c6efa32f84aada028a7377ede4443"
+  },
+  "no_hazard_completed": 125,
+  "alternatives": [
+    {
+      "door_states": {
+        "D9": "closed"
+      },
+      "completed_crossings": 125,
+      "modeled_exposure_people_seconds": 480,
+      "is_valid": true,
+      "rank": 1,
+      "run_id": "run-951c6efa32f84aada028a7377ede4443"
+    },
+    {
+      "door_states": {
+        "D9": "open"
+      },
+      "completed_crossings": 125,
+      "modeled_exposure_people_seconds": 480,
+      "is_valid": true,
+      "rank": 2,
+      "run_id": "run-6fd651e4c9784cc9a895c41447d6fd36"
+    }
+  ],
+  "lights": {
+    "px": "FFFFFFFFFFFFggggggFFFLLL",
+    "segments": [
+      {
+        "element_id": "E1",
+        "range": [
+          0,
+          5
+        ],
+        "code": "F"
+      },
+      {
+        "element_id": "E2",
+        "range": [
+          6,
+          11
+        ],
+        "code": "F"
+      },
+      {
+        "element_id": "E3",
+        "range": [
+          12,
+          17
+        ],
+        "code": "g"
+      },
+      {
+        "element_id": "E4",
+        "range": [
+          18,
+          20
+        ],
+        "code": "F"
+      },
+      {
+        "element_id": "D4",
+        "range": [
+          21,
+          23
+        ],
+        "code": "L"
+      }
+    ],
+    "held": [
+      "D1",
+      "D2",
+      "D3",
+      "D4"
+    ]
+  },
+  "advisories": [
+    "Gas in Hall: ventilate to the outside manually; operate no switches nearby."
+  ],
+  "announcement": "Attention. A gas leak in the hall. Use the south exit, north stair exit or west exit. Do not operate switches near the hall.",
+  "model_assumptions": [
+    "building-v2 model: illustrative eight-zone building, synthetic population and declared rates; not a surveyed plan.",
+    "A hazard applies to the whole zone that contains its point.",
+    "Same-zone precedence for zone status: FIRE = CHEMICAL > GAS > SMOKE > WATER; only the effective hazards drive the zone, safety locks (gas) are unions across all hazards.",
+    "Closing a door means closed to entry; occupants inside a hazard zone may still leave until it is untenable.",
+    "Several hazards combine as the minimum untenable time, the minimum throughput factor and the maximum travel factor.",
+    "FIRE and CHEMICAL: no entry from the start; untenable at T; hold-open doors bounding the zone release; exits in the zone are unsafe.",
+    "SMOKE: no entry, throughput x0.5 on bounding doors and zone exits, untenable at T, hold-open doors release, zone exits unsafe and closed from detection.",
+    "GAS: no entry, untenable at T; the system opens and releases no door and switches nothing; motorized and servo doors bounding the zone stay locked in their default state; their lights are set static red once.",
+    "WATER: passable; throughput x0.5 and travel x2 on bounding doors and zone exits; no door changes.",
+    "Counts are modeled crossings inside this model with declared times, rates and a fixed horizon; never survival or casualty predictions.",
+    "Horizon 40 s, step 2 s, synthetic population 125.",
+    "Modeled exposure sums occupancy x step over the first T steps of the timeline, in zones with FIRE, SMOKE, GAS or CHEMICAL."
+  ],
+  "timings_ms": 19.94
+}
