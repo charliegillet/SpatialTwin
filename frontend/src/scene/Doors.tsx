@@ -1,14 +1,18 @@
 import { useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import type * as THREE from 'three';
+import * as THREE from 'three';
 import { gateAmount } from '../twin/gateDraw.ts';
 import { doorRenders, type DoorRender } from '../twin/sceneModel.ts';
 import type { DoorPlanResponse, GateVisual, VenueV2 } from '../twin/types.ts';
 import { toWorld } from './coords.ts';
-import { WALL_HEIGHT } from './Building.tsx';
+import { ORDER, WALL_HEIGHT } from './Building.tsx';
+import { LEAF_COLOR } from './palette.ts';
 
 const SWING = Math.PI / 2 - 0.12;
 const WARNING = '#efa28c';
+const DOUBT_LEAF = '#5a4a44';
+const LEAF_HEIGHT = WALL_HEIGHT - 0.06;
+const LEAF_THICK = 0.06;
 
 function Door({ door, gate, reducedMotion }: { door: DoorRender; gate?: GateVisual; reducedMotion: boolean }) {
   const pivot = useRef<THREE.Group>(null);
@@ -30,15 +34,28 @@ function Door({ door, gate, reducedMotion }: { door: DoorRender; gate?: GateVisu
     if (moving || amount.current !== target) invalidate();
   });
 
-  const open = gate ? gate.draw === 'open' : door.open;
+  const leaf = doubtful ? DOUBT_LEAF : LEAF_COLOR[door.kind];
+  // The threshold strip shows the door's lamp on the floor, so open / denied reads from the top view too.
+  const sill: [number, number, number] = door.axis === 'x' ? [door.width, 0.012, 0.26] : [0.26, 0.012, door.width];
   return (
     <group>
+      <mesh position={toWorld(x, y, 0.012)} renderOrder={ORDER.overlay}>
+        <boxGeometry args={sill} />
+        <meshBasicMaterial color={doubtful ? WARNING : door.color} transparent opacity={0.7} depthWrite={false} />
+      </mesh>
       {door.hasLeaf && (
         <group position={hingeWorld} ref={pivot}>
-          <mesh position={[half, 0.55, 0]}>
-            <boxGeometry args={[door.width, 1.1, 0.1]} />
-            <meshStandardMaterial color={doubtful ? '#5a4a44' : open ? '#33403b' : '#46544e'} roughness={0.6} metalness={0.2} />
+          <mesh position={[half, LEAF_HEIGHT / 2 + 0.02, 0]}>
+            <boxGeometry args={[door.width - 0.04, LEAF_HEIGHT, LEAF_THICK]} />
+            <meshStandardMaterial color={leaf} roughness={0.55} metalness={door.kind === 'servo_door' || door.kind === 'roller_door' ? 0.45 : 0.08} />
           </mesh>
+          {/* Fire and smoke doors carry a pale rated band across the leaf, so they stay distinct from room doors. */}
+          {(door.kind === 'fire_door' || door.kind === 'smoke_door') && !doubtful && (
+            <mesh position={[half, LEAF_HEIGHT * 0.72, 0]}>
+              <boxGeometry args={[door.width - 0.1, 0.07, LEAF_THICK + 0.012]} />
+              <meshBasicMaterial color="#e9d8c7" />
+            </mesh>
+          )}
         </group>
       )}
       <mesh position={toWorld(x, y, WALL_HEIGHT + 0.32)}>

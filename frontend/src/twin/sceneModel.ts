@@ -2,7 +2,7 @@
 import { HAZARD_COLOR, LAMP_COLOR, PALETTE, ZONE_TINT } from '../scene/palette.ts';
 import { polygonCentroid } from './geometry.ts';
 import type {
-  DoorLamp, DoorPlanResponse, ExitLamp, HazardType, PlacedHazard, Point2, VenueV2, ZoneStatus,
+  DoorKind, DoorLamp, DoorPlanResponse, ExitLamp, HazardType, PlacedHazard, Point2, VenueV2, ZoneStatus,
 } from './types.ts';
 
 const EPS = 1e-6;
@@ -102,6 +102,93 @@ export function buildWalls(venue: VenueV2): WallSegment[] {
   return [...walls, ...slanted.values()];
 }
 
+/** A straight run of solid wall for the 3D model: contiguous pieces of one kind merged, each end marked as a joint
+ * (a corner or a wall meeting it, where boxes overlap to close the corner) or the edge of a doorway / exit. */
+export interface WallRun extends WallSegment {
+  /** True when this end stops at an opening: the box ends exactly there, so the gap keeps its full width. */
+  openA: boolean;
+  openB: boolean;
+}
+
+/** Edges (along the wall) of every opening that cuts a wall, keyed by wall line. Interior stairs cut nothing. */
+function openingEdges(venue: VenueV2): Map<string, number[]> {
+  const edges = new Map<string, number[]>();
+  for (const o of [...venue.doors, ...venue.exits.filter((exit) => !isInteriorStair(exit))]) {
+    // Both lines through the point, exactly as buildWalls cuts them.
+    for (const axis of ['x', 'y'] as const) {
+      const along = axis === 'x' ? o.position[0] : o.position[1];
+      const id = `${axis}:${key(axis === 'x' ? o.position[1] : o.position[0])}`;
+      edges.set(id, [...(edges.get(id) ?? []), along - o.width / 2, along + o.width / 2]);
+    }
+  }
+  return edges;
+}
+
+/** buildWalls, merged into the fewest boxes: one per straight stretch of the same kind between openings. Merging
+ * matters for the look: overlapping collinear boxes would z-fight on their shared faces. */
+export function wallRuns(venue: VenueV2): WallRun[] {
+  const edges = openingEdges(venue);
+  const lines = new Map<string, { axis: 'x' | 'y'; at: number; exterior: boolean; spans: [number, number][] }>();
+  const out: WallRun[] = [];
+  for (const w of buildWalls(venue)) {
+    const horizontal = Math.abs(w.a[1] - w.b[1]) < EPS;
+    const vertical = Math.abs(w.a[0] - w.b[0]) < EPS;
+    if (!horizontal && !vertical) {
+      out.push({ ...w, openA: false, openB: false });
+      continue;
+    }
+    const axis = horizontal ? 'x' : 'y';
+    const at = horizontal ? w.a[1] : w.a[0];
+    const lo = Math.min(horizontal ? w.a[0] : w.a[1], horizontal ? w.b[0] : w.b[1]);
+    const hi = Math.max(horizontal ? w.a[0] : w.a[1], horizontal ? w.b[0] : w.b[1]);
+    const id = `${axis}:${key(at)}:${w.exterior ? 'e' : 'i'}`;
+    const line = lines.get(id) ?? { axis, at, exterior: w.exterior, spans: [] };
+    line.spans.push([lo, hi]);
+    lines.set(id, line);
+  }
+  for (const line of lines.values()) {
+    const gaps = edges.get(`${line.axis}:${key(line.at)}`) ?? [];
+    const isOpen = (v: number) => gaps.some((g) => Math.abs(g - v) < 1e-4);
+    const spans = line.spans.sort((p, q) => p[0] - q[0]);
+    const merged: [number, number][] = [];
+    for (const [lo, hi] of spans) {
+      const last = merged[merged.length - 1];
+      if (last && Math.abs(last[1] - lo) < 1e-6 && !isOpen(lo)) last[1] = Math.max(last[1], hi);
+      else merged.push([lo, hi]);
+    }
+    for (const [lo, hi] of merged) {
+      const a: Point2 = line.axis === 'x' ? [lo, line.at] : [line.at, lo];
+      const b: Point2 = line.axis === 'x' ? [hi, line.at] : [line.at, hi];
+      out.push({ a, b, exterior: line.exterior, openA: isOpen(lo), openB: isOpen(hi) });
+    }
+  }
+  return out;
+}
+
+/** The two jambs of every doorway and wall exit: where the frame posts stand. */
+export interface OpeningFrame {
+  id: string;
+  /** 'door' between rooms, 'exit' through an outside wall. */
+  role: 'door' | 'exit';
+  position: Point2;
+  width: number;
+  axis: 'x' | 'y';
+  jambs: [Point2, Point2];
+}
+
+export function openingFrames(venue: VenueV2): OpeningFrame[] {
+  const frames: OpeningFrame[] = [];
+  const add = (id: string, role: OpeningFrame['role'], position: Point2, width: number) => {
+    const axis = wallAxisAt(venue, position);
+    const [x, y] = position;
+    const h = width / 2;
+    frames.push({ id, role, position, width, axis, jambs: axis === 'x' ? [[x - h, y], [x + h, y]] : [[x, y - h], [x, y + h]] });
+  };
+  for (const d of venue.doors) add(d.id, 'door', d.position, d.width);
+  for (const e of venue.exits) if (!isInteriorStair(e)) add(e.id, 'exit', e.position, e.width);
+  return frames;
+}
+
 /** Direction the wall runs at a point: 'x' = along east-west (horizontal wall), 'y' = along north-south. */
 export function wallAxisAt(venue: VenueV2, position: Point2): 'x' | 'y' {
   for (const zone of venue.zones) {
@@ -132,6 +219,8 @@ export interface DoorRender {
   simulated: boolean;
   /** Doorways without a leaf (kind 'opening') are always passable. */
   hasLeaf: boolean;
+  /** The venue's door kind: fire and smoke doors are drawn apart from room doors and motorized gates. */
+  kind: DoorKind;
   /** Which side of the wall the leaf swings toward: +1 / -1 along the wall normal. */
   swing: 1 | -1;
 }
@@ -154,6 +243,7 @@ export function doorRenders(venue: VenueV2, plan: DoorPlanResponse | null): Door
       locked: Boolean(decided?.locked),
       simulated,
       hasLeaf: door.kind !== 'opening',
+      kind: door.kind,
       swing: door.id.length % 2 === 0 ? 1 : -1,
     };
   });
@@ -290,6 +380,21 @@ export function routeRenders(venue: VenueV2, plan: DoorPlanResponse | null): Rou
   return out;
 }
 
+/** How a room's floor is shaded. VenueV2 zones carry no kind, so it is read from the name, conservatively: only clear
+ * words count, and anything else is an ordinary room. It changes the floor tint and nothing the planner sees. */
+export type FloorKind = 'room' | 'circulation' | 'stair' | 'service';
+
+const STAIR_WORDS = /\bstair(?:s|well|way|case)?\b/i;
+const CIRCULATION_WORDS = /\b(?:corridor|corr|hall|hallway|lobby|foyer|walkway|passage|landing|vestibule|concourse|entry|entrance)\b/i;
+const SERVICE_WORDS = /\b(?:elevators?|lifts?|shaft|riser|plant|mechanical|electrical|utility|storage|store|closet|dock)\b/i;
+
+export function floorKind(name: string): FloorKind {
+  if (STAIR_WORDS.test(name)) return 'stair';
+  if (CIRCULATION_WORDS.test(name)) return 'circulation';
+  if (SERVICE_WORDS.test(name)) return 'service';
+  return 'room';
+}
+
 export interface ZoneRender {
   id: string;
   name: string;
@@ -299,6 +404,7 @@ export interface ZoneRender {
   hazardType: HazardType | null;
   tintColor: string;
   tintOpacity: number;
+  floorKind: FloorKind;
 }
 
 export function zoneRenders(venue: VenueV2, plan: DoorPlanResponse | null): ZoneRender[] {
@@ -315,6 +421,7 @@ export function zoneRenders(venue: VenueV2, plan: DoorPlanResponse | null): Zone
       hazardType: decided?.hazard_type ?? null,
       tintColor: tint.color,
       tintOpacity: tint.opacity,
+      floorKind: floorKind(zone.name),
     };
   });
 }

@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { exitRenders, type ExitRender } from '../twin/sceneModel.ts';
 import type { DoorPlanResponse, VenueV2 } from '../twin/types.ts';
 import { toWorld } from './coords.ts';
-import { WALL_HEIGHT } from './Building.tsx';
+import { ORDER, OUTER_WALL_HEIGHT } from './Building.tsx';
 
 const FLASH_CYCLES = 4;
 const CYCLE_S = 0.8;
@@ -37,17 +37,57 @@ function xGeometry(): THREE.BufferGeometry {
   return merged;
 }
 
-/** Floor marker for an interior exit stair: a square outline of the given side with three treads across it. */
-function stairGeometry(side: number): THREE.BufferGeometry {
-  const outer = side / Math.SQRT2;
-  const ring = new THREE.RingGeometry(outer * 0.82, outer, 4, 1, Math.PI / 4).toNonIndexed();
-  const treads = [-0.25, 0, 0.25].map((t) => new THREE.PlaneGeometry(side * 0.62, 0.06).translate(0, t * side, 0).toNonIndexed());
-  const parts = [ring, ...treads].map((g) => g.getAttribute('position').array as Float32Array);
-  const pos = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
-  parts.reduce((offset, p) => { pos.set(p, offset); return offset + p.length; }, 0);
-  const merged = new THREE.BufferGeometry();
-  merged.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  return merged;
+const TREADS = 7;
+const RAIL_HEIGHT = 0.85;
+const RAIL_COLOR = '#c3ccc7';
+
+/**
+ * An interior exit stair (an upper floor's stair core): a dark well with treads stepping down in the direction of
+ * travel, a guard rail on the three sides you cannot enter from, and its outline in the exit's state colour. Local
+ * axes: x across the flight, z along the direction of travel (exit.outward), so the open side faces the run-up.
+ */
+function StairCore({ exit, side }: { exit: ExitRender; side: number }) {
+  const [x, y] = exit.position;
+  const [ox, oy] = exit.outward;
+  const yaw = Math.atan2(ox, -oy); // local x -> the floor direction (-oy, ox); local z -> outward
+  const h = side / 2;
+  const tread = side / TREADS;
+  const shade = (i: number) => new THREE.Color('#6b7d86').lerp(new THREE.Color('#151c20'), i / (TREADS - 1));
+  const rails: [number, number, number, number][] = [[-h, 0, 0.05, side], [h, 0, 0.05, side], [0, h, side, 0.05]];
+  const posts: [number, number][] = [[-h, -h], [-h, 0], [-h, h], [h, -h], [h, 0], [h, h], [0, h]];
+  return (
+    <group position={toWorld(x, y, 0)} rotation={[0, yaw, 0]}>
+      <mesh position={[0, 0.006, 0]} rotation={[-Math.PI / 2, 0, 0]} renderOrder={ORDER.overlay}>
+        <planeGeometry args={[side, side]} />
+        <meshBasicMaterial color="#05080a" transparent opacity={0.92} depthWrite={false} />
+      </mesh>
+      {Array.from({ length: TREADS }, (_, i) => (
+        <mesh key={i} position={[0, 0.012, -h + (i + 0.5) * tread]}>
+          <boxGeometry args={[side * 0.86, 0.012, tread * 0.62]} />
+          <meshBasicMaterial color={shade(i)} />
+        </mesh>
+      ))}
+      {/* State outline: four bars around the well. */}
+      {[[0, -h, side + 0.1, 0.09], [0, h, side + 0.1, 0.09], [-h, 0, 0.09, side + 0.1], [h, 0, 0.09, side + 0.1]].map(([cx, cz, w, d], i) => (
+        <mesh key={`o${i}`} position={[cx, 0.03, cz]}>
+          <boxGeometry args={[w, 0.02, d]} />
+          <meshBasicMaterial color={exit.color} />
+        </mesh>
+      ))}
+      {rails.map(([cx, cz, w, d], i) => (
+        <mesh key={`r${i}`} position={[cx, RAIL_HEIGHT, cz]}>
+          <boxGeometry args={[w, 0.05, d]} />
+          <meshStandardMaterial color={RAIL_COLOR} roughness={0.5} metalness={0.3} />
+        </mesh>
+      ))}
+      {posts.map(([cx, cz], i) => (
+        <mesh key={`p${i}`} position={[cx, RAIL_HEIGHT / 2, cz]}>
+          <boxGeometry args={[0.04, RAIL_HEIGHT, 0.04]} />
+          <meshStandardMaterial color={RAIL_COLOR} roughness={0.5} metalness={0.3} />
+        </mesh>
+      ))}
+    </group>
+  );
 }
 
 function ExitSign({ exit, reducedMotion }: { exit: ExitRender; reducedMotion: boolean }) {
@@ -58,7 +98,6 @@ function ExitSign({ exit, reducedMotion }: { exit: ExitRender; reducedMotion: bo
   const chevron = useMemo(chevronGeometry, []);
   const cross = useMemo(xGeometry, []);
   const stairSide = Math.max(exit.width, 1.0);
-  const stair = useMemo(() => (exit.interior ? stairGeometry(stairSide) : null), [exit.interior, stairSide]);
   const [x, y] = exit.position;
   const [ox, oy] = exit.outward;
   // Direction of travel on the floor: chevron local +y must point along outward (floor) = world (ox, 0, -oy).
@@ -95,8 +134,13 @@ function ExitSign({ exit, reducedMotion }: { exit: ExitRender; reducedMotion: bo
 
   const showSafe = exit.kind === 'safe';
   const showUnsafe = exit.kind === 'unsafe';
-  const lampY = WALL_HEIGHT + 0.3;
-  const barSize: [number, number, number] = exit.axis === 'x' ? [exit.width, 0.1, 0.1] : [0.1, 0.1, exit.width];
+  // The exit sign: a lit panel over the doorway in the outer wall (or hung over a stair core), coloured by state.
+  // Over a stair core it stands on the far rail, facing the run-up.
+  const lampY = exit.interior ? RAIL_HEIGHT + 0.2 : OUTER_WALL_HEIGHT + 0.3;
+  const signX = exit.interior ? x + ox * (stairSide / 2) : x;
+  const signY = exit.interior ? y + oy * (stairSide / 2) : y;
+  const signW = Math.min(1.4, Math.max(0.8, exit.width * 0.6));
+  const signSize: [number, number, number] = exit.axis === 'x' ? [signW, 0.32, 0.08] : [0.08, 0.32, signW];
   // A wall exit's chevrons run through the doorway; an interior stair's lead up to its floor marker, and only those
   // whose tail (0.8 m behind the tip) stays on its room's floor are drawn. The floor X sits just inside a wall exit,
   // or on the stair itself.
@@ -105,15 +149,11 @@ function ExitSign({ exit, reducedMotion }: { exit: ExitRender; reducedMotion: bo
   const shown = [0, 1, 2].filter((i) => i * 0.9 + lead - 0.8 >= -exit.approach + 0.1);
   return (
     <group>
-      <mesh position={toWorld(x, y, lampY)}>
-        <boxGeometry args={barSize} />
+      <mesh position={toWorld(signX, signY, lampY)}>
+        <boxGeometry args={signSize} />
         <meshBasicMaterial color={exit.color} />
       </mesh>
-      {stair && (
-        <mesh geometry={stair} position={toWorld(x, y, 0.025)} rotation={[-Math.PI / 2, 0, 0]}>
-          <meshBasicMaterial color={exit.color} side={THREE.DoubleSide} />
-        </mesh>
-      )}
+      {exit.interior && <StairCore exit={exit} side={stairSide} />}
       {showSafe && shown.map((i) => (
         <mesh
           key={i}
@@ -130,7 +170,7 @@ function ExitSign({ exit, reducedMotion }: { exit: ExitRender; reducedMotion: bo
           <mesh geometry={cross} position={toWorld(x - ox * inward, y - oy * inward, 0.03)} rotation={[-Math.PI / 2, 0, 0]}>
             <meshBasicMaterial color={exit.color} side={THREE.DoubleSide} />
           </mesh>
-          <group ref={billboard} position={toWorld(x, y, WALL_HEIGHT + 1.0)}>
+          <group ref={billboard} position={toWorld(x, y, Math.max(lampY, OUTER_WALL_HEIGHT) + 0.8)}>
             <mesh geometry={cross}>
               <meshBasicMaterial color={exit.color} side={THREE.DoubleSide} />
             </mesh>

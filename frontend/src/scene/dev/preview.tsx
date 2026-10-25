@@ -1,7 +1,10 @@
 /// <reference types="vite/client" />
 // Dev-only harness (not part of the production build): scene-preview.html?case=fire-lobby&view=3d|2d
+// An accepted venue from the backend: scene-preview.html?venue=ferry-building-level-2 (plans with the local solver only;
+// nothing here starts an agent run or calls a provider).
 import { createRoot } from 'react-dom/client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { fetchVenue, postDoorPlan } from '../../api/twin.ts';
 import venueJson from '../../twin/fixtures/building-v2.json';
 import TwinScene3D from '../TwinScene3D.tsx';
 import TwinPlan2D from '../TwinPlan2D.tsx';
@@ -9,7 +12,7 @@ import SceneErrorBoundary from '../SceneErrorBoundary.tsx';
 import { locateZone } from '../../twin/geometry.ts';
 import type { DoorPlanResponse, HazardType, PlacedHazard, VenueV2 } from '../../twin/types.ts';
 
-const venue = venueJson as unknown as VenueV2;
+const baseVenue = venueJson as unknown as VenueV2;
 const plans = import.meta.glob('../../twin/fixtures/door-plan-*.json', { eager: true, import: 'default' }) as Record<string, DoorPlanResponse>;
 const byCase: Record<string, DoorPlanResponse> = {};
 for (const [path, plan] of Object.entries(plans)) byCase[path.match(/door-plan-(.*)\.json$/)![1]] = plan;
@@ -33,19 +36,30 @@ function initialHazards(): PlacedHazard[] {
   const list = spot ? [spot] : [];
   for (const name of extra) if (SPOT[name]) list.push(SPOT[name]);
   return list.map((s, i) => {
-    const hit = locateZone(venue, s);
+    const hit = locateZone(baseVenue, s);
     return { id: `h${i}`, type: s.type, x: s.x, y: s.y, zone_id: hit.ok ? hit.zone_id : '', untenable_s: null, source: 'simulated' as const };
   });
 }
 
 function Preview() {
+  const remoteId = q.get('venue');
+  const [loaded, setLoaded] = useState<VenueV2 | null>(null);
+  const [remotePlan, setRemotePlan] = useState<DoorPlanResponse | null>(null);
   const [hazards, setHazards] = useState(initialHazards);
   const [armed, setArmed] = useState<HazardType | null>((q.get('armed') as HazardType) || null);
   const [selected, setSelected] = useState<string | null>(null);
   const [log, setLog] = useState('');
   const view = q.get('view') ?? '3d';
+  useEffect(() => { if (remoteId) void fetchVenue(remoteId).then(setLoaded); }, [remoteId]);
+  useEffect(() => {
+    if (!loaded || !q.has('plan')) return;
+    const inputs = hazards.map((h) => ({ id: h.id, type: h.type, position: { x: h.x, y: h.y }, source: 'simulated' as const }));
+    void postDoorPlan(loaded.venue_id, inputs).then(setRemotePlan).catch(() => setRemotePlan(null));
+  }, [loaded, hazards]);
+  const venue = remoteId ? loaded : baseVenue;
+  if (!venue) return <p>Loading {remoteId}…</p>;
   const props = {
-    venue, plan: byCase[caseName] ?? null, hazards, armedType: armed, selectedHazardId: selected,
+    venue, plan: remoteId ? remotePlan : byCase[caseName] ?? null, hazards, armedType: armed, selectedHazardId: selected,
     lowGraphics: q.has('low'), reducedMotion: q.has('reduced'),
     onPlace: (p: { x: number; y: number }) => {
       const hit = locateZone(venue, p);
