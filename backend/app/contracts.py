@@ -368,3 +368,33 @@ class OperatorPhysicalApprovalCommand(BaseModel):
     candidate_alternative: AlternativeId = AlternativeId.OPEN_P3
     operator_signature: str = "operator_confirmed"
     idempotency_key: str
+
+
+# =====================================================================
+# Hazard simulation route contracts
+# =====================================================================
+
+class HazardEventRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    element_id: str = Field(min_length=1, max_length=32)
+    close_at_s: StrictInt = Field(ge=0)
+
+
+class HazardScheduleRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    alternative_id: AlternativeId
+    events: List[HazardEventRequest] = Field(min_length=1, max_length=6)
+
+
+class HazardResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    tool: str
+    alternative_id: AlternativeId
+    is_valid: bool
+    reasons: List[str]
+    status: str
+    completed_crossings: int
+    remaining_population: int
+    baseline_completed_crossings: Optional[int] = None
+    modeled_exposure_people_seconds: Optional[float] = None
+    exposure_label: str

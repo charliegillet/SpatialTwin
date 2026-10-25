@@ -26,6 +26,21 @@ class FlowPlanner:
         self.venue = venue_graph or get_default_venue_graph()
         self.checker = PlanChecker(self.venue)
 
+    @staticmethod
+    def _validate_closures(close_at, elements, kind, H, dt) -> Dict[str, int]:
+        if not close_at:
+            return {}
+        out: Dict[str, int] = {}
+        for element_id, when in close_at.items():
+            if element_id not in elements:
+                raise ValueError(f"Unknown {kind} id in closure schedule: {element_id!r}")
+            if type(when) is not int or when < 0 or when % dt or when > H:
+                raise ValueError(
+                    f"Closure time for {kind} {element_id} must be a non-negative multiple of {dt}s within {H}s"
+                )
+            out[element_id] = when
+        return out
+
     def solve(
         self,
         base_context: RunContext,
@@ -35,12 +50,19 @@ class FlowPlanner:
         p3_physical_open: bool = False,
         horizon_seconds: Optional[int] = None,
         time_step_seconds: Optional[int] = None,
+        portal_close_at: Optional[Dict[str, int]] = None,
+        boundary_close_at: Optional[Dict[str, int]] = None,
     ) -> EvaluationEnvelope:
         start_time = time.perf_counter()
 
         H = horizon_seconds or self.venue.default_horizon_seconds
         dt = time_step_seconds or self.venue.time_step_seconds
         T = H // dt  # Number of time steps
+
+        # Forecast-closure model: closure times are known in advance and a closed
+        # element keeps its edges only for time indices t < close_at // dt.
+        portal_close = self._validate_closures(portal_close_at, self.venue.portals, "portal", H, dt)
+        boundary_close = self._validate_closures(boundary_close_at, self.venue.boundaries, "boundary", H, dt)
 
         # Determine effective P3 state based on alternative
         p3_effective_open = (alternative_id == AlternativeId.OPEN_P3) or (
@@ -63,6 +85,11 @@ class FlowPlanner:
             f"{base_context.compute_hash()}:{alternative_id.value}:"
             f"portals={sorted(effective_blocked_portals)}:boundaries={sorted(effective_blocked_boundaries)}:H={H}:dt={dt}"
         )
+        if portal_close or boundary_close:
+            candidate_seed += (
+                f":portal_close={sorted(portal_close.items())}"
+                f":boundary_close={sorted(boundary_close.items())}"
+            )
         candidate_hash = hashlib.sha256(candidate_seed.encode("utf-8")).hexdigest()[:16]
         run_id = f"run-{uuid4().hex}"
 
@@ -92,7 +119,10 @@ class FlowPlanner:
             steps = max(1, p_spec.travel_time_seconds // dt)
             slot_capacity = max(1, int(p_spec.throughput_per_sec * dt))
 
-            for t in range(T - steps + 1):
+            last_departure = T - steps + 1
+            if p_id in portal_close:
+                last_departure = min(last_departure, portal_close[p_id] // dt)
+            for t in range(last_departure):
                 G.add_edge((u, t), (v, t + steps), capacity=slot_capacity, weight=2)
 
         # 4. Boundary floor-transfer crossings
@@ -105,7 +135,10 @@ class FlowPlanner:
             u = b_spec.from_zone
             slot_capacity = max(1, int(b_spec.service_rate_per_sec * dt))
 
-            for t in range(T + 1):
+            last_service = T + 1
+            if b_id in boundary_close:
+                last_service = min(last_service, boundary_close[b_id] // dt)
+            for t in range(last_service):
                 edge = ((u, t), f"B_{b_id}_{t}")
                 G.add_edge((u, t), f"B_{b_id}_{t}", capacity=slot_capacity, weight=0)
                 G.add_edge(f"B_{b_id}_{t}", EXIT_COLLECTOR, capacity=slot_capacity, weight=0)
@@ -260,6 +293,8 @@ class FlowPlanner:
             time_step_seconds=dt,
             timeline=timeline,
             flow_witness=flow_dict,
+            portal_close_at=portal_close or None,
+            boundary_close_at=boundary_close or None,
         )
 
         timings_ms = (time.perf_counter() - start_time) * 1000.0

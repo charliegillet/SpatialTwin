@@ -9,6 +9,9 @@ import type {
   InvestigationProgress,
   ReserveBasis,
   ScenarioLabResult,
+  AiCapabilities,
+  HazardSimulateRequest,
+  HazardSimulateResponse,
 } from '../types.ts';
 
 const API_BASE = '';
@@ -139,4 +142,26 @@ export async function operatorApproveGate(
     }),
   });
   return readJson(res, 'The movement request was not accepted');
+}
+
+export async function getCapabilities(signal?: AbortSignal): Promise<AiCapabilities> {
+  const res = await fetch(`${API_BASE}/api/ai/capabilities`, {
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000),
+  });
+  return readJson(res, 'AI capabilities could not be read');
+}
+
+/** 422 bodies carry {detail: {code}}; the code is surfaced, never free text from the server. */
+export async function simulateHazard(body: HazardSimulateRequest, signal?: AbortSignal): Promise<HazardSimulateResponse> {
+  const res = await fetch(`${API_BASE}/api/hazard/simulate`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
+  });
+  if (res.status === 422) {
+    let code = 'invalid_request';
+    try { const detail = (await res.json())?.detail; if (typeof detail?.code === 'string') code = detail.code; } catch { /* keep the generic code */ }
+    throw new Error(`The hazard schedule was rejected (${code.replace(/_/g, ' ')}).`);
+  }
+  return readJson(res, 'The hazard simulation could not finish');
 }

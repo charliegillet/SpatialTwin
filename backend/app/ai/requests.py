@@ -17,6 +17,11 @@ class GroundingRequest(BaseModel):
     mode: Literal["live", "fixture"] = "live"
     fixture_target: Optional[Literal["P1", "P2", "B2", "ambiguous", "no_match"]] = None
     deadline_seconds: float = Field(default=20.0, gt=0, le=60, allow_inf_nan=False)
+    media_kind: Literal["image", "video"] = "image"
+    video_mode: Literal["static", "agentic"] = "static"
+    video_base64: Optional[str] = Field(default=None, max_length=12_000_000)
+    video_mime: Literal["video/mp4", "video/webm"] = "video/mp4"
+    video_duration_seconds: Optional[float] = Field(default=None, ge=0, le=3600, allow_inf_nan=False)
 
 
 class InvestigationRequest(BaseModel):

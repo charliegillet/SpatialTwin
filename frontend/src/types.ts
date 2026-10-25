@@ -29,6 +29,12 @@ export interface CaptureRequest {
   thinking_level: ThinkingLevel;
   image_sha256?: string;
   deadline_seconds?: number;
+  /** Video clips travel in video_base64 (up to 12M chars) with video_mime set; the default is an image still. */
+  video_base64?: string;
+  media_kind?: MediaKind;
+  video_mode?: VideoMode;
+  video_mime?: string;
+  video_duration_seconds?: number;
 }
 
 export interface CaptureEvidence extends CaptureRequest { image_sha256?: string; }
@@ -199,4 +205,31 @@ export interface ScenarioLabResult {
   cases: ScenarioLabCase[];
   comparable: boolean;
   errors: string[];
+}
+
+export type MediaKind = 'image' | 'video';
+export type VideoMode = 'static' | 'agentic';
+
+export interface AiCapabilities {
+  video_static: boolean;
+  video_agentic: boolean;
+  managed_model: string | null;
+  managed_model_fallback: boolean;
+  receipts_source: string;
+}
+
+export type HazardAlternativeId = 'KEEP_CURRENT' | 'OPEN_P3';
+export interface HazardClosureEvent { element_id: string; close_at_s: number; }
+export interface HazardSimulateRequest { alternative_id: HazardAlternativeId; events: HazardClosureEvent[]; }
+export interface HazardSimulateResponse {
+  tool: string;
+  alternative_id: HazardAlternativeId;
+  is_valid: boolean;
+  reasons: string[];
+  status: string;
+  completed_crossings: number;
+  remaining_population: number;
+  baseline_completed_crossings: number;
+  modeled_exposure_people_seconds: number;
+  exposure_label: string;
 }

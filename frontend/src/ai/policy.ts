@@ -12,20 +12,32 @@ export function sameContext(a: RunContext | null | undefined, b: RunContext | nu
     && a.solver_version === b.solver_version);
 }
 
-export function groundingLabel(result: GroundingResult | null | undefined): string {
+export const EXPOSURE_LABEL = 'modeled people-seconds in hazard; not a casualty or survival prediction';
+
+/** Static label for a modeled-exposure figure. The server text is not trusted to carry the caveat. */
+export function exposureLabel(): string {
+  return EXPOSURE_LABEL;
+}
+
+export interface GroundingLabelOptions { managedModelFallback?: boolean; mediaKind?: 'image' | 'video'; }
+
+export function groundingLabel(result: GroundingResult | null | undefined, options: GroundingLabelOptions = {}): string {
   if (!result) return 'No model result';
   if (result.status !== 'completed') return `AI ${result.status.replace(/_/g, ' ')}`;
-  if (result.provenance === 'live' && result.provider_interaction_id && result.proposal) return 'Live Gemini result';
+  if (result.provenance === 'live' && result.provider_interaction_id && result.proposal) {
+    if (options.mediaKind === 'video') return 'Live Gemini video result';
+    return options.managedModelFallback ? 'Live Gemini result (fallback model)' : 'Live Gemini result';
+  }
   if (result.provenance === 'fixture') return 'Fixture · no Gemini call';
   return 'Provider unverified';
 }
 
-export function investigationLabel(result: InvestigationResult | null | undefined): string {
+export function investigationLabel(result: InvestigationResult | null | undefined, options: Pick<GroundingLabelOptions, 'managedModelFallback'> = {}): string {
   if (!result) return 'No analysis yet';
   if (result.replayed) return `Replayed saved run · ${result.provenance === 'live' ? 'Gemini' : result.provenance === 'local' ? 'local solver' : 'unverified'} · ${result.status.replace(/_/g, ' ')}`;
   if (result.provenance === 'local') return result.status === 'completed' ? 'Local solver · no Gemini call' : `Local analysis ${result.status.replace(/_/g, ' ')}`;
   if (result.status !== 'completed') return `Gemini ${result.status.replace(/_/g, ' ')}`;
-  return result.provenance === 'live' && result.provider_interaction_id ? 'Live Gemini analysis' : 'Provider unverified';
+  return result.provenance === 'live' && result.provider_interaction_id ? (options.managedModelFallback ? 'Live Gemini analysis (fallback model)' : 'Live Gemini analysis') : 'Provider unverified';
 }
 
 export function canApplyGrounding(result: GroundingResult | null | undefined, context: RunContext | undefined): boolean {

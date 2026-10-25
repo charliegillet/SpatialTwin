@@ -150,6 +150,7 @@ class ManagedLedger:
 
     def claim(self, investigation_id: str, call_id: str, function_name: str,
               arguments: dict, max_calls: int) -> dict | None:
+        """Claim a new call or replay a finished one; ``max_calls`` caps each tool name."""
         encoded = self.encode(arguments)
         with self._lock, self._connection:
             self._connection.execute("BEGIN IMMEDIATE")
@@ -164,7 +165,8 @@ class ManagedLedger:
                     raise LedgerConflict("tool_execution_uncertain")
                 return json.loads(row["entry_json"])
             count = self._connection.execute(
-                "SELECT count(*) FROM managed_calls_v1 WHERE investigation_id=?", (investigation_id,)
+                "SELECT count(*) FROM managed_calls_v1 WHERE investigation_id=? AND function_name=?",
+                (investigation_id, function_name)
             ).fetchone()[0]
             if count >= max_calls:
                 raise LedgerConflict("tool_call_limit")

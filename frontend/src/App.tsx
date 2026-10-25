@@ -1,16 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Activity, ArrowRight, Box, Check, CircleHelp, ClipboardCheck, Cpu, Expand, FileJson, FlaskConical, Layers2, LayoutDashboard, LoaderCircle, Radio, RotateCcw, X } from 'lucide-react';
-import type { CaptureEvidence, CaptureRequest, GroundingResult, HealthStatus, InvestigationMode, InvestigationProgress, InvestigationResult, RunContext, ScenarioSnapshot } from './types';
-import { cancelInvestigation, clearBlockage, fetchHealth, fetchInvestigationProgress, fetchScenario, interpretGrounding, investigateScenario, operatorApproveGate, sendCommand } from './api/client';
+import type { AiCapabilities, CaptureEvidence, CaptureRequest, GroundingResult, HazardSimulateResponse, HealthStatus, InvestigationMode, InvestigationProgress, InvestigationResult, RunContext, ScenarioSnapshot } from './types';
+import { cancelInvestigation, clearBlockage, fetchHealth, fetchInvestigationProgress, fetchScenario, getCapabilities, interpretGrounding, investigateScenario, operatorApproveGate, sendCommand, simulateHazard } from './api/client';
 import { ObservationPanel } from './components/ObservationPanel';
 import { SpatialViewport } from './components/SpatialViewport';
 import { InvestigationPanel } from './components/InvestigationPanel';
 import { WorkspaceDetails } from './components/WorkspaceDetails';
 import { EventConsole, type WorkspaceEvent } from './components/EventConsole';
 import { canApplyGrounding, canApproveInvestigation, groundingLabel, investigationLabel, sameContext } from './ai/policy';
+import { captureEvidence } from './ai/evidence';
 import { createRequestGate } from './ai/requestGate';
 import { ScheduleExplorer } from './features/schedule/ScheduleExplorer';
 import { ScenarioLab } from './features/scenario-lab/ScenarioLab';
+import { HazardPanel } from './features/hazard-exposure/HazardPanel';
+import type { HazardResultView } from './features/hazard-exposure/hazard';
+import { ClipPicker, type GroundingSelection } from './features/grounding-media/ClipPicker';
+import { ReviewPanel } from './features/proposal-evidence/ReviewPanel';
+import { cleanHazardEvents, hazardElements, toHazardView } from './ai/hazardView';
 
 type Target = 'portal:P1' | 'portal:P2' | 'boundary:B2';
 type Details = 'evidence' | 'devices' | 'guide' | null;
@@ -22,6 +28,13 @@ const targets: { id: Target; title: string; description: string }[] = [
 
 export { sameContext } from './ai/policy';
 const failureMessage = (error: unknown) => error instanceof Error ? error.message : 'Something went wrong. Please try again.';
+
+async function fileBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = '';
+  for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+  return btoa(binary);
+}
 
 function BrandMark({ small = false }: { small?: boolean }) {
   return <svg width={small ? 24 : 30} height={small ? 26 : 32} viewBox="0 0 30 32" fill="none" aria-hidden="true"><path d="m15 2 12 7v14l-12 7L3 23V9L15 2Z" stroke="currentColor" strokeWidth="1.2" /><path d="m3 9 12 7 12-7M15 16v14M9 5.5l12 7V26.5M3 16l12 7 12-7" stroke="currentColor" strokeWidth="1.2" /></svg>;
@@ -54,6 +67,11 @@ export function App() {
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancellationRequested, setCancellationRequested] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
+  const [capabilities, setCapabilities] = useState<AiCapabilities | null>(null);
+  const [hazard, setHazard] = useState<{ view: HazardResultView; context: RunContext } | null>(null);
+  const [hazardRows, setHazardRows] = useState<{ element_id: string; close_at_s: string }[]>([{ element_id: 'portal:P1', close_at_s: '60' }]);
+  const [isSimulating, setIsSimulating] = useState(false);
+  const [hazardError, setHazardError] = useState<string | null>(null);
   const [events, setEvents] = useState<WorkspaceEvent[]>([]);
   const eventId = useRef(0);
   const groundingRequest = useRef(0);
@@ -61,6 +79,10 @@ export function App() {
   const investigationGate = useRef(createRequestGate());
   const investigationRequest = useRef<string | null>(null);
   const healthRequest = useRef(0);
+  const hazardGate = useRef(createRequestGate());
+  const hazardRequest = useRef(0);
+  const hazardAbort = useRef<AbortController | null>(null);
+  const clipMode = useRef<'static' | 'agentic'>('static');
   const telemetryRef = useRef<string | null>(null);
   const spatialRef = useRef<HTMLDivElement>(null);
   const reviewRef = useRef<HTMLElement>(null);
@@ -95,7 +117,7 @@ export function App() {
 
   const refresh = useCallback(async () => {
     setLoadError(null);
-    const [, scenarioResult] = await Promise.allSettled([refreshHealth(), fetchScenario()]);
+    const [, scenarioResult] = await Promise.allSettled([refreshHealth(), fetchScenario(), getCapabilities().then(setCapabilities, () => setCapabilities(null))]);
     if (scenarioResult.status === 'fulfilled') acceptSnapshot(scenarioResult.value, true);
     else setLoadError('The local backend is unavailable. Start the server, then reconnect.');
   }, [acceptSnapshot, refreshHealth]);
@@ -188,13 +210,15 @@ export function App() {
         ? await clearBlockage('facility-demo', current.context, type, id)
         : await sendCommand('facility-demo', { type: reset ? 'RESET_SCENARIO' : 'APPLY_BLOCKAGE', expected_scenario_revision: current.context.scenario_revision, expected_context: current.context, idempotency_key: crypto.randomUUID(), ...(!reset ? { target_type: type, target_id: id, source, ...(source === 'grounding_proposal' ? { proposal_id: grounding?.proposal_id, reviewed: true } : {}) } : {}) });
       acceptSnapshot(response.snapshot);
-      const sourceLabel = source === 'manual_override' ? 'Manual override' : groundingLabel(grounding);
+      const sourceLabel = source === 'manual_override' ? 'Manual override' : groundingLabel(grounding, { mediaKind: heldCapture?.media_kind });
       addEvent('scenario', reset ? 'Manual reset · scenario blockages cleared. Physical gate position is unchanged.' : `${sourceLabel} · ${id} ${alreadyBlocked && source === 'manual_override' ? 'restored' : 'marked unavailable'} after operator review.`, 'success');
       if (reset) {
         groundingRequest.current += 1;
         groundingGate.current.invalidate();
         investigationGate.current.invalidate();
         investigationRequest.current = null;
+        hazardRequest.current += 1; hazardGate.current.invalidate(); hazardAbort.current?.abort();
+        setHazard(null); setHazardError(null); setIsSimulating(false);
         setGrounding(null); setHeldCapture(null); setAppliedCaptureId(null); setInvestigation(null);
         setGroundingError(null); setInvestigationError(null); setIsGrounding(false); setIsInvestigating(false);
         setActiveInvestigation(null); setInvestigationProgress(null); setCancellationRequested(false); setIsCancelling(false);
@@ -218,9 +242,45 @@ export function App() {
       if (request !== groundingRequest.current) return;
       setGrounding(response);
       if (response.status !== 'completed') setGroundingError(response.errors.join(' ') || `Gemini grounding ${response.status.replace(/_/g, ' ')}. No proposal was accepted.`);
-      addEvent('vision', `${groundingLabel(response)} · ${response.proposal?.status ?? response.status} · ${response.proposal?.selected_entity_id ?? 'no target'}.`, response.status === 'completed' && response.proposal?.status === 'matched' ? 'success' : 'warning');
+      addEvent('vision', `${groundingLabel(response, { mediaKind: captureRequest.media_kind })} · ${response.proposal?.status ?? response.status} · ${response.proposal?.selected_entity_id ?? 'no target'}.`, response.status === 'completed' && response.proposal?.status === 'matched' ? 'success' : 'warning');
     } catch (error) { if (request === groundingRequest.current) { setGroundingError(failureMessage(error)); addEvent('vision', failureMessage(error), 'warning'); } }
     finally { groundingGate.current.finish(token); if (request === groundingRequest.current) setIsGrounding(false); }
+  };
+  const runHazard = async () => {
+    const current = snapshotRef.current;
+    const hazardEvents = cleanHazardEvents(hazardRows);
+    if (!current || connection !== 'connected' || hazardEvents.length === 0) return;
+    const token = hazardGate.current.start();
+    if (token === null) return;
+    const request = ++hazardRequest.current;
+    const context = { ...current.context };
+    const abort = new AbortController();
+    hazardAbort.current = abort;
+    setIsSimulating(true); setHazardError(null);
+    try {
+      const responses: HazardSimulateResponse[] = [];
+      for (const alternative_id of ['KEEP_CURRENT', 'OPEN_P3'] as const) responses.push(await simulateHazard({ alternative_id, events: hazardEvents }, abort.signal));
+      if (request !== hazardRequest.current || !hazardGate.current.isCurrent(token)) return;
+      setHazard({ view: toHazardView(hazardEvents, responses), context });
+      addEvent('analysis', `Hazard forecast · ${hazardEvents.length} closure ${hazardEvents.length === 1 ? 'event' : 'events'} · local solver, no Gemini call.`, responses.every(item => item.is_valid) ? 'success' : 'warning');
+    } catch (error) { if (request === hazardRequest.current) { setHazardError(failureMessage(error)); addEvent('analysis', failureMessage(error), 'warning'); } }
+    finally { hazardGate.current.finish(token); if (request === hazardRequest.current) setIsSimulating(false); }
+  };
+  const selectClip = async (selection: GroundingSelection) => {
+    const current = snapshotRef.current;
+    if (!current || connection !== 'connected' || isGrounding) return;
+    try {
+      const base = { capture_id: crypto.randomUUID(), timestamp_iso: new Date().toISOString(), source_context: { ...current.context }, thinking_level: 'low' as const, source_kind: 'tabletop_camera' as const, mode: 'live' as const };
+      const bytes = await fileBase64(selection.file);
+      if (selection.kind === 'video') {
+        await capture(await captureEvidence({ ...base, dimensions: [1920, 1080], video_base64: bytes, media_kind: 'video', video_mode: clipMode.current, video_mime: selection.file.type, deadline_seconds: 100 }));
+      } else {
+        const bitmap = await createImageBitmap(selection.file);
+        const dimensions: [number, number] = [bitmap.width, bitmap.height];
+        bitmap.close();
+        await capture(await captureEvidence({ ...base, dimensions, image_base64: bytes, media_kind: 'image', deadline_seconds: 45 }));
+      }
+    } catch (error) { setGroundingError(failureMessage(error)); }
   };
   const clearProposal = () => { groundingRequest.current++; groundingGate.current.invalidate(); setGrounding(null); setHeldCapture(null); setAppliedCaptureId(null); setGroundingError(null); setIsGrounding(false); };
   const applyProposal = async () => {
@@ -243,7 +303,7 @@ export function App() {
       setInvestigation(response.investigation);
       const checkedCount = response.investigation.candidate_envelopes.filter(candidate => candidate.validator_report.is_valid).length;
       if (response.investigation.status !== 'completed') setInvestigationError(response.investigation.errors?.join(' ') || `Analysis ${response.investigation.status.replace(/_/g, ' ')}. No winning option is available.`);
-      addEvent('analysis', `${investigationLabel(response.investigation)} · ${checkedCount} checked alternatives.`, response.investigation.status === 'completed' ? 'success' : 'warning');
+      addEvent('analysis', `${investigationLabel(response.investigation, { managedModelFallback: capabilities?.managed_model_fallback })} · ${checkedCount} checked alternatives.`, response.investigation.status === 'completed' ? 'success' : 'warning');
     } catch (error) { if (investigationRequest.current === investigationId) { setInvestigationError(failureMessage(error)); addEvent('analysis', failureMessage(error), 'warning'); } }
     finally { investigationGate.current.finish(token); if (investigationRequest.current === investigationId) { setIsInvestigating(false); setActiveInvestigation(null); setIsCancelling(false); } }
   };
@@ -339,6 +399,30 @@ export function App() {
         <div className="workspace-exploration">
           <ScheduleExplorer snapshot={displaySnapshot} isCurrent={planCurrent} />
           <ScenarioLab snapshot={snapshot} isCurrent={connection === 'connected'} />
+        </div>
+        <div className="workspace-exploration">
+          <section className="hazard-runner" aria-label="Run a hazard forecast">
+            <h2>Forecast closures</h2>
+            <p className="hazard-runner-note">Closure times are known in advance. This is a forecast model, not reactive replanning.</p>
+            {hazardRows.map((row, index) => <div className="hazard-runner-row" key={index}>
+              <select aria-label={`Closure element ${index + 1}`} value={row.element_id} onChange={event => setHazardRows(rows => rows.map((item, at) => at === index ? { ...item, element_id: event.target.value } : item))}>{hazardElements.map(id => <option key={id} value={id}>{id}</option>)}</select>
+              <input aria-label={`Close at seconds ${index + 1}`} inputMode="numeric" value={row.close_at_s} onChange={event => setHazardRows(rows => rows.map((item, at) => at === index ? { ...item, close_at_s: event.target.value } : item))} placeholder="seconds" />
+              <button className="button-secondary" onClick={() => setHazardRows(rows => rows.filter((_, at) => at !== index))} aria-label={`Remove closure ${index + 1}`}><X size={14} /></button>
+            </div>)}
+            <div className="hazard-runner-actions">
+              <button className="button-secondary" onClick={() => setHazardRows(rows => [...rows, { element_id: 'portal:P2', close_at_s: '60' }])} disabled={hazardRows.length >= 6}>Add closure</button>
+              <button className="button-primary" onClick={() => void runHazard()} disabled={!canChange || isSimulating || cleanHazardEvents(hazardRows).length === 0}>{isSimulating ? <LoaderCircle size={15} className="spin" /> : <FlaskConical size={15} />}Run forecast</button>
+            </div>
+            {hazardError && <p className="hazard-runner-error" role="alert">{hazardError}</p>}
+          </section>
+          <HazardPanel result={hazard?.view ?? null} isCurrent={Boolean(hazard && connection === 'connected' && sameContext(hazard.context, snapshot?.context))} />
+        </div>
+        <div className="workspace-exploration">
+          <div className="clip-slot">
+            <ClipPicker videoEnabled={Boolean(capabilities?.video_static || capabilities?.video_agentic)} onSelect={selection => void selectClip(selection)} disabled={isGrounding || connection !== 'connected' || !snapshot} />
+            {capabilities?.video_static && capabilities?.video_agentic && <label className="clip-mode">Video mode<select aria-label="Video mode" defaultValue="static" onChange={event => { clipMode.current = event.target.value as 'static' | 'agentic'; }}><option value="static">Static frames</option><option value="agentic">Agentic</option></select></label>}
+          </div>
+          <ReviewPanel snapshot={connection === 'connected' ? displaySnapshot : null} isCurrent={planCurrent} investigationId={investigation?.investigation_id ?? null} />
         </div>
         <footer className="workspace-footer"><span>Illustrative geometry. Every result has a source.</span><button onClick={() => setDetails('guide')}>Workspace guide</button><div><span>{snapshot ? `Scenario ${snapshot.context.scenario_revision} · physical ${snapshot.context.physical_revision}` : 'Awaiting context'}</span><button onClick={() => setDetails('evidence')}>Inspect evidence<ArrowRight size={13} /></button></div></footer>
       </main>

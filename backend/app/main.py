@@ -18,7 +18,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Any, Dict, Optional
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -27,6 +27,11 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from backend.app.ai.grounding.adapter import GroundingAdapter
+from backend.app.ai.grounding.video import IMAGE_FALLBACK_ERROR, ground_video, video_enabled
+from backend.app.ai.managed.model_probe import resolve_model
+from backend.app.hazard.model import HazardToolError, ToolContext
+from backend.app.hazard.tools import execute_hazard_tool
+from backend.app.review.routes import build_review_router
 from backend.app.ai.managed.adapter import ManagedAgentAdapter
 from backend.app.ai.requests import CommandRequest, GateApprovalRequest, GroundingRequest, InvestigationRequest, InvestigationCancellationRequest
 from backend.app.contracts import (
@@ -36,6 +41,9 @@ from backend.app.contracts import (
     ClearBlockageCommand,
     EntityType,
     GateTarget,
+    GroundingResult,
+    HazardResult,
+    HazardScheduleRequest,
     InvestigationResult,
     InvestigationStatus,
     OperatorPhysicalApprovalCommand,
@@ -117,6 +125,61 @@ def require_context(value: Any) -> RunContext:
     if not state_manager.get_current_context().is_current(ctx):
         raise HTTPException(409, "Stale full context; refresh and review again")
     return ctx
+
+
+app.include_router(build_review_router(
+    state_manager, lambda: "simulator" if hardware_bridge.is_simulator else "physical_serial"))
+
+
+@app.get("/api/ai/capabilities")
+def ai_capabilities() -> Dict[str, Any]:
+    """Receipt-gated capability flags. Reads local probe files only; no provider call."""
+    resolution = resolve_model()
+    return {
+        "video_static": video_enabled("static"),
+        "video_agentic": video_enabled("agentic"),
+        "managed_model": resolution.model if resolution else None,
+        "managed_model_fallback": resolution.is_fallback if resolution else False,
+        "receipts_source": "runtime/probes",
+    }
+
+
+@app.post("/api/hazard/simulate")
+def simulate_hazard(body: Any = Body(...)) -> Dict[str, Any]:
+    """Local-only timed-closure simulation. Never echoes request values.
+
+    element_id uses the venue graph ids accepted by hazard.model.HazardSchedule:
+    portal ids (P1, P2, P3) and boundary ids (B1, B2) of the default venue graph.
+    """
+    invalid = HTTPException(422, detail={"code": "invalid_arguments"})
+    try:
+        request = HazardScheduleRequest.model_validate(body)
+    except ValidationError:
+        raise invalid from None
+    context = state_manager.get_current_context()
+    envelopes = {}
+    for alternative in (AlternativeId.KEEP_CURRENT, AlternativeId.OPEN_P3):
+        try:
+            envelopes[alternative] = scenario_service.evaluate_alternative(
+                context, alternative, f"hazard-baseline-{alternative.value}-{uuid4().hex}")
+        except Exception:
+            continue
+    ctx = ToolContext(venue=state_manager.venue_graph, base_context=context, envelopes=envelopes)
+    arguments = {"alternative_id": request.alternative_id.value,
+                 "events": [e.model_dump() for e in request.events]}
+    try:
+        result = execute_hazard_tool("simulate_hazard_schedule", arguments, ctx)
+        exposure = execute_hazard_tool("score_exposure", arguments, ctx)
+    except HazardToolError as error:
+        if error.code == "invalid_arguments":
+            raise invalid from None
+        raise HTTPException(500, detail={"code": "evaluation_failed"}) from None
+    result["modeled_exposure_people_seconds"] = exposure["modeled_exposure_people_seconds"]
+    result["exposure_label"] = exposure["exposure_label"]
+    try:
+        return HazardResult.model_validate(result).model_dump(mode="json")
+    except ValidationError:
+        raise HTTPException(500, detail={"code": "evaluation_failed"}) from None
 
 
 @app.get("/health")
@@ -216,9 +279,35 @@ async def handle_command(scenario_id: str, payload: CommandRequest) -> Dict[str,
         raise HTTPException(status_code=400, detail=f"Unknown command type: {cmd_type}")
 
 
+async def _interpret_video(payload: GroundingRequest, ctx: RunContext) -> Dict[str, Any]:
+    if payload.mode == "fixture" or payload.fixture_target is not None:
+        raise HTTPException(422, "Video requests cannot contain fixture controls")
+    if not video_enabled(payload.video_mode):
+        result = GroundingResult(status="unavailable", provenance="unavailable", errors=[IMAGE_FALLBACK_ERROR])
+    else:
+        try:
+            clip = base64.b64decode(payload.video_base64 or payload.image_base64 or "", validate=True)
+        except (ValueError, binascii.Error):
+            raise HTTPException(422, "Invalid clip encoding")
+        result = await ground_video(
+            clip, payload.video_mime, ctx, payload.video_mode, adapter=grounding_adapter,
+            captured_at_iso=payload.timestamp_iso, duration_seconds=payload.video_duration_seconds,
+            thinking_level=payload.thinking_level,
+            deadline_seconds=payload.deadline_seconds)
+        if result.proposal and not ctx.is_current(state_manager.get_current_context()):
+            result.proposal = None
+            result.status = "failed"
+            result.errors.append("stale_context")
+    result.proposal_id = f"proposal-{uuid4().hex}"
+    state_manager.store.save_grounding_result(result.proposal_id, payload.capture_id, result.model_dump(mode="json"), state_manager._now_iso())
+    return result.model_dump(mode="json")
+
+
 @app.post("/api/scenarios/{scenario_id}/grounding")
 async def interpret_grounding(scenario_id: str, payload: GroundingRequest) -> Dict[str, Any]:
     ctx = require_context(payload.source_context)
+    if payload.media_kind == "video":
+        return await _interpret_video(payload, ctx)
     if payload.mode == "fixture":
         if not fixtures_enabled():
             raise HTTPException(403, "Fixtures are disabled in production mode")

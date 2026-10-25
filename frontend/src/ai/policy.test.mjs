@@ -195,3 +195,31 @@ test('comparison requires checked candidates under equal conditions, preserving 
   }
   assert.equal(canCompareInvestigation({ ...investigation(), candidate_envelopes: [candidate('KEEP_CURRENT', 60)] }, context), false);
 });
+
+const liveGrounding = () => ({ ...grounding() });
+test('live provenance labels distinguish fallback model and video', () => {
+  assert.equal(groundingLabel(liveGrounding()), 'Live Gemini result');
+  assert.equal(groundingLabel(liveGrounding(), { managedModelFallback: true }), 'Live Gemini result (fallback model)');
+  assert.equal(groundingLabel(liveGrounding(), { mediaKind: 'video' }), 'Live Gemini video result');
+  assert.equal(groundingLabel({ ...liveGrounding(), provider_interaction_id: null }, { managedModelFallback: true }), 'Provider unverified');
+});
+
+test('exposure label states the modeled caveat', async () => {
+  const { exposureLabel } = await import('./policy.ts');
+  assert.equal(exposureLabel(), 'modeled people-seconds in hazard; not a casualty or survival prediction');
+});
+
+test('hazard tool rows show the tool and outcome, never thought content', () => {
+  const row = progressDescription({ phase: 'local_tool_complete', function_name: 'simulate_hazard_schedule', status: 'completed', thought: 'secret' });
+  assert.equal(row, 'Read-only tool completed · simulate_hazard_schedule · completed');
+  assert.ok(!row.includes('secret'));
+  assert.equal(progressDescription({ phase: 'local_tool_complete', function_name: 'score_exposure' }), 'Read-only tool completed · score_exposure');
+  assert.equal(progressDescription({ phase: 'local_tool_complete', function_name: 'rm_rf' }), 'Read-only tool update');
+});
+
+test('investigation label names the fallback model only for a verified live run', () => {
+  const run = { status: 'completed', provenance: 'live', provider_interaction_id: 'p1' };
+  assert.equal(investigationLabel(run), 'Live Gemini analysis');
+  assert.equal(investigationLabel(run, { managedModelFallback: true }), 'Live Gemini analysis (fallback model)');
+  assert.equal(investigationLabel({ ...run, provider_interaction_id: null }, { managedModelFallback: true }), 'Provider unverified');
+});

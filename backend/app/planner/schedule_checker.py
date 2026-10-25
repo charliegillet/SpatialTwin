@@ -8,7 +8,8 @@ FIELDS = {"EVENT": "event_occupancy", "WEST": "west_occupancy",
 
 
 def validate_schedule(venue, timeline, population, completed, residual, breakdown,
-                      horizon, dt, blocked_portals, blocked_boundaries, flow=None):
+                      horizon, dt, blocked_portals, blocked_boundaries, flow=None,
+                      portal_close_at=None, boundary_close_at=None):
     checks = ["timeline_population_conservation", "timeline_boundary_rates",
               "timeline_terminal_consistency", "timeline_time_grid", "timeline_zone_capacities"]
     reasons = []
@@ -49,6 +50,11 @@ def validate_schedule(venue, timeline, population, completed, residual, breakdow
 
     if flow is not None:
         checks += ["schedule_allowed_edges", "schedule_flow_conservation", "timeline_matches_flow"]
+        portal_close_at = portal_close_at or {}
+        boundary_close_at = boundary_close_at or {}
+        if portal_close_at or boundary_close_at:
+            checks.append("schedule_timed_closures")
+        closed_edges = {}  # edge -> closed element label; absent from `allowed`
         # Enumerate allowed model edges independently of the solver's graph builder.
         allowed = {("SOURCE", ("EVENT", 0)): population}
         transfers = {}
@@ -63,6 +69,9 @@ def validate_schedule(venue, timeline, population, completed, residual, breakdow
             duration = max(1, spec.travel_time_seconds // dt)
             for t in range(steps - duration + 1):
                 edge = ((spec.from_zone, t), (spec.to_zone, t + duration))
+                if portal in portal_close_at and t * dt >= portal_close_at[portal]:
+                    closed_edges[edge] = f"portal {portal}"
+                    continue
                 allowed[edge] = max(1, int(spec.throughput_per_sec * dt))
                 transfers[edge] = (spec.from_zone, spec.to_zone, t, t + duration)
         for boundary, spec in venue.boundaries.items():
@@ -71,6 +80,9 @@ def validate_schedule(venue, timeline, population, completed, residual, breakdow
             for t in range(steps + 1):
                 mid = f"B_{boundary}_{t}"
                 edge = ((spec.from_zone, t), mid)
+                if boundary in boundary_close_at and t * dt >= boundary_close_at[boundary]:
+                    closed_edges[edge] = f"boundary {boundary}"
+                    continue
                 allowed[edge] = allowed[(mid, "EXIT_COLLECTOR")] = max(1, int(spec.service_rate_per_sec * dt))
                 services[edge] = (boundary, spec.from_zone, t)
         incoming, outgoing = defaultdict(int), defaultdict(int)
@@ -86,6 +98,9 @@ def validate_schedule(venue, timeline, population, completed, residual, breakdow
                 if not amount:
                     continue
                 edge = (source, destination)
+                if edge in closed_edges:
+                    reasons.append(f"Flow witness moves occupants through {closed_edges[edge]} at or after its close time")
+                    continue
                 if edge not in allowed or amount > allowed[edge]:
                     reasons.append("Flow witness uses an unavailable edge or exceeds its capacity")
                     continue

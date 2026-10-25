@@ -40,6 +40,8 @@ class PlanChecker:
         time_step_seconds: int,
         timeline: Optional[List[Dict[str, Any]]] = None,
         flow_witness: Optional[Dict[Any, Dict[Any, int]]] = None,
+        portal_close_at: Optional[Dict[str, int]] = None,
+        boundary_close_at: Optional[Dict[str, int]] = None,
     ) -> ValidatorReport:
         checks_run = []
         reasons = []
@@ -119,6 +121,7 @@ class PlanChecker:
                 self.venue, timeline, initial_population, completed_crossings,
                 zone_occupancy, boundary_breakdown, horizon_seconds, time_step_seconds,
                 blocked_portals | ({"P3"} if not p3_is_open else set()), blocked_boundaries, flow_witness,
+                portal_close_at, boundary_close_at,
             )
             checks_run.extend(schedule_checks)
             reasons.extend(schedule_reasons)
