@@ -8,7 +8,15 @@ shared by both directions of an interior door, so capacity is per door, not per
 direction. Exits carry flow outward only. People departing at step k arrive at
 step k + travel_steps, and a gate exists only when that arrival is <= K.
 
-Readback comes from the gate edge flows. Max-flow only sends people who reach
+The solver is ``nx.max_flow_min_cost``. Every exit gate->sink edge costs its
+arrival step (k + travel) and every other edge costs 0, so among all maximum
+flows it picks the one with the least total arrival time. In a time-expanded
+network with a single sink an earliest-arrival flow exists, so this optimum
+maximises the number reached at every step k at once: ``reached_by_step[k]``
+equals the max-flow value at horizon k * dt_s.
+
+Readback comes from the gate edge flows, after the returned flow has been
+checked for capacity and conservation. Max-flow only sends people who reach
 the sink by step K; everyone else stays in their starting zone. Two-way flow
 through one interior gate in the same step (a swap, or a bounce back into the
 same zone) is equivalent to those people holding over, so each interior
@@ -21,7 +29,6 @@ import json
 import math
 
 import networkx as nx
-from networkx.algorithms.flow import preflow_push
 from pydantic import BaseModel, ConfigDict
 
 from .contracts import Door, FlowParams, Scenario, VenueGraph, Zone
@@ -105,17 +112,40 @@ def _run_id(graph_revision: str, scenario_hash: str, params: FlowParams) -> str:
 
 
 def _open_doors(graph: VenueGraph, scenario: Scenario) -> set[str]:
+    door_ids = {d.id for d in graph.doors}
     opened = {i.split(":", 1)[1] for i in scenario.interventions if i.startswith("OPEN:")}
+    unknown = sorted(opened - door_ids)
+    if unknown:
+        raise ValueError(f"OPEN intervention on unknown door id(s): {unknown}")
     return {d.id for d in graph.doors if d.state == "open" or d.id in opened}
 
 
-def _closed_from_step(scenario: Scenario, params: FlowParams) -> dict[str, int]:
+def _closed_from_step(
+    graph: VenueGraph, scenario: Scenario, params: FlowParams
+) -> dict[str, int]:
     """Door id -> first step at which a hazard closes it."""
+    door_ids = {d.id for d in graph.doors}
     out: dict[str, int] = {}
     for h in scenario.hazards:
+        if h.door_id not in door_ids:
+            raise ValueError(f"hazard on unknown door id {h.door_id!r}")
         k0 = max(0, _ceil(h.from_s / params.dt_s))
         out[h.door_id] = min(k0, out.get(h.door_id, k0))
     return out
+
+
+def _validate_flow(G: nx.DiGraph, flow: dict) -> None:
+    """Reject a solver result that breaks capacity, integrality or conservation."""
+    for u, v, cap in G.edges(data="capacity"):
+        f = flow[u][v]
+        if not isinstance(f, int) or f < 0 or (cap is not None and f > cap):
+            raise RuntimeError(f"invalid flow {f!r} on {u}->{v} (cap {cap})")
+    for n in G.nodes:
+        if n in (_SOURCE, _SINK):
+            continue
+        inflow = sum(flow[p][n] for p in G.predecessors(n))
+        if inflow != sum(flow[n].values()):
+            raise RuntimeError(f"flow not conserved at {n}")
 
 
 def _zn(zid: str, k: int) -> tuple:
@@ -129,7 +159,7 @@ def solve(graph: VenueGraph, scenario: Scenario, params: FlowParams) -> FlowRun:
     known = set(zone_ids)
     doors = sorted(graph.doors, key=lambda d: d.id)
     open_ids = _open_doors(graph, scenario)
-    closed_from = _closed_from_step(scenario, params)
+    closed_from = _closed_from_step(graph, scenario, params)
 
     G = nx.DiGraph()
     G.add_node(_SOURCE)
@@ -169,14 +199,16 @@ def solve(graph: VenueGraph, scenario: Scenario, params: FlowParams) -> FlowRun:
                 G.add_edge(_zn(zid, k), gin)
             G.add_edge(gin, gout, capacity=cap)
             if kind == "exit":
-                G.add_edge(gout, _SINK)
+                G.add_edge(gout, _SINK, weight=k + t)  # cost = arrival step
             else:
                 for zid in ends:
                     G.add_edge(gout, _zn(zid, k + t))
             steps.append(k)
         plan[d.id] = (kind, ends, t, steps)
 
-    value, flow = nx.maximum_flow(G, _SOURCE, _SINK, flow_func=preflow_push)
+    flow = nx.max_flow_min_cost(G, _SOURCE, _SINK)
+    _validate_flow(G, flow)
+    value = sum(flow[u][_SINK] for u in G.predecessors(_SINK))
 
     # Readback from gate edge flows.
     departures = {zid: [0] * (K + 1) for zid in zone_ids}
@@ -205,7 +237,7 @@ def solve(graph: VenueGraph, scenario: Scenario, params: FlowParams) -> FlowRun:
                 y_a, y_b = flow[gout][_zn(a, k + t)], flow[gout][_zn(b, k + t)]
                 n = x_a - y_a
                 if n != y_b - x_b:
-                    raise AssertionError(f"gate {d.id}@{k} violates conservation")
+                    raise RuntimeError(f"gate {d.id}@{k} violates conservation")
                 if n == 0:
                     continue
                 src, dst = (a, b) if n > 0 else (b, a)
@@ -225,7 +257,7 @@ def solve(graph: VenueGraph, scenario: Scenario, params: FlowParams) -> FlowRun:
             for zid in zone_ids:
                 occ[zid] += arrivals[zid][k] - departures[zid][k - 1]
                 if occ[zid] < 0:
-                    raise AssertionError(f"negative occupancy {zid}@{k}")
+                    raise RuntimeError(f"negative occupancy {zid}@{k}")
         transit += transit_delta[k]
         reached += sink_arrivals[k]
         zone_occupancy.append(dict(occ))
@@ -234,7 +266,7 @@ def solve(graph: VenueGraph, scenario: Scenario, params: FlowParams) -> FlowRun:
 
     total = sum(z.occupants for z in zones)
     if reached_by_step[K] != value:
-        raise AssertionError("readback disagrees with max-flow value")
+        raise RuntimeError("readback disagrees with max-flow value")
 
     revision = graph.revision
     s_hash = scenario.hash

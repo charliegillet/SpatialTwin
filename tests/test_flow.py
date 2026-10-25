@@ -1,4 +1,10 @@
+import json
+import math
+import os
+import subprocess
+import sys
 import time
+from pathlib import Path
 
 import pytest
 
@@ -68,16 +74,22 @@ def _check_invariants(run: FlowRun, graph: VenueGraph, scenario: Scenario) -> No
     assert run.in_transit_end == run.transit_by_step[K]
     assert run.reached_exit + sum(run.remaining_by_zone.values()) + run.in_transit_end == run.total
     opened = {i.split(":", 1)[1] for i in scenario.interventions if i.startswith("OPEN:")}
+    closed_from: dict[str, int] = {}
+    for h in scenario.hazards:
+        k0 = math.ceil(h.from_s / p.dt_s - 1e-9)
+        closed_from[h.door_id] = min(k0, closed_from.get(h.door_id, k0))
     for d in graph.doors:
         flows = run.door_flows[d.id]
         assert len(flows) == K
         is_open = d.state == "open" or d.id in opened
         for k, f in enumerate(flows):
-            if not is_open:
-                assert f == 0
+            if not is_open or k >= closed_from.get(d.id, K + 1):
+                assert f == 0, (d.id, k, f)
             assert abs(f) <= door_capacity_at_step(d, k, p)
             if d.b == "OUTSIDE":
-                assert f >= 0  # exits only carry flow outward
+                assert f >= 0  # exits only carry flow outward (a -> b positive)
+            if d.a == "OUTSIDE":
+                assert f <= 0  # outward is b -> a, so negative
 
 
 def test_single_room_single_exit():
@@ -164,6 +176,88 @@ def test_intervention_opens_locked_door(office_graph):
     assert sum(opened.door_flows["D5"]) > 0
     _check_invariants(base, office_graph, base_s)
     _check_invariants(opened, office_graph, open_s)
+
+
+def test_intervention_opens_locked_door_plain_fixture(office_graph):
+    base = solve(office_graph, Scenario(), FlowParams())
+    opened = solve(office_graph, Scenario(interventions=["OPEN:D5"]), FlowParams())
+    assert opened.reached_exit >= base.reached_exit
+    _check_invariants(base, office_graph, Scenario())
+    _check_invariants(opened, office_graph, Scenario(interventions=["OPEN:D5"]))
+
+
+def test_reached_by_step_is_earliest_arrival(office_graph):
+    s = Scenario(hazards=[Hazard(door_id="D2", kind="fire", from_s=0)],
+                 interventions=["OPEN:D5"])
+    p = FlowParams()
+    K = p.horizon_s // p.dt_s
+    run = solve(office_graph, s, p)
+    for k in range(1, K + 1):
+        sub = solve(office_graph, s, FlowParams(horizon_s=k * p.dt_s))
+        assert run.reached_by_step[k] == sub.reached_exit, k
+    last = next(k for k in range(K + 1) if run.reached_by_step[k] == run.reached_exit)
+    print(f"\nfire D2 + OPEN:D5: all {run.reached_exit} reached by k={last}, "
+          f"reached_by_step[40]={run.reached_by_step[40]}")
+    _check_invariants(run, office_graph, s)
+
+
+def test_exit_written_outside_first():
+    # Exit stored as a=OUTSIDE, b=Z1: outward flow is b->a, so negative.
+    g = _graph(
+        [_zone("Z1", (0, 0, 10, 10), 50)],
+        [_door("D1", "OUTSIDE", "Z1", 1.0, 1.0, (10, 5))],
+    )
+    run = solve(g, Scenario(), FlowParams(horizon_s=20))
+    assert run.reached_exit == 14
+    assert sum(run.door_flows["D1"]) == -14 and max(run.door_flows["D1"]) <= 0
+    _check_invariants(run, g, Scenario())
+
+
+def test_unknown_ids_raise(office_graph):
+    with pytest.raises(ValueError):
+        solve(office_graph, Scenario(hazards=[Hazard(door_id="D99", kind="fire")]),
+              FlowParams())
+    with pytest.raises(ValueError):
+        solve(office_graph, Scenario(interventions=["OPEN:D99"]), FlowParams())
+    doors = [d.model_copy(update={"b": "Z9"}) if d.id == "D1" else d
+             for d in office_graph.doors]
+    with pytest.raises(ValueError):
+        solve(office_graph.model_copy(update={"doors": doors}), Scenario(), FlowParams())
+
+
+_SEED_SCRIPT = """
+import json, sys
+from pathlib import Path
+from walktwin.contracts import FlowParams, Hazard, Scenario, VenueGraph
+from walktwin.flow import solve
+g = VenueGraph.model_validate_json(Path(sys.argv[1]).read_text())
+out = []
+for s in [Scenario(), Scenario(interventions=["OPEN:D5"]),
+          Scenario(hazards=[Hazard(door_id="D2", kind="fire", from_s=0)],
+                   interventions=["OPEN:D5"]),
+          Scenario(hazards=[Hazard(door_id="D4", kind="fire", from_s=30)])]:
+    for h in (20, 60, 120):
+        r = solve(g, s, FlowParams(horizon_s=h))
+        out.append([r.run_id, r.door_flows, r.reached_by_step, r.zone_occupancy])
+print(json.dumps(out, sort_keys=True))
+"""
+
+
+def test_deterministic_across_hash_seeds():
+    root = Path(__file__).resolve().parents[1]
+    fixture = root / "tests" / "fixtures" / "office_graph.json"
+    results = {}
+    for seed in ("0", "1", "9", "18", "35"):
+        env = {**os.environ, "PYTHONHASHSEED": seed,
+               "PYTHONPATH": str(root / "backend")}
+        proc = subprocess.run(
+            [sys.executable, "-c", _SEED_SCRIPT, str(fixture)],
+            env=env, capture_output=True, text=True, check=True, cwd=root,
+        )
+        results[seed] = json.loads(proc.stdout)
+    first = results["0"]
+    for seed, res in results.items():
+        assert res == first, f"PYTHONHASHSEED={seed} differs"
 
 
 def test_unreachable_zone_counts_as_remaining(office_graph):
