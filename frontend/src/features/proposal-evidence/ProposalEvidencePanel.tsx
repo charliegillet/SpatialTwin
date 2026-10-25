@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   GroundingProposalV1,
   InvestigationResult,
@@ -19,6 +19,10 @@ import {
   Eye,
   Table,
   Sliders,
+  Video,
+  VideoOff,
+  RefreshCw,
+  Layers,
 } from 'lucide-react';
 import { sounds } from '../../utils/audio';
 import { fetchScenarioMatrix } from '../../api/client';
@@ -26,7 +30,7 @@ import { fetchScenarioMatrix } from '../../api/client';
 interface ProposalEvidencePanelProps {
   snapshot: ScenarioSnapshot | null;
   onApplyBlockage: (targetType: 'portal' | 'boundary', targetId: 'P1' | 'P2' | 'B2') => Promise<void>;
-  onTriggerGrounding: (targetOverride?: string, thinkingLevel?: 'low' | 'medium' | 'high') => Promise<GroundingProposalV1>;
+  onTriggerGrounding: (targetOverride?: string, thinkingLevel?: 'low' | 'medium' | 'high', imageBase64?: string) => Promise<GroundingProposalV1>;
   onRunInvestigation: () => Promise<InvestigationResult>;
   onOperatorApproveGate: () => Promise<void>;
   selectedManualTarget: string | null;
@@ -52,7 +56,81 @@ export const ProposalEvidencePanel: React.FC<ProposalEvidencePanelProps> = ({
   const [thinkingLevel, setThinkingLevel] = useState<'low' | 'medium' | 'high'>('low');
   const [activeTab, setActiveTab] = useState<'grounding' | 'managed' | 'operator' | 'matrix'>('grounding');
 
+  // Camera & Vision mode states
+  const [visionMode, setVisionMode] = useState<'webcam' | '3d_twin' | 'fixtures'>('webcam');
+  const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
+  const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
+  const [capturedSnapshot, setCapturedSnapshot] = useState<string | null>(null);
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+
   const gateState = snapshot?.physical_gate_state ?? 'CLOSED';
+
+  // Load available camera devices
+  const enumerateCameras = async () => {
+    try {
+      if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoInputs = devices.filter((d) => d.kind === 'videoinput');
+        setVideoDevices(videoInputs);
+        if (videoInputs.length > 0 && !selectedDeviceId) {
+          setSelectedDeviceId(videoInputs[0].deviceId);
+        }
+      }
+    } catch (err) {
+      console.warn('Unable to enumerate camera devices:', err);
+    }
+  };
+
+  // Start webcam
+  const startCamera = async (deviceId?: string) => {
+    try {
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+      }
+      const constraints: MediaStreamConstraints = {
+        video: deviceId
+          ? { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+          : { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+      };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      mediaStreamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+      setIsCameraActive(true);
+      await enumerateCameras();
+    } catch (err) {
+      console.warn('Webcam stream not accessible or permission denied:', err);
+      setIsCameraActive(false);
+    }
+  };
+
+  // Stop webcam
+  const stopCamera = () => {
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+      mediaStreamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setIsCameraActive(false);
+  };
+
+  useEffect(() => {
+    if (activeTab === 'grounding' && visionMode === 'webcam') {
+      startCamera(selectedDeviceId);
+    } else {
+      stopCamera();
+    }
+    return () => {
+      stopCamera();
+    };
+  }, [activeTab, visionMode, selectedDeviceId]);
 
   // Load matrix data if matrix tab active
   useEffect(() => {
@@ -61,9 +139,44 @@ export const ProposalEvidencePanel: React.FC<ProposalEvidencePanelProps> = ({
     }
   }, [activeTab]);
 
-  // Handle Grounding
+  // Handle Capture from Webcam
+  const handleCaptureWebcam = async () => {
+    setIsGroundingLoading(true);
+    sounds.playGroundingPing();
+
+    let imageBase64: string | undefined = undefined;
+
+    if (videoRef.current && canvasRef.current && isCameraActive) {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      canvas.width = video.videoWidth || 1280;
+      canvas.height = video.videoHeight || 720;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        setCapturedSnapshot(dataUrl);
+        imageBase64 = dataUrl.split(',')[1];
+      }
+    }
+
+    try {
+      const prop = await onTriggerGrounding(undefined, thinkingLevel, imageBase64);
+      setProposal(prop);
+      if (prop.selected_entity_type && prop.selected_entity_id) {
+        setSelectedManualTarget(`${prop.selected_entity_type}:${prop.selected_entity_id}`);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsGroundingLoading(false);
+    }
+  };
+
+  // Handle Preset Capture
   const handleCapture = async (override?: string) => {
     setIsGroundingLoading(true);
+    sounds.playGroundingPing();
     try {
       const prop = await onTriggerGrounding(override, thinkingLevel);
       setProposal(prop);
@@ -179,77 +292,255 @@ export const ProposalEvidencePanel: React.FC<ProposalEvidencePanelProps> = ({
         </button>
       </div>
 
-      {/* TAB 1: GROUNDING */}
+      {/* TAB 1: GROUNDING / VISION */}
       {activeTab === 'grounding' && (
         <div className="space-y-4">
+          {/* Header & Source Mode Switcher */}
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h3 className="text-sm font-bold text-slate-200">Tabletop Perception Review</h3>
+              <h3 className="text-sm font-bold text-slate-200">Gemini 4 Argon Spatial Vision</h3>
               <p className="text-xs text-slate-400">
-                Direct Gemini 4 Argon visual perception against reviewed target catalog
+                Inspect physical tabletop hazards via live camera, 3D twin, or test fixtures
               </p>
             </div>
-            {/* Presets */}
-            <div className="flex items-center space-x-1 text-xs">
-              <span className="text-[11px] text-slate-500">Preset:</span>
+
+            {/* Vision Mode Toggle */}
+            <div className="inline-flex rounded-lg bg-slate-900 border border-slate-800 p-0.5 text-xs">
               <button
-                onClick={() => handleCapture('P1')}
-                className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-xs border border-slate-700"
+                onClick={() => setVisionMode('webcam')}
+                className={`flex items-center space-x-1 px-2.5 py-1 rounded-md font-semibold transition ${
+                  visionMode === 'webcam'
+                    ? 'bg-sky-600 text-white shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
               >
-                P1
+                <Video className="h-3 w-3" />
+                <span>Webcam</span>
               </button>
               <button
-                onClick={() => handleCapture('P2')}
-                className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-xs border border-slate-700"
+                onClick={() => setVisionMode('3d_twin')}
+                className={`flex items-center space-x-1 px-2.5 py-1 rounded-md font-semibold transition ${
+                  visionMode === '3d_twin'
+                    ? 'bg-sky-600 text-white shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
               >
-                P2
+                <Layers className="h-3 w-3" />
+                <span>3D Twin</span>
               </button>
               <button
-                onClick={() => handleCapture('B2')}
-                className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-xs border border-slate-700"
+                onClick={() => setVisionMode('fixtures')}
+                className={`flex items-center space-x-1 px-2.5 py-1 rounded-md font-semibold transition ${
+                  visionMode === 'fixtures'
+                    ? 'bg-sky-600 text-white shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
               >
-                B2
-              </button>
-              <button
-                onClick={() => handleCapture('ambiguous')}
-                className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded text-xs border border-amber-800/60"
-              >
-                Ambiguous
+                <Table className="h-3 w-3" />
+                <span>Fixtures</span>
               </button>
             </div>
           </div>
 
-          {/* Thinking Level Selector & Capture Button */}
-          <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-xs">
-            <div className="flex items-center space-x-2">
-              <Sliders className="h-4 w-4 text-sky-400" />
-              <span className="text-slate-300 font-semibold">Argon Thinking Level:</span>
-              <div className="inline-flex rounded-md shadow-sm border border-slate-700 p-0.5 bg-slate-950">
-                {(['low', 'medium', 'high'] as const).map((lvl) => (
-                  <button
-                    key={lvl}
-                    onClick={() => setThinkingLevel(lvl)}
-                    className={`px-2 py-0.5 text-[11px] rounded font-medium uppercase transition ${
-                      thinkingLevel === lvl
-                        ? 'bg-sky-600 text-white shadow'
-                        : 'text-slate-400 hover:text-slate-200'
-                    }`}
+          {/* MODE 1: LIVE WEBCAM FEED */}
+          {visionMode === 'webcam' && (
+            <div className="space-y-3">
+              {/* Camera device selector & controls */}
+              <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-900/90 p-2 rounded-lg border border-slate-800 text-xs">
+                <div className="flex items-center space-x-2">
+                  <Video className="h-4 w-4 text-emerald-400" />
+                  <span className="text-slate-300 font-semibold">Camera Source:</span>
+                  {videoDevices.length > 0 ? (
+                    <select
+                      value={selectedDeviceId}
+                      onChange={(e) => {
+                        setSelectedDeviceId(e.target.value);
+                        startCamera(e.target.value);
+                      }}
+                      className="bg-slate-950 border border-slate-700 text-slate-200 text-xs rounded px-2 py-1 max-w-[180px] truncate"
+                    >
+                      {videoDevices.map((d, idx) => (
+                        <option key={d.deviceId || idx} value={d.deviceId}>
+                          {d.label || `Camera ${idx + 1}`}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="text-slate-500 font-mono text-[11px]">Default Video Device</span>
+                  )}
+                </div>
+
+                <div className="flex items-center space-x-1.5">
+                  <span className={`inline-block w-2 h-2 rounded-full ${isCameraActive ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'}`} />
+                  <span className="text-[11px] font-mono text-slate-400">
+                    {isCameraActive ? 'LIVE STREAM' : 'OFFLINE'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Live Video Viewfinder with AR Bounding Box Overlay */}
+              <div className="relative w-full h-52 bg-black rounded-lg border border-slate-800 overflow-hidden flex items-center justify-center">
+                {/* Live Video Element */}
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className={`w-full h-full object-cover ${!isCameraActive ? 'hidden' : ''}`}
+                />
+
+                {/* Fallback if camera stream is inactive */}
+                {!isCameraActive && (
+                  <div className="flex flex-col items-center justify-center space-y-2 text-slate-500 text-xs p-4 text-center">
+                    <VideoOff className="h-8 w-8 text-slate-600" />
+                    <span>Webcam access uninitialized or permission denied</span>
+                    <button
+                      onClick={() => startCamera(selectedDeviceId)}
+                      className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-sky-400 rounded text-xs border border-slate-700 font-semibold"
+                    >
+                      Start / Re-prompt Camera
+                    </button>
+                  </div>
+                )}
+
+                {/* Reticle Crosshairs HUD */}
+                {isCameraActive && (
+                  <div className="absolute inset-0 pointer-events-none">
+                    <div className="absolute top-2 left-2 text-[10px] font-mono text-cyan-400 bg-black/60 px-1.5 py-0.5 rounded border border-cyan-800/60">
+                      LIVE REC • 720p • SHACK15 STAGE
+                    </div>
+                    {/* Corner Brackets */}
+                    <div className="absolute top-4 left-4 w-6 h-6 border-t-2 border-l-2 border-cyan-400/70" />
+                    <div className="absolute top-4 right-4 w-6 h-6 border-t-2 border-r-2 border-cyan-400/70" />
+                    <div className="absolute bottom-4 left-4 w-6 h-6 border-b-2 border-l-2 border-cyan-400/70" />
+                    <div className="absolute bottom-4 right-4 w-6 h-6 border-b-2 border-r-2 border-cyan-400/70" />
+                    {/* Center Crosshair */}
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 border border-cyan-400/40 rounded-full" />
+                  </div>
+                )}
+
+                {/* AR Bounding Box Overlay from Gemini 4 Argon on Live Video */}
+                {proposal?.box_2d && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: `${proposal.box_2d[0] / 10}%`,
+                      left: `${proposal.box_2d[1] / 10}%`,
+                      height: `${(proposal.box_2d[2] - proposal.box_2d[0]) / 10}%`,
+                      width: `${(proposal.box_2d[3] - proposal.box_2d[1]) / 10}%`,
+                    }}
+                    className="border-2 border-rose-500 bg-rose-500/25 rounded shadow-[0_0_15px_rgba(244,63,94,0.6)] flex items-start justify-end p-0.5 animate-pulse z-10"
                   >
-                    {lvl}
-                  </button>
-                ))}
+                    <span className="text-[10px] font-mono font-bold bg-rose-600 text-white px-1.5 py-0.5 rounded shadow">
+                      {proposal.selected_entity_id ? `ARGON: ${proposal.selected_entity_type}:${proposal.selected_entity_id}` : 'HAZARD'}
+                    </span>
+                  </div>
+                )}
+
+                {/* Hidden canvas for video frame rasterization */}
+                <canvas ref={canvasRef} style={{ display: 'none' }} />
+              </div>
+
+              {/* Snap Button & Thinking Level Selector */}
+              <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-xs">
+                <div className="flex items-center space-x-2">
+                  <Sliders className="h-4 w-4 text-sky-400" />
+                  <span className="text-slate-300 font-semibold">Argon Thinking:</span>
+                  <div className="inline-flex rounded-md shadow-sm border border-slate-700 p-0.5 bg-slate-950">
+                    {(['low', 'medium', 'high'] as const).map((lvl) => (
+                      <button
+                        key={lvl}
+                        onClick={() => setThinkingLevel(lvl)}
+                        className={`px-2 py-0.5 text-[11px] rounded font-medium uppercase transition ${
+                          thinkingLevel === lvl
+                            ? 'bg-sky-600 text-white shadow'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        {lvl}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleCaptureWebcam}
+                  disabled={isGroundingLoading}
+                  className="flex items-center space-x-1.5 px-3.5 py-1.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white rounded-md text-xs font-semibold shadow glow-cyan transition"
+                >
+                  <Camera className="h-3.5 w-3.5" />
+                  <span>{isGroundingLoading ? 'Argon Inspecting...' : 'Snap & Ground via Argon'}</span>
+                </button>
               </div>
             </div>
+          )}
 
-            <button
-              onClick={() => handleCapture()}
-              disabled={isGroundingLoading}
-              className="flex items-center space-x-1.5 px-3 py-1.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white rounded-md text-xs font-semibold shadow glow-cyan transition"
-            >
-              <Camera className="h-3.5 w-3.5" />
-              <span>{isGroundingLoading ? 'Argon Thinking...' : 'Capture Overhead Still'}</span>
-            </button>
-          </div>
+          {/* MODE 2: 3D DIGITAL TWIN SCAN */}
+          {visionMode === '3d_twin' && (
+            <div className="p-4 rounded-lg bg-slate-900/90 border border-slate-800 space-y-3 text-xs">
+              <div className="flex items-center space-x-2 text-sky-300 font-semibold">
+                <Layers className="h-4 w-4 text-sky-400" />
+                <span>3D Building Digital Twin Inspection Mode</span>
+              </div>
+              <p className="text-slate-300 text-xs leading-relaxed">
+                Judges can directly touch doorways and stairwells in the <strong>2.5D Isometric Cutaway View</strong> on the left to deploy hazards (fire 🔥, barriers 🚧, structural debris ⚠️).
+              </p>
+              <p className="text-slate-400 text-[11px]">
+                Clicking <strong>Scan via Argon</strong> on the 3D building triggers virtual CCTV spatial perception, detects the hazard boundary coordinates, and initiates managed agent re-routing!
+              </p>
+
+              <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+                <span className="text-slate-500 text-[11px]">Direct 3D Spatial Grounding</span>
+                <button
+                  onClick={() => handleCapture('P2')}
+                  disabled={isGroundingLoading}
+                  className="flex items-center space-x-1.5 px-3 py-1.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white rounded text-xs font-bold transition shadow"
+                >
+                  <Camera className="h-3.5 w-3.5" />
+                  <span>{isGroundingLoading ? 'Scanning...' : 'Trigger 3D CCTV Grounding'}</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* MODE 3: PRE-SET FIXTURES */}
+          {visionMode === 'fixtures' && (
+            <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800 space-y-2.5 text-xs">
+              <div className="text-slate-300 font-semibold">
+                Stage Fixture Presets (Guaranteed Repeatability for Judges):
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => handleCapture('P1')}
+                  className="p-2 bg-slate-800 hover:bg-slate-700 text-left rounded border border-slate-700 transition"
+                >
+                  <div className="font-bold text-slate-200">Portal P1 Blocked</div>
+                  <div className="text-[10px] text-slate-400">West Hall Obstruction</div>
+                </button>
+                <button
+                  onClick={() => handleCapture('P2')}
+                  className="p-2 bg-slate-800 hover:bg-slate-700 text-left rounded border border-slate-700 transition"
+                >
+                  <div className="font-bold text-slate-200">Portal P2 Blocked</div>
+                  <div className="text-[10px] text-slate-400">East Hall (Rescued by P3)</div>
+                </button>
+                <button
+                  onClick={() => handleCapture('B2')}
+                  className="p-2 bg-slate-800 hover:bg-slate-700 text-left rounded border border-slate-700 transition"
+                >
+                  <div className="font-bold text-slate-200">Boundary B2 Blocked</div>
+                  <div className="text-[10px] text-amber-400">Falsification (0 Net Gain)</div>
+                </button>
+                <button
+                  onClick={() => handleCapture('ambiguous')}
+                  className="p-2 bg-slate-800 hover:bg-slate-700 text-left rounded border border-amber-800/60 transition"
+                >
+                  <div className="font-bold text-amber-300">Ambiguous Obstacle</div>
+                  <div className="text-[10px] text-slate-400">Requires Manual Disambiguation</div>
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Proposal Review Box & Bounding Box Visualizer */}
           {proposal && (

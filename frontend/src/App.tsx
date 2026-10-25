@@ -7,6 +7,7 @@ import {
   investigateScenario,
   operatorApproveGate,
   sendCommand,
+  clearBlockage,
 } from './api/client';
 import { Header } from './components/Header';
 import { PlanView2D } from './components/PlanView2D';
@@ -100,10 +101,48 @@ export const App: React.FC = () => {
     }
   };
 
+  // Toggle hazard (Touch interaction in 3D Cutaway or 2D Plan)
+  const handleToggleHazard = async (
+    targetType: 'portal' | 'boundary',
+    targetId: 'P1' | 'P2' | 'B2'
+  ) => {
+    if (!snapshot) return;
+    const isCurrentlyBlocked = targetType === 'portal'
+      ? snapshot.blocked_portals?.includes(targetId)
+      : snapshot.blocked_boundaries?.includes(targetId);
+
+    if (isCurrentlyBlocked) {
+      try {
+        const res = await clearBlockage(
+          'facility-demo',
+          snapshot.context.scenario_revision,
+          targetType,
+          targetId
+        );
+        setSnapshot(res.snapshot);
+      } catch (e: any) {
+        alert(`Failed to clear blockage: ${e.message}`);
+      }
+    } else {
+      await handleApplyBlockage(targetType, targetId);
+    }
+  };
+
+  // Trigger Argon Scan from 3D Cutaway
+  const handleTriggerArgonScan = async (targetId: string) => {
+    await handleTriggerGrounding(targetId, 'low');
+  };
+
   // Grounding
-  const handleTriggerGrounding = async (targetOverride?: string) => {
+  const handleTriggerGrounding = async (
+    targetOverride?: string,
+    thinkingLevel?: 'low' | 'medium' | 'high',
+    imageBase64?: string
+  ) => {
     const res = await interpretGrounding('facility-demo', {
       targetOverride,
+      thinkingLevel,
+      imageBase64,
     });
     return res.proposal;
   };
@@ -174,7 +213,13 @@ export const App: React.FC = () => {
                 selectedTarget={selectedTarget}
               />
             ) : (
-              <CutawayView3D snapshot={snapshot} />
+              <CutawayView3D
+                snapshot={snapshot}
+                onToggleHazard={handleToggleHazard}
+                onTriggerArgonScan={handleTriggerArgonScan}
+                selectedTarget={selectedTarget}
+                onSelectTarget={setSelectedTarget}
+              />
             )}
 
             {/* LED Indicator Stick View */}
