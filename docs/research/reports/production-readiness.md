@@ -86,4 +86,4 @@ The UI polls `GET /api/scenarios/facility-demo/investigations/{id}/progress` whi
 
 For a full public-API-to-provider trial with isolated state and hardware disabled, run `.venv/bin/python -m tools.verify_argon_http --live`. It verifies capture, saved review/Apply, managed investigation, run retrieval, replay, stale rejection and production fixture blocking. See [latest integration assurance](integration-assurance-2026-10-24.md) for the recorded result and final regression counts.
 
-See [grounding.md](grounding.md), [managed.md](managed.md) and the dated [audit](../research/2026-10-24-argon-venue-audit.md). The audit is a historical baseline; it is not overwritten to conceal defects found before this implementation.
+See [grounding.md](../../ai/grounding.md), [managed.md](../../ai/managed.md) and the dated [audit](../2026-10-24-argon-venue-audit.md). The audit is a historical baseline; it is not overwritten to conceal defects found before this implementation.

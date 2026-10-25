@@ -4,7 +4,7 @@ This is product research, not a claim that SpatialTwin has won an award. Five pa
 
 ## Evidence standard and historical-source correction
 
-The repository's [tool/source register](../plans/TOOL_SELECTION_AND_SOURCES.md) identifies `nihalnihalani/winners/spatialtwin_argon_winner` as historical source material. That folder name proves no award. Its [historical patterns document at the recorded commit](https://github.com/nihalnihalani/winners/blob/9fd96f7bfa93d82ce9fa6eac84cffc1e62829745/spatialtwin_argon_winner/01_historical_patterns_and_judges_debate.md) claims project placements and assigns SpatialTwin a 92% win probability. It does not establish an empirical probability or organizer confirmation. Those figures should not inform product claims or judging forecasts.
+The repository's [tool/source register](build-handoff/plans/TOOL_SELECTION_AND_SOURCES.md) identifies `nihalnihalani/winners/spatialtwin_argon_winner` as historical source material. That folder name proves no award. Its [historical patterns document at the recorded commit](https://github.com/nihalnihalani/winners/blob/9fd96f7bfa93d82ce9fa6eac84cffc1e62829745/spatialtwin_argon_winner/01_historical_patterns_and_judges_debate.md) claims project placements and assigns SpatialTwin a 92% win probability. It does not establish an empirical probability or organizer confirmation. Those figures should not inform product claims or judging forecasts.
 
 For award status, an organizer announcement outweighs a project README. A submission page is primary evidence of what the team presented, not independent proof that the implementation works. Gallery ordering, finalist status and cash-prize descriptions do not establish a project's prize placement.
 

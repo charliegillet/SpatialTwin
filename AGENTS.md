@@ -1,6 +1,6 @@
 # SpatialTwin contributor instructions
 
-Read `BUILD_PLAN.md` and the relevant references before implementation. Repository/project root is `/Users/nihalnihalani/Desktop/Github/SpatialTwin`, remote `charliegillet/SpatialTwin`. Historical winners links are source provenance. Application paths are relative to this repository or an explicitly assigned worktree, never relative to the handoff package.
+Read `README.md`, `docs/plans/demo-v2-contracts.md` and the relevant references before implementation (the original build plan is `docs/research/build-handoff/plans/BUILD_PLAN.md`). Repository/project root is `/Users/nihalnihalani/Desktop/Github/SpatialTwin`, remote `charliegillet/SpatialTwin`. Historical winners links are source provenance. Application paths are relative to this repository or an explicitly assigned worktree, never relative to the handoff package.
 
 ## Coordination
 
@@ -17,7 +17,7 @@ Read `BUILD_PLAN.md` and the relevant references before implementation. Reposito
 - Canonical source/context naming is `geometry_revision`; frontend root is `frontend/`. Normalize older `map_revision`/`app/` planning examples at the adapter boundary.
 - Supported judge targets are `portal:P1`, `portal:P2`, `boundary:B2`. P3 is a miniature internal reserve connection, not a new exit or extra boundary quota.
 - AI returns proposals and requests allowlisted numerical tools. Local state accepts only reviewed, current, typed commands. No cloud tool has serial/servo or arbitrary local execution access.
-- Direct Argon and managed-agent APIs have different capabilities. Read `CLAUDE_BUILD_HANDOFF/GOOGLE_API_GUIDE.md`; verify the pinned SDK and actual account. Distinguish live, fixture, manual and replay evidence.
+- Direct Argon and managed-agent APIs have different capabilities. Read `docs/research/build-handoff/GOOGLE_API_GUIDE.md`; verify the pinned SDK and actual account. Distinguish live, fixture, manual and replay evidence.
 - Preserve every synthetic occupant and finite boundary capacity. Numeric UI and lights derive from independently checked results.
 - Physical approval, command ACK, endpoint observation and observed-state result are separate. Transit/unknown/fault/stale keeps the reserve unavailable. A fresh confirmation requires a new physical revision and checked solve.
 - Never print secrets, fabricate a successful API/device test, or present the illustrative board as a verified SHACK15 plan. Keep `.env` and credentials untracked.
