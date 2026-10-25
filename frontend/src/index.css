@@ -25,7 +25,7 @@
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; overflow-x: hidden; }
+html, body { margin: 0; }
 body { background: var(--bg); min-height: 100vh; }
 h2 { font-size: 1.2rem; margin: 0 0 0.5rem; }
 h3 { font-size: 1rem; margin: 1rem 0 0.4rem; }
@@ -200,10 +200,12 @@ tr.st-fail td:nth-child(3) { color: var(--bad); }
 tr.st-pass td:nth-child(3) { color: var(--good); }
 
 /* drawer */
-.drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 20; width: min(720px, 100vw); overflow-y: auto; overflow-x: hidden; background: var(--panel); border-left: 1px solid var(--line); padding: 16px; box-shadow: -12px 0 30px rgba(0, 0, 0, 0.5); }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 20; width: min(720px, 100vw); overflow-y: auto; background: var(--panel); border-left: 1px solid var(--line); padding: 16px; box-shadow: -12px 0 30px rgba(0, 0, 0, 0.5); }
 .drawer-head { display: flex; justify-content: space-between; align-items: center; }
 .verdict { font-size: 1.1rem; font-weight: 700; }
 .todo { list-style: none; padding: 0; }
+.note pre { margin: 0.3rem 0 0; white-space: pre-wrap; word-break: break-word; font: inherit; }
+.note-head { margin: 0; }
 .todo input { width: auto; }
 
 @media (max-width: 1000px) {

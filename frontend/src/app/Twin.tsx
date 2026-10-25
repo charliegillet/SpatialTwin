@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { api, currentRevision, currentRun } from '../api'
+import { api, checkedRun, currentRevision, currentRun } from '../api'
 import type { FlowRun, GhostPoint } from '../apiTypes'
 import { buildScene } from '../twin/buildScene'
-import { counterForStep, doorFlowTotal, formatHero, stepCount } from '../twin/crowdDots'
+import { counterForStep, counterMismatch, doorFlowTotal, droppedZones, formatHero, stepCount } from '../twin/crowdDots'
 import { ghostFlashes, ghostPath, latestGeometry, positionAt } from '../twin/ghostWalker'
 import { graphToScene } from '../twin/graphToScene'
 import { crowdDots, disposeGroup, flashMarkers, flowArrows, ghostBody, ghostTrail, pickTargets } from '../twin/overlays'
 import type { VenueGraph } from '../types'
-import { fmtT, Tag, useStable, type ScreenProps } from './common'
+import { Tag, type ScreenProps } from './common'
+import { fmtT, useStable } from './format'
 
 interface CanvasProps {
   graph: VenueGraph
@@ -161,7 +162,7 @@ function TwinCanvas({ graph, hazards, run, step, path, flashes, videoRef, onDoor
   return <div className="twin-canvas" ref={wrap}><canvas ref={canvas} aria-label="3D twin. Click a door to drop fire on it, click a red flash to see that moment in the video." /></div>
 }
 
-export function Twin({ snap, act, pending, seek, videoRef }: ScreenProps & { videoRef: RefObject<HTMLVideoElement | null> }) {
+export function Twin({ snap, act, pending, seek, stale, videoRef }: ScreenProps & { videoRef: RefObject<HTMLVideoElement | null> }) {
   const rev = currentRevision(snap)
   const graph = useStable(snap.accepted_graph, JSON.stringify(snap.accepted_graph))
   const live = currentRun(snap)
@@ -171,18 +172,20 @@ export function Twin({ snap, act, pending, seek, videoRef }: ScreenProps & { vid
   const hazards = useMemo(() => (hazardKey ? hazardKey.split(',') : []), [hazardKey])
   const rawPath = ghostPath(snap)
   const path = useStable(rawPath, JSON.stringify(rawPath))
-  const geo = latestGeometry(snap)
+  const geo = latestGeometry(snap, rev)
   const rawFlashes = geo ? ghostFlashes(geo) : []
   const flashes = useStable(rawFlashes, JSON.stringify(rawFlashes))
   const resolving = pending === 'Changing the hazard'
   const shownRun = resolving ? null : run
   const K = shownRun ? stepCount(shownRun) - 1 : 0
-  const [step, setStep] = useState(K)
-  const [playing, setPlaying] = useState(false)
-  useEffect(() => { setStep(K); setPlaying(false) }, [shownRun?.run_id, K])
+  // step selection belongs to one run: a new run starts at the horizon (the headline step)
+  const runKey = shownRun?.run_id ?? ''
+  const [sel, setSel] = useState({ key: '', k: 0, playing: false })
+  const step = sel.key === runKey ? sel.k : K
+  const playing = sel.key === runKey && sel.playing
   useEffect(() => {
     if (!playing) return
-    const t = setInterval(() => setStep((k) => { if (k >= K) { setPlaying(false); return K } return k + 1 }), 200)
+    const t = setInterval(() => setSel((p) => (p.k >= K ? { ...p, k: K, playing: false } : { ...p, k: p.k + 1 })), 200)
     return () => clearInterval(t)
   }, [playing, K])
 
@@ -194,7 +197,10 @@ export function Twin({ snap, act, pending, seek, videoRef }: ScreenProps & { vid
     void act('Changing the hazard', () => api.setHazards(snap.id, rev, next.map((door_id) => ({ door_id, kind: 'fire' as const, from_s: 0 }))))
   }
   const c = shownRun ? counterForStep(shownRun, step) : null
-  const checked = !!(shownRun && check && check.ok && check.run_id === shownRun.run_id)
+  // "checked" only for the current run's passing check, and never on a stale copy
+  const checked = !stale && !!shownRun && checkedRun(snap)?.run_id === shownRun.run_id
+  const dropped = shownRun ? droppedZones(graph.zones.map((z) => z.id), shownRun, step) : []
+  const mismatch = shownRun ? counterMismatch(shownRun, step) : null
   const exits = graph.doors.filter((d) => d.kind === 'exit' || d.b === 'OUTSIDE')
   const others = graph.doors.filter((d) => !exits.includes(d))
 
@@ -204,22 +210,24 @@ export function Twin({ snap, act, pending, seek, videoRef }: ScreenProps & { vid
         {shownRun ? (
           <>
             <p className="hero-number">{formatHero(shownRun.reached_exit, shownRun.total, shownRun.params.horizon_s)}{checked ? ' · checked' : ''}</p>
-            {checked ? <Tag kind="checked">checker verified</Tag> : <Tag kind="error">{check && !check.ok ? `checker found ${check.violations.length} violations` : 'not checked'}</Tag>}
+            {checked ? <Tag kind="checked">checker verified</Tag> : <Tag kind="error">{stale ? 'reload needed' : check && !check.ok ? `checker found ${check.violations.length} violations` : 'not checked'}</Tag>}
             {hazards.length > 0 && <span className="muted"> Fire on {hazards.join(', ')}</span>}
           </>
-        ) : <p className="hero-number muted">{resolving ? 'Re-solving for the new hazard…' : 'No current run for this revision.'}</p>}
+        ) : <p className="hero-number muted">{resolving ? 'Re-solving for the new hazard…' : !rev || !snap.scenario_hash ? 'Revision unknown; nothing shown as current.' : 'No current run for this revision.'}</p>}
       </div>
       <TwinCanvas graph={graph} hazards={hazards} run={shownRun} step={step} path={path} flashes={flashes}
         videoRef={videoRef} onDoor={toggleFire} onFlash={seek} />
       <div className="twin-controls panel">
         {shownRun && c && (
           <div className="stepper">
-            <button onClick={() => { if (step >= K) setStep(0); setPlaying((p) => !p) }}>{playing ? 'Pause' : 'Play crowd'}</button>
-            <input type="range" min={0} max={K} value={step} onChange={(e) => { setPlaying(false); setStep(Number(e.target.value)) }} aria-label="Solver step" />
+            <button onClick={() => setSel({ key: runKey, k: step >= K ? 0 : step, playing: !playing })}>{playing ? 'Pause' : 'Play crowd'}</button>
+            <input type="range" min={0} max={K} value={step} onChange={(e) => setSel({ key: runKey, k: Number(e.target.value), playing: false })} aria-label="Solver step" />
             <p className="counter">
               t = {c.t_s} s · <strong>{c.inZones}</strong> in rooms + <strong>{c.inTransit}</strong> moving + <strong>{c.reached}</strong> at exits = {c.total}
-              {step === K && c.reached === shownRun.reached_exit && <span className="reconciled"> · matches the headline</span>}
+              {step === K && !mismatch && <span className="reconciled"> · matches the headline</span>}
             </p>
+            {mismatch && <p className="fail" role="alert">{mismatch}</p>}
+            {dropped.length > 0 && <p className="fail">Dots missing: the twin has no room for {dropped.join(', ')}, so those people are counted but not drawn.</p>}
             <p className="muted">One dot per person, from the solver's zone occupancy. Arrow thickness = people through that door this step.</p>
           </div>
         )}
@@ -248,7 +256,8 @@ export function Twin({ snap, act, pending, seek, videoRef }: ScreenProps & { vid
                     <button key={i} className="chip flash-chip" onClick={() => seek(f.t_s)}>Wall crossing {fmtT(f.t_s)}</button>
                   ))}
                 </div>
-              ) : <p className="muted">No illegal crossings measured.</p>}
+              ) : geo ? <p className="muted">No illegal crossings measured on this revision.</p>
+                : <p className="muted">Geometry not measured for this revision.</p>}
             </>
           ) : <p className="muted">No SfM path for this session.</p>}
         </div>

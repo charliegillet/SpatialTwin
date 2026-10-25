@@ -12,17 +12,36 @@ const VERDICT: Record<Report['verdict'], string> = {
   verified_within_model: 'Verified within the model', failed: 'Failed', incomplete: 'Incomplete',
 }
 
+type Loaded<T> = { key: string; value: T | null; error: string | null }
+
 export function ReportDrawer({ snap, open, onClose }: { snap: Snapshot; open: boolean; onClose: () => void }) {
-  const [report, setReport] = useState<Report | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const key = `${currentRevision(snap)}|${snap.current_run?.run_id}|${snap.approvals.length}`
+  const [rep, setRep] = useState<Loaded<Report> | null>(null)
+  const [note, setNote] = useState<Loaded<string> | null>(null)
   useEffect(() => {
     if (!open) return
     let live = true
-    setError(null)
-    api.report(snap.id).then((r) => live && setReport(r), (e) => live && setError(errText(e)))
+    api.report(snap.id).then(
+      (r) => live && setRep({ key, value: r, error: null }),
+      (e) => live && setRep({ key, value: null, error: errText(e) }))
+    const last = snap.approvals.length - 1
+    if (last >= 0) {
+      api.note(snap.id, last).then(
+        (t) => live && setNote({ key, value: t, error: null }),
+        (e) => live && setNote({ key, value: null, error: errText(e) }))
+    }
     return () => { live = false }
-  }, [open, snap.id, key])
+  }, [open, snap.id, key, snap.approvals.length])
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, onClose])
+  const report = rep?.key === key ? rep.value : null
+  const error = rep?.key === key ? rep.error : null
+  const noteText = note?.key === key ? note.value : null
+  const noteError = note?.key === key ? note.error : null
   if (!open) return null
   const current = report && isCurrent(report, snap) ? report : null
   const ada = current?.rules ?? []
@@ -32,8 +51,9 @@ export function ReportDrawer({ snap, open, onClose }: { snap: Snapshot; open: bo
         <h2>Report</h2>
         <button onClick={onClose} aria-label="Close report">Close</button>
       </div>
-      {error && <p className="fail">{error}</p>}
-      {report && !current && <p className="muted">That report was for an earlier revision; waiting for the current one.</p>}
+      {error && <p className="fail">Report unavailable: {error}</p>}
+      {!report && !error && <p className="muted">Loading the report…</p>}
+      {report && !current && <p className="muted">That report is not for the current revision and scenario, so it is hidden.</p>}
       {current && (
         <>
           <p className="verdict">{VERDICT[current.verdict]} <span className="muted mono">{current.graph_revision} · {current.scenario_hash}</span></p>
@@ -73,14 +93,18 @@ export function ReportDrawer({ snap, open, onClose }: { snap: Snapshot; open: bo
           <ul className="todo">{current.hand_checks.map((h, i) => <li key={i}><input type="checkbox" aria-label={h} /> {h}</li>)}</ul>
           <h3>Declared parameters <Tag kind="declared">declared</Tag></h3>
           <p className="mono small">{Object.entries(current.declared_parameters).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(' · ')}</p>
-          <h3>Note to security</h3>
-          {current.security_note ? <pre className="note">{current.security_note}</pre> : snap.approvals.length ? (
-            <div className="note"><p><strong>DRAFT — not sent</strong></p>{snap.approvals.map((a) => <p key={a.note_path} className="mono small">{a.note_path}</p>)}</div>
-          ) : <p className="muted">Drafted after you approve a change. Nothing is sent.</p>}
           <h3>Provenance</h3>
           <ul className="small">{current.provenance.map((p, i) => <li key={i}>{p}</li>)}</ul>
         </>
       )}
+      <h3>Note to security</h3>
+      <div className="note">
+        <p className="note-head"><strong>DRAFT — not sent</strong></p>
+        {snap.approvals.length === 0 ? <p className="muted">Drafted after you approve a change. Nothing is sent.</p>
+          : noteText != null ? <pre>{noteText}</pre>
+            : noteError ? <p className="fail">Could not load the note: {noteError}</p>
+              : <p className="muted">Loading the note…</p>}
+      </div>
     </aside>
   )
 }

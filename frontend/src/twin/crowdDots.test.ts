@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import fixture from '../__fixtures__/snapshot.json'
 import { parseSnapshot } from '../api'
-import { counterForStep, dotLayout, dotsForStep, formatHero } from './crowdDots'
+import { counterForStep, counterMismatch, dotLayout, dotsForStep, droppedZones, formatHero } from './crowdDots'
 
-const run = parseSnapshot(fixture).current_run!
+const snap = parseSnapshot(fixture)
+const run = snap.current_run!
+const zoneIds = snap.accepted_graph!.zones.map((z) => z.id)
 
 describe('formatHero', () => {
   it('uses the exact hero wording', () => {
@@ -43,5 +45,24 @@ describe('dotLayout', () => {
       expect(y).toBeGreaterThan(0); expect(y).toBeLessThan(8)
     }
     expect(dotLayout([0, 0, 1, 1], 0)).toEqual([])
+  })
+})
+
+describe('mismatch flags', () => {
+  it('reports no dropped zones or counter mismatch on the fixture run', () => {
+    run.zone_occupancy.forEach((_, k) => {
+      expect(droppedZones(zoneIds, run, k)).toEqual([])
+      expect(counterMismatch(run, k)).toBeNull()
+    })
+  })
+  it('names zones the twin cannot draw', () => {
+    expect(droppedZones(zoneIds.filter((z) => z !== 'Z1'), run, 0)).toEqual(['Z1'])
+  })
+  it('flags a counter that does not reconcile', () => {
+    const K = run.zone_occupancy.length - 1
+    const bad = { ...run, reached_exit: run.reached_exit + 1 }
+    expect(counterMismatch(bad, K)).toMatch(/headline/)
+    const leak = { ...run, transit_by_step: run.transit_by_step.map((t) => t + 1) }
+    expect(counterMismatch(leak, 0)).toMatch(/≠/)
   })
 })

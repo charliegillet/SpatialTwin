@@ -1,5 +1,6 @@
 // Session API client. Every response is shape-checked before it can reach the UI,
 // and results that do not belong to the current graph revision / scenario are dropped.
+// Currency fails closed: without the snapshot's revision fields nothing is current.
 import type {
   FlowRun, Finding, Hazard, Investigation, InterventionResult, Report, Snapshot, VideoMode,
 } from './apiTypes'
@@ -10,7 +11,7 @@ import {
 
 export { ApiShapeError }
 
-// ---------- shapes ----------
+// ---------- shapes (backend/walktwin/api.py SessionSnapshot) ----------
 const evidence = obj({ start_s: num, end_s: num, note: str })
 const measure = obj({ low_m: num, high_m: num, basis: str })
 const anchor = obj({ door_id: str, measured_width_m: num })
@@ -39,7 +40,7 @@ const iteration = obj({
   index: int, graph_revision: str, discrepancy_count: int, applied: arr(int), rejected: arr(tuple(int, str)),
   findings: arr(finding), geometry: nullable(geometry),
   renders: arr(obj({ t_s: nullable(num), path: str, kind: lit('perspective', 'top'), url: opt(str) })),
-  receipt: nullable(receipt), stop_reason: nullable(str),
+  receipt: nullable(receipt), stop_reason: nullable(str), rejected_geometry: opt(nullable(geometry)),
 })
 const result = obj({
   intervention_id: str, run_id: str, reached_exit: int, total: int, delta_vs_current: int, check_ok: bool, limiting_doors: arr(str),
@@ -51,35 +52,41 @@ const investigation = obj({
   ledger: arr(obj({ call_id: str, kind: lit('client_function', 'sandbox_step'), name: str, args: rec(any), result: nullable(rec(any)), executed_at: str })),
   sandbox_runs: int, results: arr(result),
   recommendation: nullable(obj({ intervention_id: nullable(str), claimed_reached_exit: nullable(int), rationale: str, caveats: arr(str) })),
-  best: nullable(result), disagreement: nullable(str), hook_denials: int, receipt: nullable(receipt),
+  best: nullable(result), disagreement: nullable(str), hook_denials: int, receipt: nullable(receipt), error: opt(nullable(str)),
 })
 const snapshotShape = obj({
-  id: str,
-  video: obj({ path: str, sha256: str, duration_s: num, width: int, height: int }),
-  anchor: nullable(anchor),
+  id: str, created_at: str,
+  video: obj({ sha256: str, duration_s: num, width: int, height: int, url: str }),
+  anchor: nullable(anchor), anchor_hint: nullable(str), anchor_width_m: nullable(num),
+  jobs: rec(obj({
+    kind: str, status: lit('queued', 'running', 'done', 'failed'), error: nullable(str),
+    started_at: nullable(str), finished_at: nullable(str), meta: rec(any),
+  })),
   sfm: nullable(obj({
-    status: lit('completed', 'failed'), frames: arr(obj({ t_s: num, center: xyz, R: any, K: any })),
-    points: arr(xyz), registered_fraction: num, elapsed_ms: num, error: nullable(str),
+    status: str, registered_fraction: nullable(num), elapsed_ms: nullable(num), error: nullable(str),
+    frame_count: int, point_count: int,
   })),
   alignment: nullable(obj({
     scale: num, yaw_rad: num, tx: num, ty: num, floor_normal: xyz, floor_offset: num, residual_m: num, eye_height_m: num, hash: str,
   })),
-  draft_graph: nullable(graphShape), accepted_graph: nullable(graphShape),
-  scenario: obj({ hazards: arr(obj({ door_id: str, kind: lit('fire'), from_s: num })), interventions: arr(str) }),
-  current_run: nullable(flowRun),
-  current_check: nullable(obj({ ok: bool, run_id: str, violations: arr(str) })),
-  iterations: arr(iteration),
+  alignment_error: nullable(str),
+  ghost_path: arr(obj({ t_s: num, x: num, y: num })),
   extraction: nullable(obj({
     status: lit('completed', 'failed', 'timeout', 'invalid'), graph: nullable(graphShape), findings: arr(finding),
     receipt: nullable(receipt), mode: lit('static', 'static_hifps', 'agentic'), agentic_observed: nullable(bool),
-    video_uri: nullable(str), error: nullable(str),
+    video_uri: nullable(str), error: nullable(str), interaction_id: opt(nullable(str)),
   })),
+  draft_graph: nullable(graphShape), draft_revision: opt(nullable(str)), findings: arr(finding),
+  accepted_graph: nullable(graphShape), accepted_revision: opt(nullable(str)), graph_revision: opt(nullable(str)),
+  scenario: obj({ hazards: arr(obj({ door_id: str, kind: lit('fire'), from_s: num })), interventions: arr(str) }),
+  scenario_hash: opt(nullable(str)),
+  current_run: nullable(flowRun),
+  current_check: nullable(obj({ ok: bool, run_id: str, violations: arr(str) })),
+  iterations: arr(iteration),
   investigations: arr(investigation),
+  ready_investigation_id: nullable(str),
+  allowed_interventions: arr(str),
   approvals: arr(obj({ intervention_id: str, investigation_id: str, graph_revision: str, scenario_hash: str, run_id: str, note_path: str, approved_at: str })),
-  jobs: rec(obj({ kind: str, status: lit('queued', 'running', 'done', 'failed'), error: nullable(str) })),
-  ghost_path: arr(obj({ t_s: num, x: num, y: num })),
-  graph_revision: opt(nullable(str)), draft_revision: opt(nullable(str)), scenario_hash: opt(nullable(str)),
-  findings: opt(arr(finding)), allowed_interventions: opt(arr(str)),
 })
 const reportShape = obj({
   session_id: str, graph_revision: str, scenario_hash: str, run_id: str,
@@ -105,69 +112,104 @@ export function parseSnapshot(raw: unknown): Snapshot {
 }
 export const parseReport = (raw: unknown): Report => validate<Report>(reportShape, raw)
 
-// ---------- derived state ----------
-export const currentRevision = (s: Snapshot): string | null => s.graph_revision ?? s.current_run?.graph_revision ?? null
-export const currentScenarioHash = (s: Snapshot): string | null => s.scenario_hash ?? s.current_run?.scenario_hash ?? null
-export const draftRevision = (s: Snapshot): string | null =>
-  s.draft_revision ?? s.iterations.at(-1)?.graph_revision ?? (s.accepted_graph ? currentRevision(s) : null)
+// ---------- derived state (fail closed: no guessing from other fields) ----------
+export const currentRevision = (s: Snapshot): string | null => s.graph_revision ?? null
+export const currentScenarioHash = (s: Snapshot): string | null => s.scenario_hash ?? null
+export const draftRevision = (s: Snapshot): string | null => s.draft_revision ?? null
 
 /** True only when the result was computed for the current graph revision (and scenario, if it carries one). */
 export function isCurrent(r: { graph_revision: string; scenario_hash?: string }, s: Snapshot): boolean {
   const rev = currentRevision(s)
   if (!rev || r.graph_revision !== rev) return false
-  if (r.scenario_hash !== undefined) return r.scenario_hash === currentScenarioHash(s)
-  return true
+  if (r.scenario_hash === undefined) return true
+  const sh = currentScenarioHash(s)
+  return !!sh && r.scenario_hash === sh
 }
 
-export const findingsOf = (s: Snapshot): Finding[] =>
-  s.findings ?? s.iterations.at(-1)?.findings ?? s.extraction?.findings ?? []
 export const runningJobs = (s: Snapshot) =>
   Object.entries(s.jobs).filter(([, j]) => j.status === 'queued' || j.status === 'running').map(([k]) => k)
 export const currentRun = (s: Snapshot): FlowRun | null => (s.current_run && isCurrent(s.current_run, s) ? s.current_run : null)
+/** The check is shown as "checked" only for the current run, when it passed. */
+export const checkedRun = (s: Snapshot): FlowRun | null => {
+  const run = currentRun(s)
+  return run && s.current_check?.ok && s.current_check.run_id === run.run_id ? run : null
+}
 
-export function acceptBlockers(s: Snapshot): string[] {
+export function acceptBlockers(s: Snapshot, extraErrors: Finding[] = []): string[] {
   const out: string[] = []
   if (!s.draft_graph) out.push('No draft twin yet')
-  else if (!draftRevision(s)) out.push('Draft revision unknown; reload')
-  const errors = findingsOf(s).filter((f) => f.severity === 'error').length
+  else if (!draftRevision(s)) out.push('Revision unknown; reload')
+  const errors = [...s.findings, ...extraErrors].filter((f) => f.severity === 'error').length
   if (errors) out.push(`${errors} error finding${errors > 1 ? 's' : ''} to fix`)
-  for (const j of runningJobs(s)) out.push(`Waiting for ${j}`)
+  for (const j of runningJobs(s)) out.push(`Waiting for ${j.split(':')[0]}`)
   return out
 }
 
+/** Investigations tagged with the current revision and scenario (any status). */
 export const readyInvestigations = (s: Snapshot): Investigation[] => s.investigations.filter((i) => isCurrent(i, s))
+/** Investigation jobs still running for the current revision and scenario. */
+export function investigationsInProgress(s: Snapshot): string[] {
+  const rev = currentRevision(s), sh = currentScenarioHash(s)
+  if (!rev || !sh) return []
+  return Object.entries(s.jobs)
+    .filter(([, j]) => j.kind === 'investigate' && (j.status === 'queued' || j.status === 'running')
+      && j.meta.graph_revision === rev && j.meta.scenario_hash === sh)
+    .map(([k]) => k)
+}
 
 /** The checked `best` that may be approved, or null. */
 export function approvable(inv: Investigation, s: Snapshot): InterventionResult | null {
   const b = inv.best
-  if (!b || !b.check_ok || b.delta_vs_current <= 0 || !isCurrent(inv, s)) return null
+  if (inv.status !== 'completed' || !b || !b.check_ok || b.delta_vs_current <= 0 || !isCurrent(inv, s)) return null
   if (!inv.results.some((r) => r.intervention_id === b.intervention_id && r.check_ok)) return null
-  if (s.allowed_interventions && !s.allowed_interventions.includes(b.intervention_id)) return null
+  if (!s.allowed_interventions.includes(b.intervention_id)) return null
   if (s.approvals.some((a) => a.investigation_id === inv.investigation_id && a.intervention_id === b.intervention_id)) return null
   return b
 }
+
+/** Claimed vs checker figure for the recommended change, compared locally. */
+export function localDisagreement(inv: Investigation): string | null {
+  const rec = inv.recommendation
+  if (!rec?.intervention_id || rec.claimed_reached_exit == null) return null
+  const r = inv.results.find((x) => x.intervention_id === rec.intervention_id)
+  if (!r) return `Agent claimed ${rec.claimed_reached_exit} for ${rec.intervention_id}; the checker never evaluated it`
+  return r.reached_exit !== rec.claimed_reached_exit
+    ? `Agent claimed ${rec.claimed_reached_exit} for ${rec.intervention_id}; checker computed ${r.reached_exit}` : null
+}
+
+/**
+ * Sequence stamps from useSession: okAt = last successful reload, errorAt = last failed
+ * reload, mutatedAt = last mutation that returned (either way). The snapshot on screen is
+ * stale when anything happened after the last successful reload.
+ */
+export interface Freshness { okAt: number; errorAt: number; mutatedAt: number }
+export const snapshotIsStale = (f: Freshness): boolean => f.okAt === 0 || f.errorAt > f.okAt || f.mutatedAt > f.okAt
 
 // ---------- HTTP ----------
 export class ApiError extends Error {
   status: number
   body: unknown
   constructor(status: number, body: unknown) {
-    super(status === 409 ? 'Stale revision: someone changed this first. Reloaded the latest state.' : `Request failed (${status})`)
+    const code = typeof (body as { error?: unknown } | null)?.error === 'string' ? (body as { error: string }).error : null
+    super(status === 409 && code === 'job_running' ? 'That job is already running.'
+      : status === 409 ? `Stale ${code === 'stale_investigation' ? 'investigation' : 'revision'}: something changed first. Reloaded the latest state.`
+        : `Request failed (${status}${code ? `: ${code}` : ''})`)
     this.status = status
     this.body = body
   }
   get findings(): Finding[] {
-    const b = this.body as { findings?: unknown; detail?: { findings?: unknown } } | null
-    const f = b?.findings ?? b?.detail?.findings
-    try { return validate<Finding[]>(arr(finding), f) } catch { return [] }
+    const b = this.body as { findings?: unknown } | null
+    try { return validate<Finding[]>(arr(finding), b?.findings) } catch { return [] }
   }
 }
 
-async function call(path: string, init?: RequestInit): Promise<unknown> {
+async function call(path: string, init?: RequestInit, as: 'json' | 'text' = 'json'): Promise<unknown> {
   const res = await fetch(path, init)
   const text = await res.text()
-  let body: unknown = null
-  try { body = text ? JSON.parse(text) : null } catch { body = text }
+  let body: unknown = text
+  if (as === 'json' || !res.ok) {
+    try { body = text ? JSON.parse(text) : null } catch { body = text }
+  }
   if (!res.ok) throw new ApiError(res.status, body)
   return body
 }
@@ -191,7 +233,8 @@ export const api = {
   extract: (id: string, mode: VideoMode) => post(`${base(id)}/extract`, { mode }),
   refine: (id: string, expected_revision: string) => post(`${base(id)}/refine`, { expected_revision }),
   putGraph: async (id: string, expected_revision: string, graph: VenueGraph) =>
-    validate<{ revision?: string }>(obj({ revision: opt(str) }), (await post(`${base(id)}/graph`, { expected_revision, graph }, 'PUT')) ?? {}),
+    validate<{ revision: string; findings: Finding[] }>(obj({ revision: str, findings: arr(finding) }),
+      await post(`${base(id)}/graph`, { expected_revision, graph }, 'PUT')),
   accept: (id: string, expected_revision: string) => post(`${base(id)}/accept`, { expected_revision }),
   setHazards: (id: string, expected_revision: string, hazards: Hazard[]) =>
     post(`${base(id)}/scenario`, { expected_revision, hazards }),
@@ -200,4 +243,10 @@ export const api = {
   approve: (id: string, b: { expected_revision: string; expected_scenario: string; investigation_id: string; intervention_id: string }) =>
     post(`${base(id)}/approve`, b),
   report: async (id: string) => parseReport(await call(`${base(id)}/report`)),
+  /** The drafted note to security for approval `index` (markdown text). */
+  note: async (id: string, index: number) => {
+    const t = await call(`${base(id)}/approvals/${index}/note`, undefined, 'text')
+    if (typeof t !== 'string') throw new ApiShapeError('note', 'text')
+    return t
+  },
 }

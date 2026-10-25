@@ -1,27 +1,21 @@
-import { useMemo } from 'react'
 import { api, draftRevision, frameUrl } from '../api'
 import type { Iteration, RenderedView } from '../apiTypes'
-import { renderStill } from '../twin/still'
-import type { VenueGraph } from '../types'
-import { fmtT, pct, Tag, type ScreenProps } from './common'
+import { Tag, type ScreenProps } from './common'
+import { fmtT, pct } from './format'
 
-function RenderImg({ r, graph, rev }: { r: RenderedView; graph: VenueGraph | null; rev: string | null }) {
-  const src = useMemo(
-    () => r.url ?? (graph && rev && r.t_s != null ? renderStill(graph, rev, r.t_s) : null),
-    [r.url, r.t_s, graph, rev],
-  )
-  if (!src) return <div className="img-missing">render unavailable</div>
-  return <img src={src} alt={`Twin render at t=${r.t_s}`} loading="lazy" />
+function RenderImg({ r }: { r: RenderedView }) {
+  if (!r.url) return <div className="img-missing">render unavailable</div>
+  return <img src={r.url} alt={`Twin render at t=${r.t_s}`} loading="lazy" />
 }
 
-function Round({ it, sessionId, graph, rev, seek }: { it: Iteration; sessionId: string; graph: VenueGraph | null; rev: string | null; seek: (t: number) => void }) {
+function Round({ it, n, sessionId, seek }: { it: Iteration; n: number; sessionId: string; seek: (t: number) => void }) {
   const pairs = it.renders.filter((r) => r.kind === 'perspective' && r.t_s != null)
   const g = it.geometry
   const regression = it.rejected.some(([, why]) => why === 'measured_regression') || it.stop_reason === 'measured_regression'
   return (
     <article className={`round${regression ? ' regressed' : ''}`}>
       <header className="round-head">
-        <h3>Round {it.index}</h3>
+        <h3>Round {n}</h3>
         <span className="mono muted">{it.graph_revision}</span>
         {it.stop_reason && <span className="stop">stopped: {it.stop_reason.replace(/_/g, ' ')}</span>}
       </header>
@@ -30,9 +24,9 @@ function Round({ it, sessionId, graph, rev, seek }: { it: Iteration; sessionId: 
           <figure key={r.t_s} className="pair">
             <button className="pair-imgs" onClick={() => seek(r.t_s!)} title="Seek the video here">
               <img src={frameUrl(sessionId, r.t_s!)} alt={`Video frame at ${fmtT(r.t_s!)}`} loading="lazy" />
-              <RenderImg r={r} graph={r.url ? null : graph} rev={rev} />
+              <RenderImg r={r} />
             </button>
-            <figcaption>{fmtT(r.t_s!)} · frame | render{!r.url && ' (re-rendered from current draft)'}</figcaption>
+            <figcaption>{fmtT(r.t_s!)} · frame | render</figcaption>
           </figure>
         ))}
       </div>
@@ -45,7 +39,10 @@ function Round({ it, sessionId, graph, rev, seek }: { it: Iteration; sessionId: 
               <li><strong>{pct(g.wall_support)}</strong> wall support</li>
               <li><strong>{pct(g.edge_within_5px)}</strong> edges within 5 px{g.edge_chamfer_px != null && ` (mean ${g.edge_chamfer_px.toFixed(1)} px)`}</li>
             </ul>
-          ) : <p className="muted">No SfM: geometry not measured this round.</p>}
+          ) : <p className="muted">Geometry not measured for this round's revision (no SfM path).</p>}
+          {it.rejected_geometry && (
+            <p className="fail small">Reverted candidate measured {it.rejected_geometry.illegal_crossings.length} crossings, {pct(it.rejected_geometry.wall_support)} wall support.</p>
+          )}
         </div>
         <div className="score">
           <Tag kind="model">model-reported</Tag>
@@ -83,7 +80,7 @@ export function Loop({ snap, act, pending, seek }: ScreenProps) {
           <p className="muted">Alignment frozen on round 1 · residual {snap.alignment.residual_m.toFixed(2)} m · eye height {snap.alignment.eye_height_m.toFixed(2)} m (declared 1.5 ± 0.1 m)</p>
         )}
         {snap.iterations.length === 0 && <p className="muted">No rounds yet.</p>}
-        {snap.iterations.map((it) => <Round key={it.index} it={it} sessionId={snap.id} graph={snap.draft_graph} rev={rev} seek={seek} />)}
+        {snap.iterations.map((it, i) => <Round key={`${i}-${it.index}`} n={i + 1} it={it} sessionId={snap.id} seek={seek} />)}
       </div>
     </section>
   )

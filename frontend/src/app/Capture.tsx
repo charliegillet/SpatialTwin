@@ -63,10 +63,13 @@ export function Capture({ snap, act, pending, onCreated }: Props) {
           <Jobs snap={snap} />
           {snap.sfm?.status === 'failed' && <p className="fail">SfM failed: {snap.sfm.error ?? 'no model'}. The loop will run on model-reported counts only.</p>}
           {path.length > 1 ? (
-            <PlanView graph={snap.draft_graph} path={path} label={`Your walked path (SfM, ${path.length} camera positions${snap.sfm ? `, ${Math.round(snap.sfm.registered_fraction * 100)}% of frames registered` : ''})`} />
+            <PlanView graph={snap.draft_graph} path={path} label={`Your walked path (SfM, ${path.length} camera positions${snap.sfm?.registered_fraction != null ? `, ${Math.round(snap.sfm.registered_fraction * 100)}% of frames registered` : ''})`} />
           ) : sfmJob && sfmJob.status !== 'done' && sfmJob.status !== 'failed' ? (
             <p className="muted">Reconstructing your walked path…</p>
+          ) : snap.sfm?.status === 'completed' ? (
+            <p className="muted">SfM registered {snap.sfm.frame_count} camera positions. The path appears here once it is aligned to the twin (first refine).</p>
           ) : null}
+          {snap.alignment_error && <p className="fail">Alignment failed: {snap.alignment_error}</p>}
           {ex && ex.status !== 'completed' && <p className="fail">Argon extraction {ex.status}{ex.error ? `: ${ex.error}` : ''}</p>}
           {ex?.mode === 'agentic' && ex.agentic_observed === false && <p className="warn">Agentic mode requested but not observed (0 processing calls).</p>}
           <div className="row">
