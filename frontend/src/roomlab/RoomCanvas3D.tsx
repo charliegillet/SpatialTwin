@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Canvas, useThree, type ThreeEvent } from "@react-three/fiber";
-import { OrbitControls, Html, Line } from "@react-three/drei";
+import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
+import { OrbitControls, Html, Line, Edges } from "@react-three/drei";
 import * as THREE from "three";
 import type {
   RoomObject,
@@ -14,6 +14,15 @@ import {
   type SelectionTarget,
   type ViewMode,
 } from "./editorState";
+import {
+  GlowContext,
+  ObjectModel,
+  TexturedFloor,
+  objectColor,
+  objectKind,
+  resolveAppearance,
+  shade,
+} from "./RoomModels";
 
 interface RoomCanvas3DProps {
   scene: RoomSceneV1 | null;
@@ -48,48 +57,306 @@ function detectWebGLAvailable(): boolean {
   }
 }
 
-function FloorMesh({
-  floor,
-  voids = [],
-}: {
-  floor: number[][];
-  voids?: Array<{ polygon: number[][] }>;
-}) {
-  const geometry = useMemo(() => {
-    if (!floor || floor.length < 3) return null;
-    // Shape is in 2D (x, y); after rotation.x = +PI/2, shape (x, y, 0) maps to world (x, 0, y) = (x, 0, z)!
-    const shape = new THREE.Shape();
-    floor.forEach(([x, z], idx) => {
-      if (idx === 0) shape.moveTo(x, z);
-      else shape.lineTo(x, z);
-    });
-    shape.closePath();
-    for (const v of voids) {
-      const hole = new THREE.Path();
-      v.polygon.forEach(([x, z], i) =>
-        i === 0 ? hole.moveTo(x, z) : hole.lineTo(x, z),
-      );
-      hole.closePath();
-      shape.holes.push(hole);
-    }
-    return new THREE.ShapeGeometry(shape);
-  }, [floor, voids]);
-  useEffect(() => () => geometry?.dispose(), [geometry]);
+const NO_GLOW = { color: "#000000", intensity: 0 };
+const SELECTED_GLOW = { color: "#f59e0b", intensity: 0.35 };
+const WALL_SELECTED_GLOW = { color: "#38bdf8", intensity: 0.45 };
+const ANCHOR_GLOW = { color: "#10b981", intensity: 0.3 };
+const DOOR_COLOR = "#9c6b3f";
+const WINDOW_FRAME_COLOR = "#5b6470";
+const GLASS_FRAME_COLOR = "#6e5a43";
+const GLASS_COLOR = "#bfe3ee";
+// Hidden (cut-away) walls must not swallow clicks meant for objects behind them.
+const NO_RAYCAST = () => {};
 
-  if (!geometry) return null;
+function floorCentroid(floor: number[][]): [number, number] {
+  const n = Math.max(1, floor.length);
+  return [
+    floor.reduce((s, p) => s + p[0], 0) / n,
+    floor.reduce((s, p) => s + p[1], 0) / n,
+  ];
+}
+
+type WallGlow = { color: string; intensity: number };
+
+/** Interior glass partition or atrium railing piece: a glass pane with a frame. */
+function GlassWallPiece({
+  piece,
+  role,
+  glow,
+}: {
+  piece: ReturnType<typeof buildSegmentedWallPieces>[number];
+  role: "partition" | "railing";
+  glow: WallGlow;
+}) {
+  const { length, height, thickness } = piece;
+  const frame = (
+    <meshStandardMaterial
+      color={GLASS_FRAME_COLOR}
+      roughness={0.4}
+      metalness={0.5}
+      emissive={glow.color}
+      emissiveIntensity={glow.intensity}
+    />
+  );
+  const railT = Math.min(thickness, 0.1);
+  const mullions =
+    role === "partition" ? Math.max(1, Math.round(length / 1.2)) : 0;
   return (
-    <mesh
-      geometry={geometry}
-      rotation={[Math.PI / 2, 0, 0]}
-      position={[0, 0.002, 0]}
-    >
-      <meshStandardMaterial
-        color="#e5e7df"
-        roughness={0.9}
-        metalness={0.05}
-        side={THREE.DoubleSide}
-      />
-    </mesh>
+    <group position={piece.center} rotation={[0, piece.yawRad, 0]}>
+      <mesh>
+        <boxGeometry args={[length, height, 0.03]} />
+        <meshStandardMaterial
+          color={glow.intensity > 0 ? glow.color : GLASS_COLOR}
+          transparent
+          opacity={glow.intensity > 0 ? 0.4 : 0.28}
+          roughness={0.05}
+          metalness={0.1}
+          depthWrite={false}
+        />
+      </mesh>
+      <mesh position={[0, height / 2 - 0.03, 0]} castShadow>
+        <boxGeometry args={[length, 0.06, railT]} />
+        {frame}
+      </mesh>
+      <mesh position={[0, -height / 2 + 0.04, 0]}>
+        <boxGeometry args={[length, 0.08, railT]} />
+        {frame}
+      </mesh>
+      {Array.from({ length: mullions + 1 }, (_, i) => (
+        <mesh
+          key={i}
+          position={[-length / 2 + (i * length) / Math.max(1, mullions), 0, 0]}
+          castShadow
+        >
+          <boxGeometry args={[0.05, height, railT]} />
+          {frame}
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+/**
+ * Solid full-height shell walls; any shell wall whose outward side faces the camera
+ * hides itself so the room stays visible while orbiting, leaving a baseboard stub.
+ * Interior partitions and railings are drawn as framed glass and never hide.
+ */
+function RoomWalls({
+  scene,
+  wallColor,
+  selectedWallId,
+  anchorId,
+  onSelectWall,
+}: {
+  scene: RoomSceneV1;
+  wallColor: string;
+  selectedWallId: string | null;
+  anchorId: string | undefined;
+  onSelectWall: (wallId: string) => void;
+}) {
+  const { camera } = useThree();
+  const pieces = useMemo(() => buildSegmentedWallPieces(scene), [scene]);
+  const walls = useMemo(() => deriveWallsFromFloor(scene), [scene]);
+  const centroid = useMemo(() => floorCentroid(scene.floor), [scene.floor]);
+  const outwardNormals = useMemo(() => {
+    const map = new Map<string, [number, number]>();
+    for (const w of walls) {
+      if ((w.role ?? "shell") !== "shell") continue;
+      const dx = w.end[0] - w.start[0];
+      const dz = w.end[1] - w.start[1];
+      const len = Math.hypot(dx, dz) || 1;
+      let nx = dz / len;
+      let nz = -dx / len;
+      const mx = (w.start[0] + w.end[0]) / 2 - centroid[0];
+      const mz = (w.start[1] + w.end[1]) / 2 - centroid[1];
+      if (nx * mx + nz * mz < 0) {
+        nx = -nx;
+        nz = -nz;
+      }
+      map.set(w.id, [nx, nz]);
+    }
+    return map;
+  }, [walls, centroid]);
+  const groupRefs = useRef(new Map<string, THREE.Group>());
+
+  useFrame(() => {
+    const vx = camera.position.x - centroid[0];
+    const vz = camera.position.z - centroid[1];
+    const horiz = Math.hypot(vx, vz);
+    const overhead = horiz < 0.35 * Math.abs(camera.position.y);
+    groupRefs.current.forEach((group, wallId) => {
+      const n = outwardNormals.get(wallId);
+      const visible =
+        overhead || !n || (n[0] * vx + n[1] * vz) / horiz < 0.3;
+      if (group.visible === visible) return;
+      group.visible = visible;
+      group.traverse((o) => {
+        if ((o as THREE.Mesh).isMesh)
+          o.raycast = visible ? THREE.Mesh.prototype.raycast : NO_RAYCAST;
+      });
+    });
+  });
+
+  const baseboard = shade(wallColor, -0.18);
+
+  return (
+    <>
+      {walls.map((wall) => {
+        const role = wall.role ?? "shell";
+        const glow =
+          selectedWallId === wall.id
+            ? WALL_SELECTED_GLOW
+            : anchorId === wall.id
+              ? ANCHOR_GLOW
+              : NO_GLOW;
+        const wallPieces = pieces.filter((p) => p.wallId === wall.id);
+        const dx = wall.end[0] - wall.start[0];
+        const dz = wall.end[1] - wall.start[1];
+        const total = Math.hypot(dx, dz) || 1;
+        const yawRad = Math.atan2(-dz, dx);
+        const thickness = wall.thickness_m ?? 0.12;
+        const select = (e: ThreeEvent<MouseEvent>) => {
+          e.stopPropagation();
+          onSelectWall(wall.id);
+        };
+        return (
+          <React.Fragment key={wall.id}>
+            <group
+              ref={(g) => {
+                if (g && role === "shell") groupRefs.current.set(wall.id, g);
+                else groupRefs.current.delete(wall.id);
+              }}
+            >
+              {wallPieces.map((piece) =>
+                role === "shell" ? (
+                  <mesh
+                    key={piece.key}
+                    position={piece.center}
+                    rotation={[0, piece.yawRad, 0]}
+                    castShadow
+                    receiveShadow
+                    onClick={select}
+                  >
+                    <boxGeometry
+                      args={[piece.length, piece.height, piece.thickness]}
+                    />
+                    <meshStandardMaterial
+                      color={wallColor}
+                      roughness={0.9}
+                      metalness={0.02}
+                      emissive={glow.color}
+                      emissiveIntensity={glow.intensity}
+                    />
+                  </mesh>
+                ) : (
+                  <group key={piece.key}>
+                    <GlassWallPiece piece={piece} role={role} glow={glow} />
+                    {/* Invisible box keeps the whole glass panel clickable. */}
+                    <mesh
+                      position={piece.center}
+                      rotation={[0, piece.yawRad, 0]}
+                      onClick={select}
+                    >
+                      <boxGeometry
+                        args={[piece.length, piece.height, piece.thickness]}
+                      />
+                      <meshBasicMaterial
+                        transparent
+                        opacity={0}
+                        depthWrite={false}
+                        colorWrite={false}
+                      />
+                    </mesh>
+                  </group>
+                ),
+              )}
+              {(scene.openings ?? [])
+                .filter((op) => op.wall_id === wall.id && op.kind !== "passage")
+                .map((op) => {
+                  const s = op.offset_m + op.width_m / 2;
+                  const cx = wall.start[0] + (dx / total) * s;
+                  const cz = wall.start[1] + (dz / total) * s;
+                  const h = op.height_m ?? 2.1;
+                  const sill = op.sill_m ?? 0;
+                  return (
+                    <group
+                      key={`vis-${op.id}`}
+                      position={[cx, sill, cz]}
+                      rotation={[0, yawRad, 0]}
+                    >
+                      {op.kind === "door" ? (
+                        <>
+                          <mesh position={[0, h / 2, 0]} castShadow>
+                            <boxGeometry
+                              args={[Math.max(0.1, op.width_m - 0.04), h - 0.02, 0.05]}
+                            />
+                            <meshStandardMaterial color={DOOR_COLOR} roughness={0.6} />
+                          </mesh>
+                          {[-1, 1].map((side) => (
+                            <mesh
+                              key={side}
+                              position={[side * op.width_m * 0.22, h * 0.6, 0]}
+                            >
+                              <boxGeometry args={[op.width_m * 0.3, h * 0.5, 0.06]} />
+                              <meshStandardMaterial
+                                color={GLASS_COLOR}
+                                transparent
+                                opacity={0.35}
+                                roughness={0.05}
+                              />
+                            </mesh>
+                          ))}
+                        </>
+                      ) : (
+                        <>
+                          <mesh position={[0, h / 2, 0]}>
+                            <boxGeometry args={[op.width_m, h, 0.03]} />
+                            <meshStandardMaterial
+                              color={GLASS_COLOR}
+                              transparent
+                              opacity={0.35}
+                              roughness={0.05}
+                              depthWrite={false}
+                            />
+                          </mesh>
+                          {[0, h].map((y) => (
+                            <mesh key={y} position={[0, y, 0]}>
+                              <boxGeometry args={[op.width_m, 0.05, thickness + 0.02]} />
+                              <meshStandardMaterial
+                                color={WINDOW_FRAME_COLOR}
+                                roughness={0.5}
+                              />
+                            </mesh>
+                          ))}
+                        </>
+                      )}
+                    </group>
+                  );
+                })}
+            </group>
+            {role === "shell" &&
+              wallPieces
+                .filter((piece) => piece.center[1] - piece.height / 2 < 0.01)
+                .map((piece) => {
+                  const stubH = Math.min(0.12, piece.height);
+                  return (
+                    <mesh
+                      key={`base-${piece.key}`}
+                      position={[piece.center[0], stubH / 2, piece.center[2]]}
+                      rotation={[0, piece.yawRad, 0]}
+                      receiveShadow
+                    >
+                      <boxGeometry
+                        args={[piece.length, stubH, piece.thickness + 0.012]}
+                      />
+                      <meshStandardMaterial color={baseboard} roughness={0.8} />
+                    </mesh>
+                  );
+                })}
+          </React.Fragment>
+        );
+      })}
+    </>
   );
 }
 
@@ -153,20 +420,6 @@ function CameraController({
   );
 }
 
-function categoryColor(category: string, source?: string): string {
-  if (source === "user_measurement") return "#10b981";
-  const c = (category || "").toLowerCase();
-  if (c.includes("stair")) return "#c2ac85";
-  if (c.includes("table") || c.includes("desk")) return "#9eb7a5";
-  if (c.includes("chair") || c.includes("seat")) return "#aab4c3";
-  if (c.includes("sofa") || c.includes("couch")) return "#b7aaa0";
-  if (c.includes("pillar") || c.includes("column") || c.includes("fixed"))
-    return "#b6bcb0";
-  if (c.includes("plant")) return "#9cad8d";
-  if (c.includes("stool")) return "#c4b295";
-  return "#a9b8a1";
-}
-
 function RoomSceneContent({
   scene,
   selectedTarget,
@@ -193,8 +446,18 @@ function RoomSceneContent({
     [],
   );
 
-  const wallPieces = useMemo(() => buildSegmentedWallPieces(scene), [scene]);
   const walls = useMemo(() => deriveWallsFromFloor(scene), [scene]);
+  const appearance = useMemo(() => resolveAppearance(scene), [scene]);
+  const [cx, cz] = useMemo(() => floorCentroid(scene.floor), [scene.floor]);
+  const span = useMemo(() => {
+    const xs = scene.floor.map((p) => p[0]);
+    const zs = scene.floor.map((p) => p[1]);
+    return Math.max(
+      3,
+      Math.max(...xs) - Math.min(...xs),
+      Math.max(...zs) - Math.min(...zs),
+    );
+  }, [scene.floor]);
   const rEff = agentDiameterM * 0.5 + marginM;
 
   const handleFloorPointerMove = (e: ThreeEvent<PointerEvent>) => {
@@ -235,17 +498,22 @@ function RoomSceneContent({
   return (
     <>
       <color attach="background" args={["#f5f5f2"]} />
-      <ambientLight intensity={1.15} color="#ffffff" />
+      <hemisphereLight args={["#fff8ec", "#4a4f57", 1.1]} />
       <directionalLight
-        position={[8, 16, 10]}
-        intensity={1.1}
-        color="#f8fafc"
-      />
-      <directionalLight
-        position={[-8, 10, -8]}
-        intensity={0.45}
-        color="#93c5fd"
-      />
+        position={[cx + span * 0.6, span * 1.4, cz + span * 0.4]}
+        intensity={1.5}
+        color="#fffaf0"
+        castShadow
+        shadow-mapSize={[2048, 2048]}
+        shadow-bias={-0.0005}
+        shadow-camera-left={-span}
+        shadow-camera-right={span}
+        shadow-camera-top={span}
+        shadow-camera-bottom={-span}
+        shadow-camera-far={span * 5}
+      >
+        <object3D attach="target" position={[cx, 0, cz]} />
+      </directionalLight>
 
       <CameraController
         viewMode={viewMode}
@@ -270,10 +538,14 @@ function RoomSceneContent({
 
       <gridHelper
         args={[24, 24, "#dfe2d8", "#e9ece4"]}
-        position={[0, 0.001, 0]}
+        position={[0, -0.01, 0]}
       />
 
-      <FloorMesh floor={scene.floor} voids={scene.floor_voids} />
+      <TexturedFloor
+        floor={scene.floor}
+        voids={scene.floor_voids}
+        appearance={appearance}
+      />
       {(scene.floor_voids ?? []).map((v) => (
         <group key={v.id}>
           <Line
@@ -301,43 +573,15 @@ function RoomSceneContent({
         </group>
       ))}
 
-      {/* Segmented Architectural Walls */}
-      {wallPieces.map((piece) => {
-        const isSelected =
-          selectedTarget?.kind === "wall" && selectedTarget.id === piece.wallId;
-        const isAnchor = scene.calibration?.anchor_id === piece.wallId;
-        const boundary = walls.find((w) => w.id === piece.wallId);
-        const wallColor =
-          boundary?.role === "railing"
-            ? "#b6a27c"
-            : boundary?.role === "partition"
-              ? "#8eb1a3"
-              : isSelected
-                ? "#538568"
-                : isAnchor
-                  ? "#538568"
-                  : "#bfc6b6";
-        return (
-          <mesh
-            key={piece.key}
-            position={piece.center}
-            rotation={[0, piece.yawRad, 0]}
-            onClick={(e) => {
-              e.stopPropagation();
-              onSelectTarget({ kind: "wall", id: piece.wallId });
-            }}
-          >
-            <boxGeometry args={[piece.length, piece.height, piece.thickness]} />
-            <meshStandardMaterial
-              color={wallColor}
-              roughness={0.85}
-              metalness={0.1}
-              transparent
-              opacity={boundary?.role === "partition" ? 0.35 : 0.65}
-            />
-          </mesh>
-        );
-      })}
+      <RoomWalls
+        scene={scene}
+        wallColor={appearance.wallColor}
+        selectedWallId={
+          selectedTarget?.kind === "wall" ? selectedTarget.id : null
+        }
+        anchorId={scene.calibration?.anchor_id}
+        onSelectWall={(id) => onSelectTarget({ kind: "wall", id })}
+      />
 
       {/* Wall Dimension Badges */}
       {walls.map((w) => {
@@ -407,26 +651,33 @@ function RoomSceneContent({
         );
       })}
 
-      {/* Room Objects (Solid if user-measured/anchored, Translucent with Uncertainty Ring if estimated/partial) */}
+      {/* Room Objects: a recognizable model per kind, colored from the video; an invisible box handles picking */}
       {(scene.objects ?? []).map((obj: RoomObject) => {
         const isSelected =
           selectedTarget?.kind === "object" && selectedTarget.id === obj.id;
         const isAnchor = scene.calibration?.anchor_id === obj.id;
         const yawRad = ((obj.yaw_deg ?? 0) * Math.PI) / 180;
-        const color = isSelected
-          ? "#548768"
+        const kind = objectKind(obj);
+        const glow = isSelected
+          ? SELECTED_GLOW
           : isAnchor
-            ? "#10b981"
-            : categoryColor(
-                obj.category ?? "furniture",
-                obj.provenance?.source,
-              );
-        const vis = obj.provenance?.visibility ?? "partial";
-        const isSolid = obj.provenance?.source === "user_measurement";
+            ? ANCHOR_GLOW
+            : NO_GLOW;
         const uncRadius = obj.uncertainty_radius_m ?? 0;
 
         return (
           <group key={obj.id} position={[obj.center[0], 0, obj.center[1]]}>
+            <group rotation={[0, yawRad, 0]}>
+              <GlowContext.Provider value={glow}>
+                <ObjectModel
+                  kind={kind}
+                  w={obj.width_m}
+                  d={obj.depth_m}
+                  h={obj.height_m}
+                  color={objectColor(obj, kind)}
+                />
+              </GlowContext.Provider>
+            </group>
             <mesh
               position={[0, obj.height_m * 0.5, 0]}
               rotation={[0, yawRad, 0]}
@@ -446,13 +697,19 @@ function RoomSceneContent({
               onClick={(e) => e.stopPropagation()}
             >
               <boxGeometry args={[obj.width_m, obj.height_m, obj.depth_m]} />
-              <meshStandardMaterial
-                color={color}
-                roughness={0.6}
-                metalness={0.15}
-                transparent={!isSolid}
-                opacity={isSolid ? 0.96 : vis === "unobserved" ? 0.42 : 0.72}
+              <meshBasicMaterial
+                transparent
+                opacity={0}
+                depthWrite={false}
+                colorWrite={false}
               />
+              {(isSelected || isAnchor) && (
+                <Edges
+                  scale={1.03}
+                  color={isSelected ? "#f59e0b" : "#10b981"}
+                  renderOrder={2}
+                />
+              )}
             </mesh>
 
             {/* Uncertainty Halo Footprint */}
@@ -770,14 +1027,15 @@ export const RoomCanvas3D: React.FC<RoomCanvas3DProps> = (props) => {
             estimated geometry
           </span>
           <span className="rl-legend-item">
-            <i className="rl-dot rl-dot--est" /> Model Estimate (Translucent)
+            <i className="rl-dot rl-dot--est" /> Shapes & colors approximated
+            from video
           </span>
           <span className="rl-legend-item">
             <i className="rl-dot rl-dot--unc" /> Uncertainty Halo (±r)
           </span>
           <span className="rl-legend-item">
-            Orange: railing/void edge · cyan: interior partition. Stair boxes
-            are placeholders; no stair travel.
+            Glass panels: interior partitions and railings · orange outline:
+            floor void. Stairs are fixed placeholders; no stair travel.
           </span>
           <span className="rl-legend-item">
             Clearance fills are previews. Checked path outlines come from the
@@ -825,6 +1083,8 @@ export const RoomCanvas3D: React.FC<RoomCanvas3DProps> = (props) => {
             camera={{ position: [5.5, 6.2, 6.5], fov: 48, near: 0.1, far: 120 }}
             dpr={[1, 1.5]}
             gl={{ antialias: true }}
+            flat
+            shadows
             frameloop="demand"
             onPointerMissed={() => props.onSelectTarget(null)}
           >

@@ -45,6 +45,12 @@ EPISTEMIC HONESTY & EVIDENCE LINKING:
 - Every interior wall, floor void, opening, and object MUST reference one or more exact `evidence_frame_ids` from the provided frame catalog where it is visible.
 - Mark `visibility = "observed"` when all relevant edges are clearly visible, `"partial"` when partially occluded, and `"unobserved"` when inferred to close the shell.
 - Never claim that estimated dimensions are ground-truth measurements; note any occluded corners, atrium drop-offs, glass partitions, or staircase placeholders in `notes`.
+
+APPEARANCE (used only to render the room so it resembles the video; never affects geometry):
+- `wall_color` and `floor_color`: the dominant surface colors as lowercase `#rrggbb`, judged from well-lit frames rather than shadows or glare.
+- `floor_material`: the closest of wood, tile, stone, terrazzo, carpet, concrete, or unknown.
+- Each object's `color`: its main visible body color as `#rrggbb` (e.g. a plant's foliage green, a sofa's upholstery, a desk's top or front). For glass, give the frame or tint color.
+- Use a short plain `category` noun such as plant, sofa, chair, stool, table, desk, counter, partition, railing, stairs, shelf, cabinet, bed, bench, or equipment.
 """
 
 
@@ -64,7 +70,8 @@ def build_extraction_prompt(media: MediaRecord) -> str:
         "3. `interior_walls`: any interior dividing walls, glass storefront partitions (`role = \"partition\"`), or atrium balustrades (`role = \"railing\"`, height ~1.05m) inside the perimeter. Do NOT merge an interior glass partition with the far back wall behind it.\n"
         "4. `openings`: doors/windows/passages attached to the exact `wall_id` (`wall-1`..`wall-N` or an `interior_walls` id) where they physically sit, with non-overlapping `offset_m` and `width_m`.\n"
         "5. `objects`: all visible furniture, counters, stools, plants, bikes, pillars, or staircases (`category = \"stairs\"`, `movable = false`) placed on the walkable floor without intersecting walls or voids.\n"
-        "6. `notes`: concise notes on scale assumptions, glass partitions vs. outer walls, atrium voids/railings, and staircase single-level limitations."
+        "6. `notes`: concise notes on scale assumptions, glass partitions vs. outer walls, atrium voids/railings, and staircase single-level limitations.\n"
+        "7. `wall_color`, `floor_color`, `floor_material`, and each object's `color` so the rendered room resembles the video."
     )
 
 

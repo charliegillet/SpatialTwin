@@ -372,6 +372,19 @@
         "title": "Uncertainty Radius M",
         "type": "number"
       },
+      "color": {
+        "anyOf": [
+          {
+            "pattern": "^#[0-9a-f]{6}$",
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Color"
+      },
       "provenance": {
         "$ref": "#/$defs/Provenance"
       }
@@ -385,6 +398,53 @@
       "height_m"
     ],
     "title": "RoomObject",
+    "type": "object"
+  },
+  "RoomAppearance": {
+    "additionalProperties": false,
+    "properties": {
+      "wall_color": {
+        "anyOf": [
+          {
+            "pattern": "^#[0-9a-f]{6}$",
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Wall Color"
+      },
+      "floor_color": {
+        "anyOf": [
+          {
+            "pattern": "^#[0-9a-f]{6}$",
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Floor Color"
+      },
+      "floor_material": {
+        "default": "unknown",
+        "enum": [
+          "wood",
+          "tile",
+          "stone",
+          "terrazzo",
+          "carpet",
+          "concrete",
+          "unknown"
+        ],
+        "title": "Floor Material",
+        "type": "string"
+      }
+    },
+    "title": "RoomAppearance",
     "type": "object"
   },
   "Calibration": {
@@ -547,6 +607,17 @@
         "maxItems": 30,
         "title": "Notes",
         "type": "array"
+      },
+      "appearance": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/RoomAppearance"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
       }
     },
     "required": [
@@ -623,6 +694,17 @@
         "maxItems": 30,
         "title": "Notes",
         "type": "array"
+      },
+      "appearance": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/RoomAppearance"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
       },
       "schema_version": {
         "const": "1.0",

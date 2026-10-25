@@ -18,10 +18,13 @@ from backend.app.roomlab.contracts import (
     FloorVoid,
     Opening,
     Provenance,
+    RoomAppearance,
     RoomDraft,
     RoomObject,
     Wall,
 )
+
+FLOOR_MATERIALS = ("wood", "tile", "stone", "terrazzo", "carpet", "concrete", "unknown")
 
 
 class ProviderFloorVertex(BaseModel):
@@ -88,6 +91,7 @@ class ProviderObjectDraft(BaseModel):
     yaw_deg: float = 0.0
     movable: bool = True
     uncertainty_radius_m: float = 0.1
+    color: str = ""
     visibility: Literal["observed", "partial", "unobserved"] = "observed"
     evidence_frame_ids: list[str] = Field(default_factory=list)
     note: str = ""
@@ -102,6 +106,9 @@ class ProviderRoomPayload(BaseModel):
     interior_walls: list[ProviderInteriorWallDraft] = Field(default_factory=list)
     wall_height_m: float = 2.7
     wall_thickness_m: float = 0.12
+    wall_color: str = ""
+    floor_color: str = ""
+    floor_material: str = "unknown"
     openings: list[ProviderOpeningDraft] = Field(default_factory=list)
     objects: list[ProviderObjectDraft] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
@@ -115,6 +122,9 @@ def provider_response_json_schema() -> dict:
             "name",
             "floor_vertices",
             "floor_voids",
+            "wall_color",
+            "floor_color",
+            "floor_material",
             "interior_walls",
             "openings",
             "objects",
@@ -130,6 +140,9 @@ def provider_response_json_schema() -> dict:
                 "type": "number",
                 "description": "Estimated outer shell wall thickness in meters (typically 0.12 to 0.25).",
             },
+            "wall_color": {"type": "string", "description": "Dominant visible wall color as #rrggbb, sampled from well-lit frames."},
+            "floor_color": {"type": "string", "description": "Dominant visible floor color as #rrggbb."},
+            "floor_material": {"type": "string", "enum": list(FLOOR_MATERIALS), "description": "Closest floor surface material."},
             "floor_vertices": {
                 "type": "array",
                 "description": "Ordered 2D outer floor polygon corners in meters [x_m, z_m] forming a simple non-self-intersecting loop. Minimum 3 vertices. Outer shell walls are derived in order: wall-1 connects vertex 0 to 1, wall-2 connects 1 to 2, ..., wall-N connects N-1 to 0.",
@@ -266,6 +279,7 @@ def provider_response_json_schema() -> dict:
                         "yaw_deg",
                         "movable",
                         "uncertainty_radius_m",
+                        "color",
                         "visibility",
                         "evidence_frame_ids",
                     ],
@@ -281,6 +295,7 @@ def provider_response_json_schema() -> dict:
                         "yaw_deg": {"type": "number"},
                         "movable": {"type": "boolean"},
                         "uncertainty_radius_m": {"type": "number"},
+                        "color": {"type": "string", "description": "Object's main visible color as #rrggbb."},
                         "visibility": {
                             "type": "string",
                             "enum": ["observed", "partial", "unobserved"],
@@ -319,6 +334,14 @@ def _clamp_with_warning(
         warnings.append(f"Clamped {label} from {fval:.2f} to {clamped:.2f} (bounds [{low:.2f}, {high:.2f}]).")
         return clamped, True
     return float(min(max(fval, low), high)), False
+
+
+def _normalize_hex(value: str) -> str | None:
+    """Accept #rgb or #rrggbb (any case); return lowercase #rrggbb or None."""
+    raw = (value or "").strip().lower()
+    if re.fullmatch(r"#[0-9a-f]{3}", raw):
+        return "#" + "".join(ch * 2 for ch in raw[1:])
+    return raw if re.fullmatch(r"#[0-9a-f]{6}", raw) else None
 
 
 def _clean_polygon_vertices(
@@ -803,6 +826,7 @@ def normalize_provider_payload(
                 movable=movable,
                 resize_allowed=True,
                 uncertainty_radius_m=round(unc, 3),
+                color=_normalize_hex(obj.color),
                 provenance=Provenance(
                     source="geometry_fit" if repaired_pos else "model_estimate",
                     visibility=vis,
@@ -838,5 +862,10 @@ def normalize_provider_payload(
         openings=openings,
         objects=objects,
         notes=notes[:30],
+        appearance=RoomAppearance(
+            wall_color=_normalize_hex(payload.wall_color),
+            floor_color=_normalize_hex(payload.floor_color),
+            floor_material=payload.floor_material if payload.floor_material in FLOOR_MATERIALS else "unknown",
+        ),
     )
     return draft, warnings

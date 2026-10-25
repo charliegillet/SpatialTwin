@@ -13,7 +13,7 @@ import imageio_ffmpeg
 import pytest
 
 from backend.app.roomlab.agent_critic import critique_scene
-from backend.app.roomlab.contracts import RoomSceneV1
+from backend.app.roomlab.contracts import RoomSceneV1, geometry_hash
 from backend.app.roomlab.media import process_media
 from backend.app.roomlab.provider_schema import (
     ProviderRoomPayload,
@@ -312,6 +312,33 @@ def test_topology_review_required_and_geometry_fit_disclosure() -> None:
     assert draft.objects[0].provenance.visibility == "partial"
     assert "Auto-translated from" in draft.objects[0].provenance.note
     assert any("Auto-translated object 'stool-on-wall'" in w for w in warnings)
+
+
+def test_normalization_keeps_valid_colors_and_hash_ignores_them() -> None:
+    raw_payload = {
+        "floor_vertices": [{"x_m": -2.0, "z_m": -2.0}, {"x_m": 2.0, "z_m": -2.0}, {"x_m": 2.0, "z_m": 2.0}],
+        "wall_color": "#E7DFCC",
+        "floor_color": "#abc",
+        "floor_material": "marble",
+        "objects": [
+            {"id": "plant", "label": "Fig", "category": "plant", "x_m": 0.0, "z_m": 0.0,
+             "width_m": 0.6, "depth_m": 0.6, "color": "#3e7a35"},
+            {"id": "sofa", "label": "Sofa", "category": "sofa", "x_m": 0.5, "z_m": 0.5,
+             "width_m": 1.8, "depth_m": 0.9, "color": "grey"},
+        ],
+    }
+    draft, _ = normalize_provider_payload(ProviderRoomPayload.model_validate(raw_payload), set())
+    assert draft.appearance is not None
+    assert draft.appearance.wall_color == "#e7dfcc"
+    assert draft.appearance.floor_color == "#aabbcc"
+    assert draft.appearance.floor_material == "unknown"
+    assert [o.color for o in draft.objects] == ["#3e7a35", None]
+
+    scene = RoomSceneV1(scene_id="scene-colors", **draft.model_dump())
+    recolored = scene.model_copy(deep=True)
+    recolored.appearance = None
+    recolored.objects[0].color = "#ff0000"
+    assert geometry_hash(scene) == geometry_hash(recolored)
 
 
 @pytest.mark.asyncio

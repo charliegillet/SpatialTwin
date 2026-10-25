@@ -10,6 +10,8 @@ Positive = Annotated[float, Field(strict=True, gt=0, le=1000, allow_inf_nan=Fals
 Nonnegative = Annotated[float, Field(strict=True, ge=0, le=1000, allow_inf_nan=False)]
 Point2 = Annotated[list[Finite], Field(min_length=2, max_length=2)]
 Interval = Annotated[list[Nonnegative], Field(min_length=2, max_length=2)]
+HexColor = Annotated[str, Field(pattern=r'^#[0-9a-f]{6}$')]
+FloorMaterial = Literal['wood','tile','stone','terrazzo','carpet','concrete','unknown']
 
 class Contract(BaseModel):
     model_config = ConfigDict(extra='forbid', allow_inf_nan=False)
@@ -72,7 +74,13 @@ class RoomObject(Contract):
     movable: bool = True
     resize_allowed: bool = True
     uncertainty_radius_m: Nonnegative = 0
+    color: HexColor | None = None
     provenance: Provenance = Field(default_factory=Provenance)
+
+class RoomAppearance(Contract):
+    wall_color: HexColor | None = None
+    floor_color: HexColor | None = None
+    floor_material: FloorMaterial = 'unknown'
 
 class Calibration(Contract):
     anchor_id: str
@@ -94,6 +102,7 @@ class RoomDraft(Contract):
     openings: list[Opening] = Field(default_factory=list,max_length=100)
     objects: list[RoomObject] = Field(default_factory=list,max_length=200)
     notes: list[str] = Field(default_factory=list,max_length=30)
+    appearance: RoomAppearance | None = None
 
 class RoomSceneV1(RoomDraft):
     schema_version: Literal['1.0'] = '1.0'
@@ -179,5 +188,6 @@ class JobRecord(Contract):
     latency_ms: float | None = None
 
 def geometry_hash(scene: RoomSceneV1) -> str:
-    payload = scene.model_dump(mode='json',exclude={'evidence_frames','notes','name'})
+    # Colors are presentation only; recoloring must not invalidate solver receipts.
+    payload = scene.model_dump(mode='json',exclude={'evidence_frames':True,'notes':True,'name':True,'appearance':True,'objects':{'__all__':{'color'}}})
     return hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(',',':')).encode()).hexdigest()
