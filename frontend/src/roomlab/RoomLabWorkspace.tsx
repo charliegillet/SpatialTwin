@@ -48,7 +48,7 @@ import {
   type SelectionTarget,
   type ViewMode,
 } from "./editorState";
-import { RoomToolbar } from "./RoomToolbar";
+import { RoomToolbar, RoomCanvasTools } from "./RoomToolbar";
 import { RoomCanvas3D } from "./RoomCanvas3D";
 import { RoomEvidencePanel } from "./RoomEvidencePanel";
 import { CalibrationPanel } from "./CalibrationPanel";
@@ -554,49 +554,6 @@ export default function RoomLabWorkspace() {
 
   return (
     <div className="rl-workspace">
-      <RoomToolbar
-        config={config}
-        sceneName={scene?.name ?? ""}
-        sceneRevision={scene?.scene_revision ?? null}
-        geometrySource={scene?.geometry_source ?? null}
-        isConfigured={Boolean(config?.gemini_configured)}
-        dirty={history.dirty}
-        canUndo={history.past.length > 0}
-        canRedo={history.future.length > 0}
-        isUploading={isUploading}
-        isExtracting={isExtracting}
-        isSaving={isSaving}
-        viewMode={viewMode}
-        showCSpace={showCSpace}
-        onInspect={() => setSidebarTab("scene")}
-        onSelectVideoFile={(file) => {
-          setSidebarTab("source");
-          handleSelectVideoFile(file);
-        }}
-        onUseSampleVideo={() => {
-          setSidebarTab("source");
-          handleUseSampleVideo();
-        }}
-        onUndo={() => {
-          setHistory(undoSceneEdit);
-          clearAnalysisOverlays();
-        }}
-        onRedo={() => {
-          setHistory(redoSceneEdit);
-          clearAnalysisOverlays();
-        }}
-        onDiscardEdits={() => {
-          setHistory(discardUnsavedEdits);
-          clearAnalysisOverlays();
-        }}
-        onSaveScene={handleSaveScene}
-        onExportJson={handleExportJson}
-        onImportJsonFile={handleImportJsonFile}
-        onAddObject={handleAddObject}
-        onChangeViewMode={setViewMode}
-        onToggleCSpace={() => setShowCSpace((v) => !v)}
-      />
-
       {bannerError && (
         <div className="rl-alert rl-alert--error" role="alert">
           <span>{bannerError}</span>
@@ -617,17 +574,48 @@ export default function RoomLabWorkspace() {
 
       <main className="rl-main-grid">
         <aside className="rl-sidebar" aria-label="Room workspace">
-          <div className="rl-sidebar-intro">
-            <span className="rl-eyebrow">YOUR WORKSPACE</span>
-            <h2>
-              {scene ? "A room, taking shape." : "From a moment to a space."}
-            </h2>
-            <p>
-              {scene
-                ? "Refine the details. Keep the evidence close."
-                : "Bring in a walkthrough. Make it your own."}
-            </p>
-          </div>
+          <RoomToolbar
+            config={config}
+            sceneName={scene?.name ?? ""}
+            sceneRevision={scene?.scene_revision ?? null}
+            geometrySource={scene?.geometry_source ?? null}
+            isConfigured={Boolean(config?.gemini_configured)}
+            dirty={history.dirty}
+            canUndo={history.past.length > 0}
+            canRedo={history.future.length > 0}
+            isUploading={isUploading}
+            isExtracting={isExtracting}
+            isSaving={isSaving}
+            viewMode={viewMode}
+            showCSpace={showCSpace}
+            onInspect={() => setSidebarTab("scene")}
+            onSelectVideoFile={(file) => {
+              setSidebarTab("source");
+              handleSelectVideoFile(file);
+            }}
+            onUseSampleVideo={() => {
+              setSidebarTab("source");
+              handleUseSampleVideo();
+            }}
+            onUndo={() => {
+              setHistory(undoSceneEdit);
+              clearAnalysisOverlays();
+            }}
+            onRedo={() => {
+              setHistory(redoSceneEdit);
+              clearAnalysisOverlays();
+            }}
+            onDiscardEdits={() => {
+              setHistory(discardUnsavedEdits);
+              clearAnalysisOverlays();
+            }}
+            onSaveScene={handleSaveScene}
+            onExportJson={handleExportJson}
+            onImportJsonFile={handleImportJsonFile}
+            onAddObject={handleAddObject}
+            onChangeViewMode={setViewMode}
+            onToggleCSpace={() => setShowCSpace((v) => !v)}
+          />
           <nav
             className="rl-tabs"
             aria-label="Workspace sections"
@@ -800,6 +788,25 @@ export default function RoomLabWorkspace() {
           </div>
         </aside>
         <section className="rl-center-stage" aria-label="3D Room Viewport">
+          <RoomCanvasTools
+            viewMode={viewMode}
+            showCSpace={showCSpace}
+            sceneRevision={scene?.scene_revision ?? null}
+            onInspect={() => setSidebarTab("scene")}
+            onChangeViewMode={setViewMode}
+            onToggleCSpace={() => setShowCSpace((v) => !v)}
+            onAddObject={handleAddObject}
+            canUndo={history.past.length > 0}
+            canRedo={history.future.length > 0}
+            onUndo={() => {
+              setHistory(undoSceneEdit);
+              clearAnalysisOverlays();
+            }}
+            onRedo={() => {
+              setHistory(redoSceneEdit);
+              clearAnalysisOverlays();
+            }}
+          />
           <div className="rl-stage-caption">
             <span className="rl-status-dot" />
             {scene ? "Room canvas" : "A little room for possibility"}

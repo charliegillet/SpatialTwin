@@ -221,82 +221,100 @@ export const RoomToolbar: React.FC<RoomToolbarProps> = (p) => {
           </div>
         </div>
       </header>
-      <nav className="rl-floating-tools" aria-label="Canvas tools">
-        <button
-          className="rl-icon-btn"
-          aria-label="Inspect objects"
-          title="Inspect objects"
-          onClick={p.onInspect}
-        >
-          <MousePointer2 size={19} />
-        </button>
-        <span className="rl-tool-separator" />
-        <button
-          className={`rl-icon-btn ${p.viewMode === "orbit" ? "is-active" : ""}`}
-          aria-label="3D Orbit"
-          aria-pressed={p.viewMode === "orbit"}
-          title="3D orbit"
-          onClick={() => p.onChangeViewMode("orbit")}
-        >
-          <Compass size={19} />
-        </button>
-        <button
-          className={`rl-icon-btn ${p.viewMode === "top" ? "is-active" : ""}`}
-          aria-label="Top Plan"
-          aria-pressed={p.viewMode === "top"}
-          title="Top plan"
-          onClick={() => p.onChangeViewMode("top")}
-        >
-          <Grid2X2 size={18} />
-        </button>
-        <button
-          className={`rl-icon-btn ${p.showCSpace ? "is-active" : ""}`}
-          aria-label="Clearance overlay"
-          aria-pressed={p.showCSpace}
-          title="Clearance overlay"
-          onClick={p.onToggleCSpace}
-        >
-          <Layers3 size={19} />
-        </button>
-        <span className="rl-tool-separator" />
-        <button
-          className="rl-icon-btn"
-          aria-label="Add table"
-          title="Add table"
-          disabled={p.sceneRevision === null}
-          onClick={() => p.onAddObject("table")}
-        >
-          <Table2 size={19} />
-        </button>
-        <button
-          className="rl-icon-btn"
-          aria-label="Add chair"
-          title="Add chair"
-          disabled={p.sceneRevision === null}
-          onClick={() => p.onAddObject("chair")}
-        >
-          <Armchair size={19} />
-        </button>
-        <span className="rl-tool-separator" />
-        <button
-          className="rl-icon-btn"
-          aria-label="Undo edit"
-          title="Undo"
-          disabled={!p.canUndo}
-          onClick={p.onUndo}
-        >
-          <Undo2 size={18} />
-        </button>
-        <button
-          className="rl-icon-btn"
-          aria-label="Redo edit"
-          title="Redo"
-          disabled={!p.canRedo}
-          onClick={p.onRedo}
-        >
-          <Redo2 size={18} />
-        </button>
-      </nav>
     </>
   );
 };
+
+export const RoomCanvasTools: React.FC<
+  Pick<
+    RoomToolbarProps,
+    | "onInspect"
+    | "viewMode"
+    | "showCSpace"
+    | "onChangeViewMode"
+    | "onToggleCSpace"
+    | "sceneRevision"
+    | "onAddObject"
+    | "canUndo"
+    | "canRedo"
+    | "onUndo"
+    | "onRedo"
+  >
+> = (p) => (
+  <nav className="rl-floating-tools" aria-label="Canvas tools">
+    <button
+      className="rl-icon-btn"
+      aria-label="Inspect objects"
+      title="Inspect objects"
+      onClick={p.onInspect}
+    >
+      <MousePointer2 size={19} />
+    </button>
+    <span className="rl-tool-separator" />
+    <button
+      className={`rl-icon-btn ${p.viewMode === "orbit" ? "is-active" : ""}`}
+      aria-label="3D Orbit"
+      aria-pressed={p.viewMode === "orbit"}
+      title="3D orbit"
+      onClick={() => p.onChangeViewMode("orbit")}
+    >
+      <Compass size={19} />
+    </button>
+    <button
+      className={`rl-icon-btn ${p.viewMode === "top" ? "is-active" : ""}`}
+      aria-label="Top Plan"
+      aria-pressed={p.viewMode === "top"}
+      title="Top plan"
+      onClick={() => p.onChangeViewMode("top")}
+    >
+      <Grid2X2 size={18} />
+    </button>
+    <button
+      className={`rl-icon-btn ${p.showCSpace ? "is-active" : ""}`}
+      aria-label="Clearance overlay"
+      aria-pressed={p.showCSpace}
+      title="Clearance overlay"
+      onClick={p.onToggleCSpace}
+    >
+      <Layers3 size={19} />
+    </button>
+    <span className="rl-tool-separator" />
+    <button
+      className="rl-icon-btn"
+      aria-label="Add table"
+      title="Add table"
+      disabled={p.sceneRevision === null}
+      onClick={() => p.onAddObject("table")}
+    >
+      <Table2 size={19} />
+    </button>
+    <button
+      className="rl-icon-btn"
+      aria-label="Add chair"
+      title="Add chair"
+      disabled={p.sceneRevision === null}
+      onClick={() => p.onAddObject("chair")}
+    >
+      <Armchair size={19} />
+    </button>
+    <span className="rl-tool-separator" />
+    <button
+      className="rl-icon-btn"
+      aria-label="Undo edit"
+      title="Undo"
+      disabled={!p.canUndo}
+      onClick={p.onUndo}
+    >
+      <Undo2 size={18} />
+    </button>
+    <button
+      className="rl-icon-btn"
+      aria-label="Redo edit"
+      title="Redo"
+      disabled={!p.canRedo}
+      onClick={p.onRedo}
+    >
+      <Redo2 size={18} />
+    </button>
+  </nav>
+);

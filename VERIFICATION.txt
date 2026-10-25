@@ -143,3 +143,14 @@ Browser checks on the existing real-demo scene, revision 2:
 - Frontend unit tests: 3 passed. TypeScript and production build passed.
 - Backend behavior was not changed by this redesign; no new provider call was made.
 - Final screenshot: runtime/roomlab/roomlab-light-final.png (ignored local artifact).
+
+TWO-COLUMN LAYOUT CORRECTION — 2026-10-25
+Header now lives inside the left sidebar. The page contains one grid row and two
+full-height columns. Canvas tools are a separate overlay inside the right canvas.
+At a 1280 x 720 browser viewport, sidebar bounds are x=15, y=15, width=330,
+height=690; canvas bounds are x=345, y=15, width=920, height=690. Header bounds are
+wholly inside the sidebar (width 329), with no page-wide header row.
+Small screens retain the two-column layout with horizontal scrolling rather than
+stacking columns. Production build and git diff --check passed. Browser verified
+sidebar overflow menu, orbit/plan controls, and no captured console errors.
+Screenshot: runtime/roomlab/roomlab-two-columns.png.
