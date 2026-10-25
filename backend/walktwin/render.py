@@ -3,12 +3,14 @@
 ``base_url`` must be the origin that serves the built ``frontend/dist`` (so that
 ``<base_url>/render.html`` exists). The graph is delivered to the page from the same
 origin: Playwright intercepts ``<base_url>/__walktwin_graph__.json`` and fulfils it with
-``graph.model_dump_json()``; a copy is also written to ``out_dir/graph.json``.
+``graph.model_dump_json()``; a copy is also written to ``out_dir/graph.json``, so ``out_dir``
+must be unique per call (concurrent calls would overwrite each other's files).
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import quote
 from typing import Literal, Sequence
 
 from playwright.async_api import async_playwright
@@ -34,12 +36,14 @@ async def render_views(
     hazards: Sequence[str] = (),
 ) -> list[RenderedView]:
     """One perspective PNG per keyframe plus one top-down PNG (1280x720) in ``out_dir``."""
+    if isinstance(hazards, str):
+        raise TypeError("hazards must be a sequence of ids, not a bare str")
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     base = base_url.rstrip("/")
     graph_json = graph.model_dump_json()
     (out_dir / "graph.json").write_text(graph_json)
-    haz = f"&hazards={','.join(hazards)}" if hazards else ""
+    haz = f"&hazards={','.join(quote(h, safe='') for h in hazards)}" if hazards else ""
     graph_q = f"graph={GRAPH_PATH}"
 
     targets: list[tuple[float | None, Literal["perspective", "top"], str, Path]] = []

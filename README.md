@@ -32,3 +32,4 @@ Branch `charlie` of `charliegillet/SpatialTwin`, a history that starts at the ev
 `<base_url>/render.html` (serve `frontend/dist`; build with `npm ci && npm run build` in `frontend/`).
 Headless WebGL works on macOS with `--use-angle=swiftshader --enable-unsafe-swiftshader`. Run it with
 `pytest -m browser`.
+Note: a plain `pytest` run includes the browser tests (use `-m 'not browser'` to skip them); they need Chromium (`playwright install chromium`) and build `frontend/dist` if missing.
