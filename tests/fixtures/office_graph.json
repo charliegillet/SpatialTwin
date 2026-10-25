@@ -1,0 +1,260 @@
+{
+  "schema_version": "1",
+  "video_sha256": "fixture",
+  "anchor": null,
+  "zones": [
+    {
+      "id": "Z1",
+      "name": "Main hall",
+      "rect": [
+        3,
+        0,
+        12,
+        8
+      ],
+      "occupants": 120,
+      "furniture_seen": false,
+      "evidence": [
+        {
+          "start_s": 0.0,
+          "end_s": 10.0,
+          "note": "Main hall seen in walkthrough"
+        }
+      ]
+    },
+    {
+      "id": "Z2",
+      "name": "West corridor",
+      "rect": [
+        0,
+        0,
+        3,
+        8
+      ],
+      "occupants": 0,
+      "furniture_seen": false,
+      "evidence": [
+        {
+          "start_s": 5.0,
+          "end_s": 15.0,
+          "note": "West corridor seen in walkthrough"
+        }
+      ]
+    },
+    {
+      "id": "Z3",
+      "name": "East corridor",
+      "rect": [
+        15,
+        0,
+        3,
+        8
+      ],
+      "occupants": 0,
+      "furniture_seen": false,
+      "evidence": [
+        {
+          "start_s": 10.0,
+          "end_s": 20.0,
+          "note": "East corridor seen in walkthrough"
+        }
+      ]
+    },
+    {
+      "id": "Z4",
+      "name": "Green room",
+      "rect": [
+        3,
+        8,
+        4,
+        3
+      ],
+      "occupants": 10,
+      "furniture_seen": false,
+      "evidence": [
+        {
+          "start_s": 15.0,
+          "end_s": 25.0,
+          "note": "Green room seen in walkthrough"
+        }
+      ]
+    }
+  ],
+  "doors": [
+    {
+      "id": "D1",
+      "a": "Z1",
+      "b": "Z2",
+      "kind": "door",
+      "state": "open",
+      "clear_width": {
+        "low_m": 1.6,
+        "high_m": 1.8,
+        "basis": "estimated"
+      },
+      "position": [
+        3,
+        4
+      ],
+      "evidence": [
+        {
+          "start_s": 30.0,
+          "end_s": 40.0,
+          "note": "D1 seen"
+        }
+      ]
+    },
+    {
+      "id": "D2",
+      "a": "Z2",
+      "b": "OUTSIDE",
+      "kind": "exit",
+      "state": "open",
+      "clear_width": {
+        "low_m": 1.6,
+        "high_m": 1.8,
+        "basis": "estimated"
+      },
+      "position": [
+        0,
+        4
+      ],
+      "evidence": [
+        {
+          "start_s": 35.0,
+          "end_s": 45.0,
+          "note": "D2 seen"
+        }
+      ]
+    },
+    {
+      "id": "D3",
+      "a": "Z1",
+      "b": "Z3",
+      "kind": "door",
+      "state": "open",
+      "clear_width": {
+        "low_m": 1.6,
+        "high_m": 1.8,
+        "basis": "estimated"
+      },
+      "position": [
+        15,
+        4
+      ],
+      "evidence": [
+        {
+          "start_s": 40.0,
+          "end_s": 50.0,
+          "note": "D3 seen"
+        }
+      ]
+    },
+    {
+      "id": "D4",
+      "a": "Z3",
+      "b": "OUTSIDE",
+      "kind": "exit",
+      "state": "open",
+      "clear_width": {
+        "low_m": 0.9,
+        "high_m": 1.0,
+        "basis": "estimated"
+      },
+      "position": [
+        18,
+        4
+      ],
+      "evidence": [
+        {
+          "start_s": 45.0,
+          "end_s": 55.0,
+          "note": "D4 seen"
+        }
+      ]
+    },
+    {
+      "id": "D5",
+      "a": "Z1",
+      "b": "OUTSIDE",
+      "kind": "exit",
+      "state": "locked",
+      "clear_width": {
+        "low_m": 1.0,
+        "high_m": 1.1,
+        "basis": "estimated"
+      },
+      "position": [
+        9,
+        0
+      ],
+      "evidence": [
+        {
+          "start_s": 50.0,
+          "end_s": 60.0,
+          "note": "D5 seen"
+        }
+      ]
+    },
+    {
+      "id": "D6",
+      "a": "Z4",
+      "b": "Z1",
+      "kind": "door",
+      "state": "open",
+      "clear_width": {
+        "low_m": 0.9,
+        "high_m": 1.0,
+        "basis": "estimated"
+      },
+      "position": [
+        5,
+        8
+      ],
+      "evidence": [
+        {
+          "start_s": 55.0,
+          "end_s": 60.0,
+          "note": "D6 seen"
+        }
+      ]
+    }
+  ],
+  "keyframes": [
+    {
+      "t_s": 2,
+      "zone_id": "Z2",
+      "x": 1.5,
+      "y": 4,
+      "heading_deg": 90
+    },
+    {
+      "t_s": 14,
+      "zone_id": "Z1",
+      "x": 6,
+      "y": 4,
+      "heading_deg": 0
+    },
+    {
+      "t_s": 26,
+      "zone_id": "Z1",
+      "x": 12,
+      "y": 3,
+      "heading_deg": 135
+    },
+    {
+      "t_s": 38,
+      "zone_id": "Z3",
+      "x": 16.5,
+      "y": 4,
+      "heading_deg": 270
+    },
+    {
+      "t_s": 50,
+      "zone_id": "Z4",
+      "x": 5,
+      "y": 9.5,
+      "heading_deg": 180
+    }
+  ]
+}
