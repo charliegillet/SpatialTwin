@@ -12,3 +12,5 @@
 .signs-proposals li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .signs-proposals li > span { flex: 1 1 auto; }
 @media (max-width: 600px) { .signs-actions .btn, .signs-proposals .btn { min-height: 44px; } }
+.signs-judge { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0; cursor: pointer; }
+.signs-judge input { margin-top: 3px; }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check, QrCode, Smartphone, X } from 'lucide-react';
 import {
   confirmProposal, fetchSignsStatus, mintSignLink, parseProposalList, PROPOSAL_EVENTS_URL, rejectProposal, revokeSignLinks,
@@ -19,6 +19,10 @@ export function SignsPanel({ venue, onConfirmed }: { venue: VenueV2; onConfirmed
   const [pending, setPending] = useState<PhoneProposal[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Judge mode: a phone's hazard joins the twin as soon as it arrives. Hazards are what-if inputs; doors still move only
+  // on the operator's Approve, so this hands judges the scenario, never the doors.
+  const [judgeMode, setJudgeMode] = useState(false);
+  const decided = useRef(new Set<string>());
 
   // Links belong to one venue: after a switch the old QR codes would show an idle sign, so they are dropped.
   useEffect(() => { setLinks([]); }, [venue.venue_id]);
@@ -56,18 +60,33 @@ export function SignsPanel({ venue, onConfirmed }: { venue: VenueV2; onConfirmed
     try { await revokeSignLinks(); setLinks([]); } catch (cause) { setError(message(cause, 'The phone links could not be revoked')); } finally { setBusy(false); }
   };
   const decide = async (proposal: PhoneProposal, accept: boolean) => {
+    if (decided.current.has(proposal.proposal_id)) return;
+    decided.current.add(proposal.proposal_id);
     setError(null);
     try {
       if (accept) onConfirmed(await confirmProposal(proposal.proposal_id)); else await rejectProposal(proposal.proposal_id);
-    } catch (cause) { setError(message(cause, 'The proposal could not be decided')); }
+    } catch (cause) {
+      decided.current.delete(proposal.proposal_id);
+      setError(message(cause, 'The proposal could not be decided'));
+    }
   };
+  useEffect(() => {
+    if (judgeMode) for (const proposal of pending) void decide(proposal, true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- decide is re-created per render; the pending list drives this
+  }, [judgeMode, pending]);
 
   const warning = links.find(link => link.lan.warning)?.lan.warning ?? null;
   const phones = status?.sign_streams ?? 0;
   return <details className="signs twin-card" open={open} onToggle={event => setOpen((event.currentTarget as HTMLDetailsElement).open)}>
     <summary><Smartphone size={15} aria-hidden="true" /><strong>Phone exit signs</strong>
       <span className="chip chip-data">{phones} {phones === 1 ? 'phone' : 'phones'} live</span>
+      {judgeMode && <span className="chip chip-ok">Judge mode</span>}
       {pending.length > 0 && <span className="chip chip-warn">{pending.length} proposal{pending.length === 1 ? '' : 's'}</span>}</summary>
+
+    <label className="signs-judge">
+      <input type="checkbox" checked={judgeMode} onChange={event => setJudgeMode(event.target.checked)} />
+      <span><strong>Judge mode</strong> · hazards from judges' phones join the twin at once. Doors still move only when you approve.</span>
+    </label>
 
     {pending.length > 0 && <ul className="signs-proposals" aria-label="Hazards proposed from phones">
       {pending.map(item => <li key={item.proposal_id}>
