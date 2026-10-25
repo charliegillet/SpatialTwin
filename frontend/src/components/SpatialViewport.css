@@ -1,0 +1,145 @@
+.spatial-panel {
+  --spatial-border: #243034;
+  --spatial-muted: #81928e;
+  --spatial-text: #e4ece9;
+  --spatial-accent: #bcf582;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 580px;
+  overflow: hidden;
+  color: var(--spatial-text);
+  background: #0b1113;
+  border: 1px solid var(--spatial-border);
+  border-radius: 11px;
+}
+.spatial-panel button { font: inherit; cursor: pointer; }
+.spatial-panel button:focus-visible, .spatial-model-target:focus-visible { outline: 2px solid var(--spatial-accent); outline-offset: 4px; }
+.spatial-panel-header { position: relative; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 17px 21px; border-bottom: 1px solid var(--spatial-border); }
+.spatial-panel-heading { display: flex; align-items: center; gap: 10px; color: var(--spatial-muted); font-size: 11px; }
+.spatial-panel-heading > svg { color: #bbc9c4; }
+.spatial-panel-heading h2 { margin: 0; color: var(--spatial-text); font-size: 13px; font-weight: 500; letter-spacing: -.1px; }
+.spatial-panel-slash { color: #40504c; margin: 0 2px; }
+.spatial-view-switch { display: inline-flex; gap: 3px; padding: 3px; background: #10191b; border: 1px solid #22302f; border-radius: 6px; }
+.spatial-view-switch button { display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; background: transparent; color: #7f938b; font-size: 10px; padding: 5px 9px; border-radius: 3px; transition: background .18s, color .18s; }
+.spatial-view-switch button:hover { color: var(--spatial-text); }
+.spatial-view-switch button.is-active { background: #283530; color: #d9e9dc; box-shadow: inset 0 0 0 1px #38483d; }
+.spatial-canvas { position: relative; flex: 1; min-height: 430px; overflow: hidden; background: radial-gradient(ellipse at 50% 52%, #1e302623 0, #0b111300 65%), #0b1113; }
+.spatial-canvas::before { content: ''; pointer-events: none; position: absolute; inset: 0; opacity: .27; background-image: linear-gradient(#2e44352b 1px, transparent 1px), linear-gradient(90deg, #2e44352b 1px, transparent 1px); background-size: 42px 42px; mask-image: radial-gradient(ellipse at center, #000 5%, transparent 78%); }
+.spatial-scene-caption { position: absolute; left: 23px; top: 23px; z-index: 2; pointer-events: none; }
+.spatial-eyebrow { font-family: 'IBM Plex Mono', monospace; font-size: 8px; letter-spacing: 1.7px; color: #6b8075; }
+.spatial-scene-caption > div { display: flex; align-items: center; gap: 9px; color: #c7d3cc; font-size: 12px; margin-top: 8px; }
+.spatial-scene-caption > span:last-child { display: block; margin-top: 5px; color: #647b70; font-size: 9px; }
+.spatial-result-indicator { position: absolute; z-index: 2; top: 26px; right: 22px; display: flex; align-items: center; gap: 6px; padding: 5px 8px; color: #83948d; border: 1px solid #2b3832; border-radius: 4px; font-family: 'IBM Plex Mono', monospace; font-size: 8px; }
+.spatial-result-indicator > span { width: 4px; height: 4px; border-radius: 50%; background: #7b8b83; }
+.spatial-result-indicator.is-checked { color: #a4c394; background: #1f2c1d4d; border-color: #3b503033; }
+.spatial-result-indicator.is-checked > span { background: var(--spatial-accent); }
+.spatial-model-svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; min-height: 430px; display: block; overflow: visible; }
+.spatial-model-camera { transform-origin: 0 0; transition: transform .25s ease; }
+.spatial-floor-grid path { fill: none; stroke: #778b72; stroke-opacity: .12; stroke-width: .6; }
+.spatial-architectural-insets { fill: none; stroke: #7c9282; stroke-opacity: .15; stroke-width: .6; }
+.spatial-wall { stroke-linejoin: round; }
+.spatial-route-bed { stroke: #a5cb7420; stroke-width: 14; fill: none; stroke-linejoin: round; }
+.spatial-route-line { stroke: #5f766333; stroke-width: 2; fill: none; stroke-linejoin: round; }
+.spatial-route--active .spatial-route-bed { stroke: #a5cb7417; }
+.spatial-route--active .spatial-route-line { stroke: #bcf582; stroke-width: 2.2; }
+.spatial-reserve-path { stroke: #7a8c7d5c; stroke-width: 1.4; stroke-dasharray: 4 5; fill: none; stroke-linejoin: round; }
+.spatial-reserve-path.is-confirmed { stroke: #98bb82; }
+.spatial-room-label { pointer-events: none; }
+.spatial-room-label text { fill: #dce6d6; font-size: 13px; font-weight: 500; letter-spacing: -.1px; }
+.spatial-room-label .spatial-room-subtitle { fill: #78917e; font-family: 'IBM Plex Mono', monospace; font-size: 7px; font-weight: 400; letter-spacing: 1px; }
+.spatial-room-label--small text { font-size: 9px; fill: #a1b79f; }
+.spatial-target-hitbox { fill: transparent; stroke: transparent; stroke-width: 10; }
+.spatial-target-outline { fill: #a4c98d0d; stroke: #8caa734f; stroke-width: .8; stroke-dasharray: 3 3; transition: fill .18s, stroke .18s; }
+.spatial-model-target { cursor: pointer; outline: 0; }
+.spatial-target-stem { stroke: #73846c; stroke-width: .7; }
+.spatial-target-badge { fill: #17291e; stroke: #7c9d69; stroke-width: .8; transition: fill .18s, stroke .18s; }
+.spatial-model-target text { fill: #d6eac6; font-size: 10px; font-weight: 500; font-family: 'IBM Plex Mono', monospace; }
+.spatial-target-dot { fill: #a9cf84; }
+.spatial-model-target:hover .spatial-target-badge, .spatial-model-target:focus-visible .spatial-target-badge, .spatial-model-target.is-selected .spatial-target-badge { fill: #2c4326; stroke: #d3ffa3; stroke-width: 1.4; }
+.spatial-model-target:hover .spatial-target-outline, .spatial-model-target:focus-visible .spatial-target-outline, .spatial-model-target.is-selected .spatial-target-outline { stroke: #bcf582; fill: #bcf58221; stroke-width: 1.2; }
+.spatial-model-target.is-blocked .spatial-target-badge { fill: #3f2925; stroke: #d18e7b; }
+.spatial-model-target.is-blocked text { fill: #fac3b0; }
+.spatial-model-target.is-blocked .spatial-target-dot { fill: #f68c7c; }
+.spatial-model-target.is-blocked .spatial-target-outline { stroke: #ec9a84; fill: #f68c7c13; }
+.spatial-model-target.is-blocked.is-selected .spatial-target-badge { stroke: #bcf582; stroke-width: 1.6; }
+.spatial-blocked-mark { fill: #f68c7c; stroke: #1d2825; stroke-width: 2; }
+.spatial-blocked-cross { stroke: #4e2720; stroke-width: 1.6; stroke-linecap: round; }
+.spatial-closure polygon { fill: #e89c7e33; stroke: #f0a38c; stroke-width: 1; }
+.spatial-closure path { stroke: #f5bc9d; stroke-width: 2.3; fill: none; }
+.spatial-gate-label text { font-family: 'IBM Plex Mono', monospace; font-size: 7px; fill: #9ba99b; letter-spacing: .35px; }
+.spatial-gate-label circle { fill: #89968b; }
+.spatial-gate-label.is-confirmed text, .spatial-gate-label.is-confirmed circle { fill: #bcf582; }
+.spatial-boundary-label text { font-family: 'IBM Plex Mono', monospace; font-size: 7px; letter-spacing: .8px; fill: #778a7e; }
+.spatial-zoom-controls { position: absolute; right: 22px; top: 72px; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 5px; background: #111b18d9; border: 1px solid #2d3c34; border-radius: 6px; }
+.spatial-zoom-controls button { border: 0; display: grid; place-items: center; width: 28px; height: 27px; background: none; color: #b8c8bd; border-radius: 3px; }
+.spatial-zoom-controls button:hover { background: #2b3c2e; color: #d8f6bf; }
+.spatial-zoom-controls button:disabled { opacity: .3; cursor: default; }
+.spatial-zoom-controls > span { font-family: 'IBM Plex Mono', monospace; font-size: 7px; color: #849883; padding: 0 0 2px; }
+.spatial-zoom-controls > i { width: 20px; height: 1px; background: #2c3d32; margin: 2px 0; }
+.spatial-view-legend { position: absolute; bottom: 21px; left: 23px; display: flex; gap: 17px; flex-wrap: wrap; max-width: calc(100% - 120px); }
+.spatial-view-legend > span { display: flex; align-items: center; gap: 6px; color: #7f9486; font-size: 8px; }
+.spatial-view-legend i { display: block; flex-shrink: 0; width: 12px; height: 2px; background: #bcf582; }
+.spatial-view-legend .spatial-legend-wall { height: 6px; width: 6px; background: #e5eade; border-radius: 1px; }
+.spatial-view-legend .spatial-legend-blocked { height: 5px; width: 5px; border-radius: 50%; background: #f68c7c; }
+.spatial-axis { position: absolute; right: 23px; bottom: 16px; display: flex; flex-direction: column; align-items: center; pointer-events: none; }
+.spatial-axis svg { width: 48px; height: 36px; overflow: visible; }
+.spatial-axis path { stroke: #778b7a; stroke-width: .9; fill: none; }
+.spatial-axis text { font-family: 'IBM Plex Mono', monospace; font-size: 6px; fill: #8ba58b; }
+.spatial-axis > span { color: #526b59; font-family: 'IBM Plex Mono', monospace; font-size: 6px; letter-spacing: .7px; margin-top: 3px; }
+.spatial-selection-bar { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 21px; border-top: 1px solid var(--spatial-border); background: #111a18; }
+.spatial-selection-hint { display: flex; gap: 9px; align-items: center; color: #9aaea1; flex-shrink: 0; }
+.spatial-selection-hint > svg { color: #91ad85; }
+.spatial-selection-hint > span { font-size: 10px; color: #d1dbce; }
+.spatial-selection-hint small { display: block; font-size: 8px; color: #708779; margin-top: 3px; }
+.spatial-target-buttons { display: flex; align-items: center; gap: 6px; }
+.spatial-target-buttons button { display: flex; align-items: center; gap: 7px; border: 1px solid #314035; background: #17221c; color: #92a38f; border-radius: 5px; padding: 8px 9px; transition: border-color .18s, background .18s; }
+.spatial-target-buttons button > span:first-child { font-family: 'IBM Plex Mono', monospace; font-size: 9px; color: #c3d0b7; }
+.spatial-target-buttons button > span:nth-child(2) { font-size: 8px; }
+.spatial-target-buttons button > svg { margin-left: 3px; color: #78936e; }
+.spatial-target-buttons button:hover, .spatial-target-buttons button.is-selected { border-color: #8eab70; color: #d8eac4; background: #27371f; }
+.spatial-target-buttons button.is-selected > span:first-child, .spatial-target-buttons button.is-selected > svg { color: #bcf582; }
+.spatial-target-buttons button.is-blocked > span:first-child { color: #f2aa94; }
+.spatial-panel-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 21px; background: #0d1514; color: #5e7568; font-family: 'IBM Plex Mono', monospace; font-size: 7px; border-top: 1px solid #233029; }
+.spatial-panel-footer > span:first-child { display: flex; gap: 6px; align-items: center; }
+.spatial-panel-footer i { width: 3px; height: 3px; background: #6e8b6c; border-radius: 50%; }
+.spatial-panel-footer button { display: flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; color: #a3b39b; font-size: 8px; }
+.spatial-panel-footer button:hover { color: #bcf582; }
+@media (min-width: 1600px) { .spatial-canvas { min-height: 500px; } }
+@media (max-width: 1100px) {
+  .spatial-selection-bar { padding: 13px 16px; gap: 9px; }
+  .spatial-target-buttons button { padding: 8px; gap: 4px; }
+  .spatial-target-buttons button > span:nth-child(2) { display: none; }
+  .spatial-panel-footer > span:nth-child(2) { font-size: 6px; }
+}
+@media (max-width: 640px) {
+  .spatial-panel { min-height: 510px; }
+  .spatial-panel-header { padding: 14px; gap: 8px; }
+  .spatial-panel-heading { gap: 7px; }
+  .spatial-panel-heading > span { display: none; }
+  .spatial-view-switch button { padding: 5px 7px; font-size: 9px; }
+  .spatial-canvas, .spatial-model-svg { min-height: 350px; }
+  .spatial-model-svg { width: 120%; left: -10%; }
+  .spatial-scene-caption { left: 15px; top: 18px; }
+  .spatial-scene-caption > div { font-size: 11px; }
+  .spatial-result-indicator { right: 14px; top: 20px; font-size: 7px; padding: 5px 6px; }
+  .spatial-scene-caption > span:last-child { font-size: 8px; }
+  .spatial-zoom-controls { right: 14px; top: 69px; padding: 3px; }
+  .spatial-zoom-controls button { width: 24px; height: 23px; }
+  .spatial-view-legend { left: 15px; bottom: 16px; gap: 10px; }
+  .spatial-view-legend > span { font-size: 7px; }
+  .spatial-axis { right: 15px; bottom: 12px; }
+  .spatial-selection-bar { padding: 12px 14px; }
+  .spatial-selection-hint { gap: 7px; }
+  .spatial-selection-hint > span { font-size: 9px; }
+  .spatial-selection-hint small { font-size: 7px; }
+  .spatial-target-buttons { gap: 4px; }
+  .spatial-target-buttons button { padding: 8px 6px; }
+  .spatial-target-buttons button > svg { margin-left: 0; }
+  .spatial-panel-footer { padding: 10px 14px; font-size: 6px; flex-wrap: wrap; }
+  .spatial-panel-footer > span:nth-child(2) { order: 3; flex-basis: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spatial-panel *, .spatial-model-camera { transition: none !important; }
+}
