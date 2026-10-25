@@ -1,0 +1,2866 @@
+{
+ "id": "fx-session",
+ "video": {
+  "path": "runtime/sessions/fx/video.mp4",
+  "sha256": "fixture",
+  "duration_s": 60,
+  "width": 1280,
+  "height": 720
+ },
+ "anchor": null,
+ "sfm": {
+  "status": "completed",
+  "frames": [
+   {
+    "t_s": 0,
+    "center": [
+     9,
+     1.5,
+     1
+    ],
+    "R": [
+     [
+      1,
+      0,
+      0
+     ],
+     [
+      0,
+      1,
+      0
+     ],
+     [
+      0,
+      0,
+      1
+     ]
+    ],
+    "K": [
+     [
+      900,
+      0,
+      640
+     ],
+     [
+      0,
+      900,
+      360
+     ],
+     [
+      0,
+      0,
+      1
+     ]
+    ]
+   },
+   {
+    "t_s": 10,
+    "center": [
+     3.667,
+     1.5,
+     5.022
+    ],
+    "R": [
+     [
+      1,
+      0,
+      0
+     ],
+     [
+      0,
+      1,
+      0
+     ],
+     [
+      0,
+      0,
+      1
+     ]
+    ],
+    "K": [
+     [
+      900,
+      0,
+      640
+     ],
+     [
+      0,
+      900,
+      360
+     ],
+     [
+      0,
+      0,
+      1
+     ]
+    ]
+   },
+   {
+    "t_s": 20,
+    "center": [
+     5.25,
+     1.5,
+     4
+    ],
+    "R": [
+     [
+      1,
+      0,
+      0
+     ],
+     [
+      0,
+      1,
+      0
+     ],
+     [
+      0,
+      0,
+      1
+     ]
+    ],
+    "K": [
+     [
+      900,
+      0,
+      640
+     ],
+     [
+      0,
+      900,
+      360
+     ],
+     [
+      0,
+      0,
+      1
+     ]
+    ]
+   },
+   {
+    "t_s": 30,
+    "center": [
+     14.4,
+     1.5,
+     2.88
+    ],
+    "R": [
+     [
+      1,
+      0,
+      0
+     ],
+     [
+      0,
+      1,
+      0
+     ],
+     [
+      0,
+      0,
+      1
+     ]
+    ],
+    "K": [
+     [
+      900,
+      0,
+      640
+     ],
+     [
+      0,
+      900,
+      360
+     ],
+     [
+      0,
+      0,
+      1
+     ]
+    ]
+   },
+   {
+    "t_s": 40,
+    "center": [
+     15.75,
+     1.5,
+     4
+    ],
+    "R": [
+     [
+      1,
+      0,
+      0
+     ],
+     [
+      0,
+      1,
+      0
+     ],
+     [
+      0,
+      0,
+      1
+     ]
+    ],
+    "K": [
+     [
+      900,
+      0,
+      640
+     ],
+     [
+      0,
+      900,
+      360
+     ],
+     [
+      0,
+      0,
+      1
+     ]
+    ]
+   },
+   {
+    "t_s": 50,
+    "center": [
+     5,
+     1.5,
+     9.5
+    ],
+    "R": [
+     [
+      1,
+      0,
+      0
+     ],
+     [
+      0,
+      1,
+      0
+     ],
+     [
+      0,
+      0,
+      1
+     ]
+    ],
+    "K": [
+     [
+      900,
+      0,
+      640
+     ],
+     [
+      0,
+      900,
+      360
+     ],
+     [
+      0,
+      0,
+      1
+     ]
+    ]
+   }
+  ],
+  "points": [
+   [
+    3.1,
+    1,
+    2
+   ],
+   [
+    14.9,
+    1.2,
+    6
+   ],
+   [
+    9,
+    0.8,
+    0.1
+   ]
+  ],
+  "registered_fraction": 0.94,
+  "elapsed_ms": 83000,
+  "error": null
+ },
+ "alignment": {
+  "scale": 1.82,
+  "yaw_rad": 0.12,
+  "tx": 0.4,
+  "ty": -0.2,
+  "floor_normal": [
+   0,
+   -1,
+   0
+  ],
+  "floor_offset": 1.4,
+  "residual_m": 0.21,
+  "eye_height_m": 1.53,
+  "hash": "a-47ccb97a79f5a2bf"
+ },
+ "draft_graph": {
+  "schema_version": "1",
+  "video_sha256": "fixture",
+  "anchor": null,
+  "zones": [
+   {
+    "id": "Z1",
+    "name": "Main hall",
+    "rect": [
+     3,
+     0,
+     12,
+     8
+    ],
+    "occupants": 120,
+    "furniture_seen": false,
+    "evidence": [
+     {
+      "start_s": 0,
+      "end_s": 60,
+      "note": "Main hall visible"
+     }
+    ]
+   },
+   {
+    "id": "Z2",
+    "name": "West corridor",
+    "rect": [
+     0,
+     0,
+     3,
+     8
+    ],
+    "occupants": 0,
+    "furniture_seen": false,
+    "evidence": [
+     {
+      "start_s": 0,
+      "end_s": 60,
+      "note": "West corridor visible"
+     }
+    ]
+   },
+   {
+    "id": "Z3",
+    "name": "East corridor",
+    "rect": [
+     15,
+     0,
+     3,
+     8
+    ],
+    "occupants": 0,
+    "furniture_seen": false,
+    "evidence": [
+     {
+      "start_s": 0,
+      "end_s": 60,
+      "note": "East corridor visible"
+     }
+    ]
+   },
+   {
+    "id": "Z4",
+    "name": "Green room",
+    "rect": [
+     3,
+     8,
+     4,
+     3
+    ],
+    "occupants": 10,
+    "furniture_seen": false,
+    "evidence": [
+     {
+      "start_s": 0,
+      "end_s": 60,
+      "note": "Green room visible"
+     }
+    ]
+   }
+  ],
+  "doors": [
+   {
+    "id": "D1",
+    "a": "Z1",
+    "b": "Z2",
+    "kind": "door",
+    "state": "open",
+    "clear_width": {
+     "low_m": 1.6,
+     "high_m": 1.8,
+     "basis": "estimated"
+    },
+    "position": [
+     3,
+     4
+    ],
+    "evidence": [
+     {
+      "start_s": 0,
+      "end_s": 60,
+      "note": "D1 visible"
+     }
+    ]
+   },
+   {
+    "id": "D2",
+    "a": "Z2",
+    "b": "OUTSIDE",
+    "kind": "exit",
+    "state": "open",
+    "clear_width": {
+     "low_m": 1.6,
+     "high_m": 1.8,
+     "basis": "estimated"
+    },
+    "position": [
+     0,
+     4
+    ],
+    "evidence": [
+     {
+      "start_s": 0,
+      "end_s": 60,
+      "note": "D2 visible"
+     }
+    ]
+   },
+   {
+    "id": "D3",
+    "a": "Z1",
+    "b": "Z3",
+    "kind": "door",
+    "state": "open",
+    "clear_width": {
+     "low_m": 1.6,
+     "high_m": 1.8,
+     "basis": "estimated"
+    },
+    "position": [
+     15,
+     4
+    ],
+    "evidence": [
+     {
+      "start_s": 0,
+      "end_s": 60,
+      "note": "D3 visible"
+     }
+    ]
+   },
+   {
+    "id": "D4",
+    "a": "Z3",
+    "b": "OUTSIDE",
+    "kind": "exit",
+    "state": "open",
+    "clear_width": {
+     "low_m": 0.9,
+     "high_m": 1,
+     "basis": "estimated"
+    },
+    "position": [
+     18,
+     4
+    ],
+    "evidence": [
+     {
+      "start_s": 0,
+      "end_s": 60,
+      "note": "D4 visible"
+     }
+    ]
+   },
+   {
+    "id": "D5",
+    "a": "Z1",
+    "b": "OUTSIDE",
+    "kind": "exit",
+    "state": "locked",
+    "clear_width": {
+     "low_m": 1,
+     "high_m": 1.1,
+     "basis": "estimated"
+    },
+    "position": [
+     9,
+     0
+    ],
+    "evidence": [
+     {
+      "start_s": 0,
+      "end_s": 60,
+      "note": "D5 visible"
+     }
+    ]
+   },
+   {
+    "id": "D6",
+    "a": "Z4",
+    "b": "Z1",
+    "kind": "door",
+    "state": "open",
+    "clear_width": {
+     "low_m": 0.9,
+     "high_m": 1,
+     "basis": "estimated"
+    },
+    "position": [
+     5,
+     8
+    ],
+    "evidence": [
+     {
+      "start_s": 0,
+      "end_s": 60,
+      "note": "D6 visible"
+     }
+    ]
+   }
+  ],
+  "keyframes": [
+   {
+    "t_s": 2,
+    "zone_id": "Z1",
+    "x": 9,
+    "y": 2,
+    "heading_deg": 0
+   },
+   {
+    "t_s": 14,
+    "zone_id": "Z2",
+    "x": 1.5,
+    "y": 4,
+    "heading_deg": 270
+   },
+   {
+    "t_s": 26,
+    "zone_id": "Z1",
+    "x": 12,
+    "y": 4,
+    "heading_deg": 90
+   },
+   {
+    "t_s": 38,
+    "zone_id": "Z3",
+    "x": 16.5,
+    "y": 4,
+    "heading_deg": 90
+   },
+   {
+    "t_s": 50,
+    "zone_id": "Z4",
+    "x": 5,
+    "y": 9.5,
+    "heading_deg": 180
+   }
+  ]
+ },
+ "accepted_graph": {
+  "schema_version": "1",
+  "video_sha256": "fixture",
+  "anchor": null,
+  "zones": [
+   {
+    "id": "Z1",
+    "name": "Main hall",
+    "rect": [
+     3,
+     0,
+     12,
+     8
+    ],
+    "occupants": 120,
+    "furniture_seen": false,
+    "evidence": [
+     {
+      "start_s": 0,
+      "end_s": 60,
+      "note": "Main hall visible"
+     }
+    ]
+   },
+   {
+    "id": "Z2",
+    "name": "West corridor",
+    "rect": [
+     0,
+     0,
+     3,
+     8
+    ],
+    "occupants": 0,
+    "furniture_seen": false,
+    "evidence": [
+     {
+      "start_s": 0,
+      "end_s": 60,
+      "note": "West corridor visible"
+     }
+    ]
+   },
+   {
+    "id": "Z3",
+    "name": "East corridor",
+    "rect": [
+     15,
+     0,
+     3,
+     8
+    ],
+    "occupants": 0,
+    "furniture_seen": false,
+    "evidence": [
+     {
+      "start_s": 0,
+      "end_s": 60,
+      "note": "East corridor visible"
+     }
+    ]
+   },
+   {
+    "id": "Z4",
+    "name": "Green room",
+    "rect": [
+     3,
+     8,
+     4,
+     3
+    ],
+    "occupants": 10,
+    "furniture_seen": false,
+    "evidence": [
+     {
+      "start_s": 0,
+      "end_s": 60,
+      "note": "Green room visible"
+     }
+    ]
+   }
+  ],
+  "doors": [
+   {
+    "id": "D1",
+    "a": "Z1",
+    "b": "Z2",
+    "kind": "door",
+    "state": "open",
+    "clear_width": {
+     "low_m": 1.6,
+     "high_m": 1.8,
+     "basis": "estimated"
+    },
+    "position": [
+     3,
+     4
+    ],
+    "evidence": [
+     {
+      "start_s": 0,
+      "end_s": 60,
+      "note": "D1 visible"
+     }
+    ]
+   },
+   {
+    "id": "D2",
+    "a": "Z2",
+    "b": "OUTSIDE",
+    "kind": "exit",
+    "state": "open",
+    "clear_width": {
+     "low_m": 1.6,
+     "high_m": 1.8,
+     "basis": "estimated"
+    },
+    "position": [
+     0,
+     4
+    ],
+    "evidence": [
+     {
+      "start_s": 0,
+      "end_s": 60,
+      "note": "D2 visible"
+     }
+    ]
+   },
+   {
+    "id": "D3",
+    "a": "Z1",
+    "b": "Z3",
+    "kind": "door",
+    "state": "open",
+    "clear_width": {
+     "low_m": 1.6,
+     "high_m": 1.8,
+     "basis": "estimated"
+    },
+    "position": [
+     15,
+     4
+    ],
+    "evidence": [
+     {
+      "start_s": 0,
+      "end_s": 60,
+      "note": "D3 visible"
+     }
+    ]
+   },
+   {
+    "id": "D4",
+    "a": "Z3",
+    "b": "OUTSIDE",
+    "kind": "exit",
+    "state": "open",
+    "clear_width": {
+     "low_m": 0.9,
+     "high_m": 1,
+     "basis": "estimated"
+    },
+    "position": [
+     18,
+     4
+    ],
+    "evidence": [
+     {
+      "start_s": 0,
+      "end_s": 60,
+      "note": "D4 visible"
+     }
+    ]
+   },
+   {
+    "id": "D5",
+    "a": "Z1",
+    "b": "OUTSIDE",
+    "kind": "exit",
+    "state": "locked",
+    "clear_width": {
+     "low_m": 1,
+     "high_m": 1.1,
+     "basis": "estimated"
+    },
+    "position": [
+     9,
+     0
+    ],
+    "evidence": [
+     {
+      "start_s": 0,
+      "end_s": 60,
+      "note": "D5 visible"
+     }
+    ]
+   },
+   {
+    "id": "D6",
+    "a": "Z4",
+    "b": "Z1",
+    "kind": "door",
+    "state": "open",
+    "clear_width": {
+     "low_m": 0.9,
+     "high_m": 1,
+     "basis": "estimated"
+    },
+    "position": [
+     5,
+     8
+    ],
+    "evidence": [
+     {
+      "start_s": 0,
+      "end_s": 60,
+      "note": "D6 visible"
+     }
+    ]
+   }
+  ],
+  "keyframes": [
+   {
+    "t_s": 2,
+    "zone_id": "Z1",
+    "x": 9,
+    "y": 2,
+    "heading_deg": 0
+   },
+   {
+    "t_s": 14,
+    "zone_id": "Z2",
+    "x": 1.5,
+    "y": 4,
+    "heading_deg": 270
+   },
+   {
+    "t_s": 26,
+    "zone_id": "Z1",
+    "x": 12,
+    "y": 4,
+    "heading_deg": 90
+   },
+   {
+    "t_s": 38,
+    "zone_id": "Z3",
+    "x": 16.5,
+    "y": 4,
+    "heading_deg": 90
+   },
+   {
+    "t_s": 50,
+    "zone_id": "Z4",
+    "x": 5,
+    "y": 9.5,
+    "heading_deg": 180
+   }
+  ]
+ },
+ "scenario": {
+  "hazards": [
+   {
+    "door_id": "D2",
+    "kind": "fire",
+    "from_s": 0
+   }
+  ],
+  "interventions": []
+ },
+ "current_run": {
+  "run_id": "r-587978f1c44a",
+  "graph_revision": "g-ca54d83b4cfd07ef",
+  "scenario_hash": "s-c5fcca79bf10",
+  "params": {
+   "dt_s": 2,
+   "horizon_s": 120,
+   "specific_flow_p_per_m_s": 1.3,
+   "boundary_layer_m": 0.15,
+   "walk_speed_m_s": 1.2
+  },
+  "total": 130,
+  "reached_exit": 87,
+  "remaining_by_zone": {
+   "Z1": 0,
+   "Z2": 0,
+   "Z3": 43,
+   "Z4": 0
+  },
+  "in_transit_end": 0,
+  "door_flows": {
+   "D1": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "D2": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "D3": [
+    3,
+    3,
+    4,
+    3,
+    3,
+    4,
+    3,
+    4,
+    3,
+    3,
+    4,
+    3,
+    3,
+    4,
+    3,
+    4,
+    3,
+    3,
+    4,
+    3,
+    3,
+    4,
+    3,
+    4,
+    3,
+    3,
+    4,
+    3,
+    4,
+    3,
+    3,
+    4,
+    3,
+    3,
+    4,
+    3,
+    4,
+    3,
+    2,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "D4": [
+    0,
+    0,
+    0,
+    0,
+    1,
+    2,
+    1,
+    2,
+    2,
+    1,
+    2,
+    1,
+    2,
+    1,
+    2,
+    1,
+    2,
+    2,
+    1,
+    2,
+    1,
+    2,
+    1,
+    2,
+    2,
+    1,
+    2,
+    1,
+    2,
+    1,
+    2,
+    1,
+    2,
+    2,
+    1,
+    2,
+    1,
+    2,
+    1,
+    2,
+    1,
+    2,
+    2,
+    1,
+    2,
+    1,
+    2,
+    1,
+    2,
+    2,
+    1,
+    2,
+    1,
+    2,
+    1,
+    2,
+    1,
+    2,
+    2,
+    1
+   ],
+   "D5": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "D6": [
+    1,
+    2,
+    1,
+    2,
+    1,
+    2,
+    1,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  "zone_occupancy": [
+   {
+    "Z1": 120,
+    "Z2": 0,
+    "Z3": 0,
+    "Z4": 10
+   },
+   {
+    "Z1": 117,
+    "Z2": 0,
+    "Z3": 0,
+    "Z4": 9
+   },
+   {
+    "Z1": 114,
+    "Z2": 0,
+    "Z3": 0,
+    "Z4": 7
+   },
+   {
+    "Z1": 111,
+    "Z2": 0,
+    "Z3": 0,
+    "Z4": 6
+   },
+   {
+    "Z1": 110,
+    "Z2": 0,
+    "Z3": 3,
+    "Z4": 4
+   },
+   {
+    "Z1": 108,
+    "Z2": 0,
+    "Z3": 5,
+    "Z4": 3
+   },
+   {
+    "Z1": 106,
+    "Z2": 0,
+    "Z3": 7,
+    "Z4": 1
+   },
+   {
+    "Z1": 104,
+    "Z2": 0,
+    "Z3": 9,
+    "Z4": 0
+   },
+   {
+    "Z1": 102,
+    "Z2": 0,
+    "Z3": 10,
+    "Z4": 0
+   },
+   {
+    "Z1": 100,
+    "Z2": 0,
+    "Z3": 12,
+    "Z4": 0
+   },
+   {
+    "Z1": 97,
+    "Z2": 0,
+    "Z3": 14,
+    "Z4": 0
+   },
+   {
+    "Z1": 93,
+    "Z2": 0,
+    "Z3": 16,
+    "Z4": 0
+   },
+   {
+    "Z1": 90,
+    "Z2": 0,
+    "Z3": 18,
+    "Z4": 0
+   },
+   {
+    "Z1": 87,
+    "Z2": 0,
+    "Z3": 19,
+    "Z4": 0
+   },
+   {
+    "Z1": 83,
+    "Z2": 0,
+    "Z3": 22,
+    "Z4": 0
+   },
+   {
+    "Z1": 80,
+    "Z2": 0,
+    "Z3": 23,
+    "Z4": 0
+   },
+   {
+    "Z1": 76,
+    "Z2": 0,
+    "Z3": 25,
+    "Z4": 0
+   },
+   {
+    "Z1": 73,
+    "Z2": 0,
+    "Z3": 27,
+    "Z4": 0
+   },
+   {
+    "Z1": 70,
+    "Z2": 0,
+    "Z3": 28,
+    "Z4": 0
+   },
+   {
+    "Z1": 66,
+    "Z2": 0,
+    "Z3": 31,
+    "Z4": 0
+   },
+   {
+    "Z1": 63,
+    "Z2": 0,
+    "Z3": 32,
+    "Z4": 0
+   },
+   {
+    "Z1": 60,
+    "Z2": 0,
+    "Z3": 34,
+    "Z4": 0
+   },
+   {
+    "Z1": 56,
+    "Z2": 0,
+    "Z3": 36,
+    "Z4": 0
+   },
+   {
+    "Z1": 53,
+    "Z2": 0,
+    "Z3": 38,
+    "Z4": 0
+   },
+   {
+    "Z1": 49,
+    "Z2": 0,
+    "Z3": 39,
+    "Z4": 0
+   },
+   {
+    "Z1": 46,
+    "Z2": 0,
+    "Z3": 41,
+    "Z4": 0
+   },
+   {
+    "Z1": 43,
+    "Z2": 0,
+    "Z3": 43,
+    "Z4": 0
+   },
+   {
+    "Z1": 39,
+    "Z2": 0,
+    "Z3": 45,
+    "Z4": 0
+   },
+   {
+    "Z1": 36,
+    "Z2": 0,
+    "Z3": 47,
+    "Z4": 0
+   },
+   {
+    "Z1": 32,
+    "Z2": 0,
+    "Z3": 48,
+    "Z4": 0
+   },
+   {
+    "Z1": 29,
+    "Z2": 0,
+    "Z3": 51,
+    "Z4": 0
+   },
+   {
+    "Z1": 26,
+    "Z2": 0,
+    "Z3": 52,
+    "Z4": 0
+   },
+   {
+    "Z1": 22,
+    "Z2": 0,
+    "Z3": 55,
+    "Z4": 0
+   },
+   {
+    "Z1": 19,
+    "Z2": 0,
+    "Z3": 56,
+    "Z4": 0
+   },
+   {
+    "Z1": 16,
+    "Z2": 0,
+    "Z3": 57,
+    "Z4": 0
+   },
+   {
+    "Z1": 12,
+    "Z2": 0,
+    "Z3": 60,
+    "Z4": 0
+   },
+   {
+    "Z1": 9,
+    "Z2": 0,
+    "Z3": 61,
+    "Z4": 0
+   },
+   {
+    "Z1": 5,
+    "Z2": 0,
+    "Z3": 63,
+    "Z4": 0
+   },
+   {
+    "Z1": 2,
+    "Z2": 0,
+    "Z3": 65,
+    "Z4": 0
+   },
+   {
+    "Z1": 0,
+    "Z2": 0,
+    "Z3": 67,
+    "Z4": 0
+   },
+   {
+    "Z1": 0,
+    "Z2": 0,
+    "Z3": 69,
+    "Z4": 0
+   },
+   {
+    "Z1": 0,
+    "Z2": 0,
+    "Z3": 71,
+    "Z4": 0
+   },
+   {
+    "Z1": 0,
+    "Z2": 0,
+    "Z3": 71,
+    "Z4": 0
+   },
+   {
+    "Z1": 0,
+    "Z2": 0,
+    "Z3": 69,
+    "Z4": 0
+   },
+   {
+    "Z1": 0,
+    "Z2": 0,
+    "Z3": 68,
+    "Z4": 0
+   },
+   {
+    "Z1": 0,
+    "Z2": 0,
+    "Z3": 66,
+    "Z4": 0
+   },
+   {
+    "Z1": 0,
+    "Z2": 0,
+    "Z3": 65,
+    "Z4": 0
+   },
+   {
+    "Z1": 0,
+    "Z2": 0,
+    "Z3": 63,
+    "Z4": 0
+   },
+   {
+    "Z1": 0,
+    "Z2": 0,
+    "Z3": 62,
+    "Z4": 0
+   },
+   {
+    "Z1": 0,
+    "Z2": 0,
+    "Z3": 60,
+    "Z4": 0
+   },
+   {
+    "Z1": 0,
+    "Z2": 0,
+    "Z3": 58,
+    "Z4": 0
+   },
+   {
+    "Z1": 0,
+    "Z2": 0,
+    "Z3": 57,
+    "Z4": 0
+   },
+   {
+    "Z1": 0,
+    "Z2": 0,
+    "Z3": 55,
+    "Z4": 0
+   },
+   {
+    "Z1": 0,
+    "Z2": 0,
+    "Z3": 54,
+    "Z4": 0
+   },
+   {
+    "Z1": 0,
+    "Z2": 0,
+    "Z3": 52,
+    "Z4": 0
+   },
+   {
+    "Z1": 0,
+    "Z2": 0,
+    "Z3": 51,
+    "Z4": 0
+   },
+   {
+    "Z1": 0,
+    "Z2": 0,
+    "Z3": 49,
+    "Z4": 0
+   },
+   {
+    "Z1": 0,
+    "Z2": 0,
+    "Z3": 48,
+    "Z4": 0
+   },
+   {
+    "Z1": 0,
+    "Z2": 0,
+    "Z3": 46,
+    "Z4": 0
+   },
+   {
+    "Z1": 0,
+    "Z2": 0,
+    "Z3": 44,
+    "Z4": 0
+   },
+   {
+    "Z1": 0,
+    "Z2": 0,
+    "Z3": 43,
+    "Z4": 0
+   }
+  ],
+  "transit_by_step": [
+   0,
+   4,
+   9,
+   13,
+   13,
+   13,
+   13,
+   13,
+   12,
+   10,
+   10,
+   10,
+   10,
+   10,
+   10,
+   10,
+   11,
+   10,
+   10,
+   10,
+   10,
+   10,
+   10,
+   10,
+   11,
+   10,
+   10,
+   10,
+   10,
+   11,
+   10,
+   10,
+   10,
+   10,
+   10,
+   10,
+   10,
+   11,
+   10,
+   9,
+   5,
+   2,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "reached_by_step": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   1,
+   3,
+   4,
+   6,
+   8,
+   9,
+   11,
+   12,
+   14,
+   15,
+   17,
+   18,
+   20,
+   22,
+   23,
+   25,
+   26,
+   28,
+   29,
+   31,
+   33,
+   34,
+   36,
+   37,
+   39,
+   40,
+   42,
+   43,
+   45,
+   47,
+   48,
+   50,
+   51,
+   53,
+   54,
+   56,
+   57,
+   59,
+   61,
+   62,
+   64,
+   65,
+   67,
+   68,
+   70,
+   72,
+   73,
+   75,
+   76,
+   78,
+   79,
+   81,
+   82,
+   84,
+   86,
+   87
+  ]
+ },
+ "current_check": {
+  "ok": true,
+  "run_id": "r-587978f1c44a",
+  "violations": []
+ },
+ "iterations": [
+  {
+   "index": 1,
+   "graph_revision": "g-44fca2891d2bc949",
+   "discrepancy_count": 5,
+   "applied": [
+    0,
+    1,
+    2
+   ],
+   "rejected": [
+    [
+     3,
+     "unknown id D9"
+    ]
+   ],
+   "findings": [],
+   "geometry": {
+    "alignment_hash": "a-47ccb97a79f5a2bf",
+    "illegal_crossings": [
+     {
+      "t_s": 11,
+      "x": 3,
+      "y": 5.4,
+      "edge": "Z1.west"
+     },
+     {
+      "t_s": 31,
+      "x": 15,
+      "y": 2.6,
+      "edge": "Z1.east"
+     },
+     {
+      "t_s": 46.5,
+      "x": 6,
+      "y": 8,
+      "edge": "Z1.north"
+     }
+    ],
+    "wall_support": 0.61,
+    "unexplained_points": 0.29,
+    "edge_chamfer_px": 7.4,
+    "edge_within_5px": 0.48,
+    "heldout_t_s": [
+     5.5,
+     20.5,
+     33,
+     44.5
+    ]
+   },
+   "renders": [
+    {
+     "t_s": 2,
+     "path": "runtime/sessions/fx/renders/g-44fca2891d2bc949/t2.png",
+     "kind": "perspective"
+    },
+    {
+     "t_s": 14,
+     "path": "runtime/sessions/fx/renders/g-44fca2891d2bc949/t14.png",
+     "kind": "perspective"
+    },
+    {
+     "t_s": 26,
+     "path": "runtime/sessions/fx/renders/g-44fca2891d2bc949/t26.png",
+     "kind": "perspective"
+    },
+    {
+     "t_s": 38,
+     "path": "runtime/sessions/fx/renders/g-44fca2891d2bc949/t38.png",
+     "kind": "perspective"
+    },
+    {
+     "t_s": 50,
+     "path": "runtime/sessions/fx/renders/g-44fca2891d2bc949/t50.png",
+     "kind": "perspective"
+    }
+   ],
+   "receipt": {
+    "interaction_id": "int-crit-1",
+    "provider_model": "gemini-4-argon",
+    "status": "completed",
+    "usage": {
+     "total_tokens": 41230
+    },
+    "elapsed_ms": 48200,
+    "processing_calls": 0
+   },
+   "stop_reason": null
+  },
+  {
+   "index": 2,
+   "graph_revision": "g-ca54d83b4cfd07ef",
+   "discrepancy_count": 1,
+   "applied": [
+    0
+   ],
+   "rejected": [
+    [
+     1,
+     "measured_regression"
+    ]
+   ],
+   "findings": [],
+   "geometry": {
+    "alignment_hash": "a-47ccb97a79f5a2bf",
+    "illegal_crossings": [
+     {
+      "t_s": 46.5,
+      "x": 6,
+      "y": 8,
+      "edge": "Z1.north"
+     }
+    ],
+    "wall_support": 0.74,
+    "unexplained_points": 0.16,
+    "edge_chamfer_px": 4.1,
+    "edge_within_5px": 0.63,
+    "heldout_t_s": [
+     5.5,
+     20.5,
+     33,
+     44.5
+    ]
+   },
+   "renders": [
+    {
+     "t_s": 2,
+     "path": "runtime/sessions/fx/renders/g-ca54d83b4cfd07ef/t2.png",
+     "kind": "perspective"
+    },
+    {
+     "t_s": 14,
+     "path": "runtime/sessions/fx/renders/g-ca54d83b4cfd07ef/t14.png",
+     "kind": "perspective"
+    },
+    {
+     "t_s": 26,
+     "path": "runtime/sessions/fx/renders/g-ca54d83b4cfd07ef/t26.png",
+     "kind": "perspective"
+    },
+    {
+     "t_s": 38,
+     "path": "runtime/sessions/fx/renders/g-ca54d83b4cfd07ef/t38.png",
+     "kind": "perspective"
+    },
+    {
+     "t_s": 50,
+     "path": "runtime/sessions/fx/renders/g-ca54d83b4cfd07ef/t50.png",
+     "kind": "perspective"
+    }
+   ],
+   "receipt": {
+    "interaction_id": "int-crit-2",
+    "provider_model": "gemini-4-argon",
+    "status": "completed",
+    "usage": {
+     "total_tokens": 41230
+    },
+    "elapsed_ms": 39100,
+    "processing_calls": 0
+   },
+   "stop_reason": "max_iterations"
+  }
+ ],
+ "extraction": {
+  "status": "completed",
+  "graph": {
+   "schema_version": "1",
+   "video_sha256": "fixture",
+   "anchor": null,
+   "zones": [
+    {
+     "id": "Z1",
+     "name": "Main hall",
+     "rect": [
+      3,
+      0,
+      12,
+      8
+     ],
+     "occupants": 120,
+     "furniture_seen": false,
+     "evidence": [
+      {
+       "start_s": 0,
+       "end_s": 60,
+       "note": "Main hall visible"
+      }
+     ]
+    },
+    {
+     "id": "Z2",
+     "name": "West corridor",
+     "rect": [
+      0,
+      0,
+      3,
+      8
+     ],
+     "occupants": 0,
+     "furniture_seen": false,
+     "evidence": [
+      {
+       "start_s": 0,
+       "end_s": 60,
+       "note": "West corridor visible"
+      }
+     ]
+    },
+    {
+     "id": "Z3",
+     "name": "East corridor",
+     "rect": [
+      15,
+      0,
+      3,
+      8
+     ],
+     "occupants": 0,
+     "furniture_seen": false,
+     "evidence": [
+      {
+       "start_s": 0,
+       "end_s": 60,
+       "note": "East corridor visible"
+      }
+     ]
+    },
+    {
+     "id": "Z4",
+     "name": "Green room",
+     "rect": [
+      3,
+      8,
+      4,
+      3
+     ],
+     "occupants": 10,
+     "furniture_seen": false,
+     "evidence": [
+      {
+       "start_s": 0,
+       "end_s": 60,
+       "note": "Green room visible"
+      }
+     ]
+    }
+   ],
+   "doors": [
+    {
+     "id": "D1",
+     "a": "Z1",
+     "b": "Z2",
+     "kind": "door",
+     "state": "open",
+     "clear_width": {
+      "low_m": 1.6,
+      "high_m": 1.8,
+      "basis": "estimated"
+     },
+     "position": [
+      3,
+      4
+     ],
+     "evidence": [
+      {
+       "start_s": 0,
+       "end_s": 60,
+       "note": "D1 visible"
+      }
+     ]
+    },
+    {
+     "id": "D2",
+     "a": "Z2",
+     "b": "OUTSIDE",
+     "kind": "exit",
+     "state": "open",
+     "clear_width": {
+      "low_m": 1.6,
+      "high_m": 1.8,
+      "basis": "estimated"
+     },
+     "position": [
+      0,
+      4
+     ],
+     "evidence": [
+      {
+       "start_s": 0,
+       "end_s": 60,
+       "note": "D2 visible"
+      }
+     ]
+    },
+    {
+     "id": "D3",
+     "a": "Z1",
+     "b": "Z3",
+     "kind": "door",
+     "state": "open",
+     "clear_width": {
+      "low_m": 1.6,
+      "high_m": 1.8,
+      "basis": "estimated"
+     },
+     "position": [
+      15,
+      4
+     ],
+     "evidence": [
+      {
+       "start_s": 0,
+       "end_s": 60,
+       "note": "D3 visible"
+      }
+     ]
+    },
+    {
+     "id": "D4",
+     "a": "Z3",
+     "b": "OUTSIDE",
+     "kind": "exit",
+     "state": "open",
+     "clear_width": {
+      "low_m": 0.9,
+      "high_m": 1,
+      "basis": "estimated"
+     },
+     "position": [
+      18,
+      4
+     ],
+     "evidence": [
+      {
+       "start_s": 0,
+       "end_s": 60,
+       "note": "D4 visible"
+      }
+     ]
+    },
+    {
+     "id": "D5",
+     "a": "Z1",
+     "b": "OUTSIDE",
+     "kind": "exit",
+     "state": "locked",
+     "clear_width": {
+      "low_m": 1,
+      "high_m": 1.1,
+      "basis": "estimated"
+     },
+     "position": [
+      9,
+      0
+     ],
+     "evidence": [
+      {
+       "start_s": 0,
+       "end_s": 60,
+       "note": "D5 visible"
+      }
+     ]
+    },
+    {
+     "id": "D6",
+     "a": "Z4",
+     "b": "Z1",
+     "kind": "door",
+     "state": "open",
+     "clear_width": {
+      "low_m": 0.9,
+      "high_m": 1,
+      "basis": "estimated"
+     },
+     "position": [
+      5,
+      8
+     ],
+     "evidence": [
+      {
+       "start_s": 0,
+       "end_s": 60,
+       "note": "D6 visible"
+      }
+     ]
+    }
+   ],
+   "keyframes": [
+    {
+     "t_s": 2,
+     "zone_id": "Z1",
+     "x": 9,
+     "y": 2,
+     "heading_deg": 0
+    },
+    {
+     "t_s": 14,
+     "zone_id": "Z2",
+     "x": 1.5,
+     "y": 4,
+     "heading_deg": 270
+    },
+    {
+     "t_s": 26,
+     "zone_id": "Z1",
+     "x": 12,
+     "y": 4,
+     "heading_deg": 90
+    },
+    {
+     "t_s": 38,
+     "zone_id": "Z3",
+     "x": 16.5,
+     "y": 4,
+     "heading_deg": 90
+    },
+    {
+     "t_s": 50,
+     "zone_id": "Z4",
+     "x": 5,
+     "y": 9.5,
+     "heading_deg": 180
+    }
+   ]
+  },
+  "findings": [],
+  "receipt": {
+   "interaction_id": "int-extract-1",
+   "provider_model": "gemini-4-argon",
+   "status": "completed",
+   "usage": {
+    "total_tokens": 41230
+   },
+   "elapsed_ms": 72000,
+   "processing_calls": 0
+  },
+  "mode": "static_hifps",
+  "agentic_observed": null,
+  "video_uri": "files/fx-video",
+  "error": null
+ },
+ "investigations": [
+  {
+   "investigation_id": "inv-89270a50",
+   "graph_revision": "g-ca54d83b4cfd07ef",
+   "scenario_hash": "s-c5fcca79bf10",
+   "status": "completed",
+   "interaction_id": "int-agent-1",
+   "environment_id": "env-1",
+   "ledger": [
+    {
+     "call_id": "c1",
+     "kind": "sandbox_step",
+     "name": "code_execution",
+     "args": {
+      "code": "from flow import solve\nfor d in [\"D5\"]: ..."
+     },
+     "result": {
+      "output": "OPEN:D5 -> 128"
+     },
+     "executed_at": "2026-10-25T18:41:02Z"
+    },
+    {
+     "call_id": "c2",
+     "kind": "sandbox_step",
+     "name": "read_file",
+     "args": {
+      "path": "/workspace/scenario.json"
+     },
+     "result": null,
+     "executed_at": "2026-10-25T18:41:05Z"
+    },
+    {
+     "call_id": "c3",
+     "kind": "client_function",
+     "name": "evaluate_interventions",
+     "args": {
+      "ids": [
+       "OPEN:D5"
+      ]
+     },
+     "result": {
+      "results": [
+       {
+        "intervention_id": "OPEN:D5",
+        "run_id": "r-3916fec94a41",
+        "reached_exit": 130,
+        "total": 130,
+        "delta_vs_current": 43,
+        "check_ok": true,
+        "limiting_doors": [
+         "D4",
+         "D5"
+        ]
+       }
+      ]
+     },
+     "executed_at": "2026-10-25T18:41:09Z"
+    },
+    {
+     "call_id": "c4",
+     "kind": "client_function",
+     "name": "submit_recommendation",
+     "args": {
+      "intervention_id": "OPEN:D5"
+     },
+     "result": {
+      "ok": true
+     },
+     "executed_at": "2026-10-25T18:41:12Z"
+    }
+   ],
+   "sandbox_runs": 1,
+   "results": [
+    {
+     "intervention_id": "OPEN:D5",
+     "run_id": "r-3916fec94a41",
+     "reached_exit": 130,
+     "total": 130,
+     "delta_vs_current": 43,
+     "check_ok": true,
+     "limiting_doors": [
+      "D4",
+      "D5"
+     ]
+    }
+   ],
+   "recommendation": {
+    "intervention_id": "OPEN:D5",
+    "claimed_reached_exit": 128,
+    "rationale": "With D2 under fire, the hall drains only through D3 and the narrow D4. Unlocking D5 adds a second exit straight out of the hall.",
+    "caveats": [
+     "D5 width is estimated, not tape-measured"
+    ]
+   },
+   "best": {
+    "intervention_id": "OPEN:D5",
+    "run_id": "r-3916fec94a41",
+    "reached_exit": 130,
+    "total": 130,
+    "delta_vs_current": 43,
+    "check_ok": true,
+    "limiting_doors": [
+     "D4",
+     "D5"
+    ]
+   },
+   "disagreement": "Agent claimed 128 for OPEN:D5; checker computed 130",
+   "hook_denials": 0,
+   "receipt": {
+    "interaction_id": "int-agent-1",
+    "provider_model": "antigravity-preview-09-2026",
+    "status": "completed",
+    "usage": {
+     "total_tokens": 41230
+    },
+    "elapsed_ms": 61000,
+    "processing_calls": 0
+   }
+  }
+ ],
+ "approvals": [],
+ "jobs": {
+  "sfm": {
+   "kind": "sfm",
+   "status": "done",
+   "error": null
+  },
+  "extract": {
+   "kind": "extract",
+   "status": "done",
+   "error": null
+  },
+  "refine": {
+   "kind": "refine",
+   "status": "done",
+   "error": null
+  },
+  "investigate:D2": {
+   "kind": "investigate",
+   "status": "done",
+   "error": null
+  }
+ },
+ "ghost_path": [
+  {
+   "t_s": 0,
+   "x": 9,
+   "y": 1
+  },
+  {
+   "t_s": 0.5,
+   "x": 9,
+   "y": 1.25
+  },
+  {
+   "t_s": 1,
+   "x": 9,
+   "y": 1.5
+  },
+  {
+   "t_s": 1.5,
+   "x": 9,
+   "y": 1.75
+  },
+  {
+   "t_s": 2,
+   "x": 9,
+   "y": 2
+  },
+  {
+   "t_s": 2.5,
+   "x": 8.667,
+   "y": 2.189
+  },
+  {
+   "t_s": 3,
+   "x": 8.333,
+   "y": 2.378
+  },
+  {
+   "t_s": 3.5,
+   "x": 8,
+   "y": 2.567
+  },
+  {
+   "t_s": 4,
+   "x": 7.667,
+   "y": 2.756
+  },
+  {
+   "t_s": 4.5,
+   "x": 7.333,
+   "y": 2.944
+  },
+  {
+   "t_s": 5,
+   "x": 7,
+   "y": 3.133
+  },
+  {
+   "t_s": 5.5,
+   "x": 6.667,
+   "y": 3.322
+  },
+  {
+   "t_s": 6,
+   "x": 6.333,
+   "y": 3.511
+  },
+  {
+   "t_s": 6.5,
+   "x": 6,
+   "y": 3.7
+  },
+  {
+   "t_s": 7,
+   "x": 5.667,
+   "y": 3.889
+  },
+  {
+   "t_s": 7.5,
+   "x": 5.333,
+   "y": 4.078
+  },
+  {
+   "t_s": 8,
+   "x": 5,
+   "y": 4.267
+  },
+  {
+   "t_s": 8.5,
+   "x": 4.667,
+   "y": 4.456
+  },
+  {
+   "t_s": 9,
+   "x": 4.333,
+   "y": 4.644
+  },
+  {
+   "t_s": 9.5,
+   "x": 4,
+   "y": 4.833
+  },
+  {
+   "t_s": 10,
+   "x": 3.667,
+   "y": 5.022
+  },
+  {
+   "t_s": 10.5,
+   "x": 3.333,
+   "y": 5.211
+  },
+  {
+   "t_s": 11,
+   "x": 3,
+   "y": 5.4
+  },
+  {
+   "t_s": 11.5,
+   "x": 2.75,
+   "y": 5.167
+  },
+  {
+   "t_s": 12,
+   "x": 2.5,
+   "y": 4.933
+  },
+  {
+   "t_s": 12.5,
+   "x": 2.25,
+   "y": 4.7
+  },
+  {
+   "t_s": 13,
+   "x": 2,
+   "y": 4.467
+  },
+  {
+   "t_s": 13.5,
+   "x": 1.75,
+   "y": 4.233
+  },
+  {
+   "t_s": 14,
+   "x": 1.5,
+   "y": 4
+  },
+  {
+   "t_s": 14.5,
+   "x": 1.688,
+   "y": 4
+  },
+  {
+   "t_s": 15,
+   "x": 1.875,
+   "y": 4
+  },
+  {
+   "t_s": 15.5,
+   "x": 2.063,
+   "y": 4
+  },
+  {
+   "t_s": 16,
+   "x": 2.25,
+   "y": 4
+  },
+  {
+   "t_s": 16.5,
+   "x": 2.438,
+   "y": 4
+  },
+  {
+   "t_s": 17,
+   "x": 2.625,
+   "y": 4
+  },
+  {
+   "t_s": 17.5,
+   "x": 2.813,
+   "y": 4
+  },
+  {
+   "t_s": 18,
+   "x": 3,
+   "y": 4
+  },
+  {
+   "t_s": 18.5,
+   "x": 3.563,
+   "y": 4
+  },
+  {
+   "t_s": 19,
+   "x": 4.125,
+   "y": 4
+  },
+  {
+   "t_s": 19.5,
+   "x": 4.688,
+   "y": 4
+  },
+  {
+   "t_s": 20,
+   "x": 5.25,
+   "y": 4
+  },
+  {
+   "t_s": 20.5,
+   "x": 5.813,
+   "y": 4
+  },
+  {
+   "t_s": 21,
+   "x": 6.375,
+   "y": 4
+  },
+  {
+   "t_s": 21.5,
+   "x": 6.938,
+   "y": 4
+  },
+  {
+   "t_s": 22,
+   "x": 7.5,
+   "y": 4
+  },
+  {
+   "t_s": 22.5,
+   "x": 8.063,
+   "y": 4
+  },
+  {
+   "t_s": 23,
+   "x": 8.625,
+   "y": 4
+  },
+  {
+   "t_s": 23.5,
+   "x": 9.188,
+   "y": 4
+  },
+  {
+   "t_s": 24,
+   "x": 9.75,
+   "y": 4
+  },
+  {
+   "t_s": 24.5,
+   "x": 10.313,
+   "y": 4
+  },
+  {
+   "t_s": 25,
+   "x": 10.875,
+   "y": 4
+  },
+  {
+   "t_s": 25.5,
+   "x": 11.438,
+   "y": 4
+  },
+  {
+   "t_s": 26,
+   "x": 12,
+   "y": 4
+  },
+  {
+   "t_s": 26.5,
+   "x": 12.3,
+   "y": 3.86
+  },
+  {
+   "t_s": 27,
+   "x": 12.6,
+   "y": 3.72
+  },
+  {
+   "t_s": 27.5,
+   "x": 12.9,
+   "y": 3.58
+  },
+  {
+   "t_s": 28,
+   "x": 13.2,
+   "y": 3.44
+  },
+  {
+   "t_s": 28.5,
+   "x": 13.5,
+   "y": 3.3
+  },
+  {
+   "t_s": 29,
+   "x": 13.8,
+   "y": 3.16
+  },
+  {
+   "t_s": 29.5,
+   "x": 14.1,
+   "y": 3.02
+  },
+  {
+   "t_s": 30,
+   "x": 14.4,
+   "y": 2.88
+  },
+  {
+   "t_s": 30.5,
+   "x": 14.7,
+   "y": 2.74
+  },
+  {
+   "t_s": 31,
+   "x": 15,
+   "y": 2.6
+  },
+  {
+   "t_s": 31.5,
+   "x": 15.107,
+   "y": 2.7
+  },
+  {
+   "t_s": 32,
+   "x": 15.214,
+   "y": 2.8
+  },
+  {
+   "t_s": 32.5,
+   "x": 15.321,
+   "y": 2.9
+  },
+  {
+   "t_s": 33,
+   "x": 15.429,
+   "y": 3
+  },
+  {
+   "t_s": 33.5,
+   "x": 15.536,
+   "y": 3.1
+  },
+  {
+   "t_s": 34,
+   "x": 15.643,
+   "y": 3.2
+  },
+  {
+   "t_s": 34.5,
+   "x": 15.75,
+   "y": 3.3
+  },
+  {
+   "t_s": 35,
+   "x": 15.857,
+   "y": 3.4
+  },
+  {
+   "t_s": 35.5,
+   "x": 15.964,
+   "y": 3.5
+  },
+  {
+   "t_s": 36,
+   "x": 16.071,
+   "y": 3.6
+  },
+  {
+   "t_s": 36.5,
+   "x": 16.179,
+   "y": 3.7
+  },
+  {
+   "t_s": 37,
+   "x": 16.286,
+   "y": 3.8
+  },
+  {
+   "t_s": 37.5,
+   "x": 16.393,
+   "y": 3.9
+  },
+  {
+   "t_s": 38,
+   "x": 16.5,
+   "y": 4
+  },
+  {
+   "t_s": 38.5,
+   "x": 16.313,
+   "y": 4
+  },
+  {
+   "t_s": 39,
+   "x": 16.125,
+   "y": 4
+  },
+  {
+   "t_s": 39.5,
+   "x": 15.938,
+   "y": 4
+  },
+  {
+   "t_s": 40,
+   "x": 15.75,
+   "y": 4
+  },
+  {
+   "t_s": 40.5,
+   "x": 15.563,
+   "y": 4
+  },
+  {
+   "t_s": 41,
+   "x": 15.375,
+   "y": 4
+  },
+  {
+   "t_s": 41.5,
+   "x": 15.188,
+   "y": 4
+  },
+  {
+   "t_s": 42,
+   "x": 15,
+   "y": 4
+  },
+  {
+   "t_s": 42.5,
+   "x": 14,
+   "y": 4.444
+  },
+  {
+   "t_s": 43,
+   "x": 13,
+   "y": 4.889
+  },
+  {
+   "t_s": 43.5,
+   "x": 12,
+   "y": 5.333
+  },
+  {
+   "t_s": 44,
+   "x": 11,
+   "y": 5.778
+  },
+  {
+   "t_s": 44.5,
+   "x": 10,
+   "y": 6.222
+  },
+  {
+   "t_s": 45,
+   "x": 9,
+   "y": 6.667
+  },
+  {
+   "t_s": 45.5,
+   "x": 8,
+   "y": 7.111
+  },
+  {
+   "t_s": 46,
+   "x": 7,
+   "y": 7.556
+  },
+  {
+   "t_s": 46.5,
+   "x": 6,
+   "y": 8
+  },
+  {
+   "t_s": 47,
+   "x": 5.857,
+   "y": 8.214
+  },
+  {
+   "t_s": 47.5,
+   "x": 5.714,
+   "y": 8.429
+  },
+  {
+   "t_s": 48,
+   "x": 5.571,
+   "y": 8.643
+  },
+  {
+   "t_s": 48.5,
+   "x": 5.429,
+   "y": 8.857
+  },
+  {
+   "t_s": 49,
+   "x": 5.286,
+   "y": 9.071
+  },
+  {
+   "t_s": 49.5,
+   "x": 5.143,
+   "y": 9.286
+  },
+  {
+   "t_s": 50,
+   "x": 5,
+   "y": 9.5
+  },
+  {
+   "t_s": 50.5,
+   "x": 5,
+   "y": 9.563
+  },
+  {
+   "t_s": 51,
+   "x": 5,
+   "y": 9.625
+  },
+  {
+   "t_s": 51.5,
+   "x": 5,
+   "y": 9.688
+  },
+  {
+   "t_s": 52,
+   "x": 5,
+   "y": 9.75
+  },
+  {
+   "t_s": 52.5,
+   "x": 5,
+   "y": 9.813
+  },
+  {
+   "t_s": 53,
+   "x": 5,
+   "y": 9.875
+  },
+  {
+   "t_s": 53.5,
+   "x": 5,
+   "y": 9.938
+  },
+  {
+   "t_s": 54,
+   "x": 5,
+   "y": 10
+  }
+ ],
+ "draft_revision": "g-ca54d83b4cfd07ef",
+ "graph_revision": "g-ca54d83b4cfd07ef",
+ "scenario_hash": "s-c5fcca79bf10",
+ "findings": [],
+ "allowed_interventions": [
+  "OPEN:D5"
+ ]
+}
