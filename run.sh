@@ -37,13 +37,22 @@ done
 case "$PORT" in ''|*[!0-9]*) die "--port must be a number" ;; esac
 
 command -v node >/dev/null || die "Node.js is required (https://nodejs.org)"
-command -v python3 >/dev/null || [ -x "$VENV/bin/python" ] || die "Python 3.13 is required"
 
-# --- Python: a virtualenv with the exact locked dependencies (re-synced only when the lock changes) ---------------
+# --- Python 3.13 (the lock is pinned for it; a newer python3 would resolve other wheels): uv fetches it if missing ---
 if [ ! -x "$VENV/bin/python" ]; then
-  say "Creating the Python virtualenv in $VENV"
-  python3 -m venv "$VENV"
+  say "Creating the Python 3.13 virtualenv in $VENV"
+  if command -v uv >/dev/null; then
+    uv venv --quiet --python 3.13 "$VENV"
+  elif command -v python3.13 >/dev/null; then
+    python3.13 -m venv "$VENV"
+  else
+    die "Python 3.13 is required: install uv (https://docs.astral.sh/uv/) or python3.13"
+  fi
 fi
+PY_VERSION=$("$VENV/bin/python" -c 'import sys; print("%d.%d" % sys.version_info[:2])')
+[ "$PY_VERSION" = 3.13 ] || die "$VENV runs Python $PY_VERSION; the locked dependencies need 3.13 (remove $VENV and rerun)"
+
+# --- Python dependencies: the exact lock, re-synced only when it changes ---------------------------------------------
 STAMP="$VENV/.spatialtwin-lock"
 LOCK_SUM=$(shasum -a 256 requirements.lock | cut -d' ' -f1)
 if [ "$(cat "$STAMP" 2>/dev/null || true)" != "$LOCK_SUM" ]; then
