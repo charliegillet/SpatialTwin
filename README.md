@@ -11,9 +11,9 @@ Drop a fire anywhere and a team of Gemini managed agents stress-tests the door p
 
 [![Python](https://img.shields.io/badge/python-3.13-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)](requirements.lock) [![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi&logoColor=white)](backend/app/main.py) [![React](https://img.shields.io/badge/react_19-20232a?style=for-the-badge&logo=react&logoColor=61DAFB)](frontend/package.json) [![TypeScript](https://img.shields.io/badge/typescript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)](frontend/src) [![Three.js](https://img.shields.io/badge/three.js-R3F-000000?style=for-the-badge&logo=threedotjs&logoColor=white)](frontend/src/scene) [![Vite](https://img.shields.io/badge/vite-646CFF?style=for-the-badge&logo=vite&logoColor=white)](frontend/vite.config.ts) [![SQLite](https://img.shields.io/badge/sqlite-07405E?style=for-the-badge&logo=sqlite&logoColor=white)](backend/app/venues/registry.py)
 
-[![Backend tests](https://img.shields.io/badge/backend_tests-1197_passing-2EA44F?style=flat-square&logo=pytest&logoColor=white)](#tests) [![Frontend tests](https://img.shields.io/badge/frontend_tests-393_passing-2EA44F?style=flat-square&logo=nodedotjs&logoColor=white)](#tests) [![Agent claims](https://img.shields.io/badge/agent_claims-14%2F14_reproduced-8E75B2?style=flat-square&logo=googlegemini&logoColor=white)](#managed-agents) [![Verified live](https://img.shields.io/badge/verified_live-26_Oct_2026-1F6FEB?style=flat-square)](#verified-live) [![Hardware](https://img.shields.io/badge/hardware-none_needed-555555?style=flat-square)](#doors-an-acknowledgement-is-not-arrival) [![Safety](https://img.shields.io/badge/AI_proposes-checker_decides_%C2%B7_human_approves-F28C28?style=flat-square)](#safety-invariants)
+[![Backend tests](https://img.shields.io/badge/backend_tests-1197_passing-2EA44F?style=flat-square&logo=pytest&logoColor=white)](#tests) [![Frontend tests](https://img.shields.io/badge/frontend_tests-393_passing-2EA44F?style=flat-square&logo=nodedotjs&logoColor=white)](#tests) [![Agent claims](https://img.shields.io/badge/agent_claims-14%2F14_reproduced-8E75B2?style=flat-square&logo=googlegemini&logoColor=white)](#managed-agents) [![Verified live](https://img.shields.io/badge/verified_live-26_Oct_2026-1F6FEB?style=flat-square)](#verified-live) [![Hardware](https://img.shields.io/badge/hardware-none_needed-555555?style=flat-square)](#doors-an-acknowledgement-is-not-arrival) [![Safety](https://img.shields.io/badge/AI_proposes-checker_decides_%C2%B7_human_approves-F28C28?style=flat-square)](#safety-invariants) [![Built with AI coding agents](https://img.shields.io/badge/built_with-AI_coding_agents-D97757?style=flat-square&logo=claude&logoColor=white)](#team)
 
-**[The demo](#the-demo-in-three-acts)** · **[Gemini 4 Argon](#gemini-4-argon)** · **[Managed Agents](#managed-agents)** · **[Architecture](#architecture)** · **[Phones](#judges-take-part-from-their-phones)** · **[Run it](#run-it)** · **[Verified live](#verified-live)**
+**[The demo](#the-demo-in-three-acts)** · **[Gemini 4 Argon](#gemini-4-argon)** · **[Managed Agents](#managed-agents)** · **[Architecture](#architecture)** · **[Phones](#judges-take-part-from-their-phones)** · **[Live CCTV](#from-blueprints-to-live-cctv)** · **[No one to approve](#when-nobody-is-there-to-approve)** · **[Run it](#run-it)** · **[Team](#team)**
 
 <img src="docs/assets/screenshots/hero.jpg" alt="SpatialTwin Simulation: a fire in the lobby of a 3D building twin; the door plan closes three fire doors to entry, marks the south exit unsafe and opens D9; two live Gemini managed agents are working" width="100%">
 
@@ -26,6 +26,8 @@ Drop a fire anywhere and a team of Gemini managed agents stress-tests the door p
 ## Why
 
 Evacuation maps hang on every floor and nobody checks them against the room as it is today. SpatialTwin turns the posted map into a model you can break: drop a fire and see which doors to open, which exits to avoid, and whether the plan survives a jammed door, with every AI number re-checked before anyone acts on it.
+
+For the demo it reads a photo of the posted blueprint. In a real building the same pipeline would watch the building's CCTV, place each hazard on the twin as it appears, and re-plan the evacuation live, and when nobody is there to approve, it would still steer people away from the danger. [Where this goes next ↓](#from-blueprints-to-live-cctv)
 
 ## The demo in three acts
 
@@ -225,6 +227,75 @@ stateDiagram-v2
 
 ---
 
+## From blueprints to live CCTV
+
+The demo builds the building from a photo of its posted evacuation plan, and judges drop the hazards. A real building already has eyes: its CCTV. The same pipeline reads those feeds, places each hazard on the twin where a camera sees it, and re-plans the evacuation as the scene changes.
+
+```mermaid
+flowchart LR
+  subgraph today["Demo today"]
+    map["Posted evacuation map<br/>photo, sketch or PDF"]
+    judge["Judge drops a hazard<br/>laptop or phone"]
+  end
+  subgraph next["In a real building"]
+    cams["CCTV cameras<br/>each calibrated to the floor plan"]
+    panel["Fire alarm panel<br/>and listed detectors"]
+  end
+  argon["Gemini 4 Argon<br/>reads maps and camera clips"]
+  twin["Live twin<br/>venue + hazards"]
+  plan["Planner + checker<br/>re-plans in under a second"]
+  guide["Guidance<br/>exit signs, PA, phones"]
+  doors["Doors<br/>human approval, or the fail-safe playbook"]
+  map --> argon
+  cams -.-> argon
+  argon --> twin
+  judge --> twin
+  panel -.-> twin
+  twin --> plan
+  plan --> guide
+  plan --> doors
+```
+
+<sub>Solid arrows are built and demoed; dashed arrows are the next step.</sub>
+
+| | Demo today | In a real building |
+|---|---|---|
+| **The floor plan** | a photo of the posted map, read live by Argon | the same, once per floor, re-read when the layout changes |
+| **Hazards** | dropped by the judge on the laptop or a phone | seen by CCTV, confirmed by the fire panel and listed detectors |
+| **How Argon sees** | one image per reading, with streamed thinking | short clips from each camera with **agentic video understanding** (Argon takes video input; it has no Live API, so cameras are sampled, not streamed) |
+| **Camera to floor plan** | built: the camera mode maps an overhead camera onto the plan through a four-point homography ([`calibration.py`](backend/app/ai/grounding/calibration.py)), verified on synthetic stills | one calibration per CCTV camera, so a fire seen in a frame lands in the right room of the twin |
+| **Who confirms a hazard** | the operator (camera reads are proposals, [`camera.py`](backend/app/venues/camera.py)) | the operator, or the fail-safe playbook below when nobody answers |
+| **Where guidance goes** | the 3D twin, phone signs, the announcement | the building's dynamic exit signs, PA and phones |
+
+Video fire and smoke detection is a recognized technology: NFPA 72 covers flame and smoke video image detection as listed, performance-based systems ([SFPE](https://www.sfpe.org/FPEETIssue21)). SpatialTwin is meant to sit behind such detectors, adding the part they lack: where each hazard is in the building, and which way everyone should go now.
+
+## When nobody is there to approve
+
+If you are caught near a fire, you cannot wait for an operator who is not there. SpatialTwin already acts on its own wherever acting is safe, and its next step is a fail-safe autonomous mode for exactly that moment.
+
+| Level | What SpatialTwin does | Status |
+|---|---|---|
+| **Advise** | the checked plan, routes, the announcement text, the agents' analysis | built |
+| **Guide** | the moment a hazard is confirmed, 3D exit signs and phone signs flip to a red X near the danger and a green arrow toward the checked safe exits, with no approval needed: guidance never moves a door | built |
+| **Recover** | a jammed door or a lost controller heartbeat triggers an automatic re-plan around the failure | built |
+| **Act with approval** | motorized doors move only on the operator's Approve, keyed to the exact plan; a door counts as open only when its switch says so | built |
+| **Act alone, fail-safe** | if a confirmed hazard gets no answer from an operator within a set time, SpatialTwin applies a fail-safe playbook: close fire doors to entry around the hazard (never against egress), red X on every exit near it, every sign, phone and the PA pointed at the checked safe exits, and a fresh plan whenever the cameras see the hazard move. Every step is logged, every route is checked first, and a person can take over at any moment | **design, not built** |
+
+```mermaid
+flowchart LR
+  hazard["Hazard confirmed<br/>operator, fire panel or camera"] --> plan["Checked plan<br/>in under a second"]
+  plan --> guide["Signs, phones and PA guide people<br/>automatic today"]
+  plan --> ask{"Operator answers<br/>within the set time?"}
+  ask -- yes --> approve["Operator approves the door moves<br/>built"]
+  ask -- no --> playbook["Fail-safe playbook<br/>design"]
+  playbook --> act["Fire doors close to entry, never against egress<br/>red X near the hazard, everyone routed to safe exits"]
+  act --> watch["Re-plan as cameras update<br/>a person can take over any time"]
+```
+
+This is the principle buildings already rely on. Fire doors held open on magnetic releases close automatically when the alarm sounds, with no person involved ([NFPA 80 FAQ](https://www.nfpa.org/news-blogs-and-articles/blogs/2025/04/11/fire-doors-faqs)). And adaptive exit signs that warn people off a dangerous exit need a central system choosing routes in real time ([NFPA Research Foundation review](https://www.nfpa.org/education-and-research/research/fire-protection-research-foundation/projects-and-reports/a-review-of-dynamic-directional-exit-signage-challenges-and-perspectives); see also [Evaclite](https://evaclite.com/)). SpatialTwin aims to be that system, with one rule kept: no sign changes and no door moves on a route the checker has not verified.
+
+---
+
 ## Run it
 
 ```bash
@@ -262,7 +333,7 @@ Compiler, graph checks, Real2Sim, the agent lanes, the incident controller and p
 ## Safety invariants
 
 1. **AI proposes, the checker decides.** Readings and claims are proposals; the compiler, graph checks and checker decide.
-2. **No cloud tool reaches the doors.** Only the operator's Approve commands a door, keyed to the exact plan revision and candidate hash.
+2. **No cloud tool reaches the doors.** Only the operator's Approve commands a door, keyed to the exact plan revision and candidate hash. (The [fail-safe playbook](#when-nobody-is-there-to-approve) is designed as the one exception, limited to fail-safe actions on checked routes.)
 3. **ACK is not arrival.** A door counts as open only after its endpoint switch says so.
 4. **Honest provenance.** Live Gemini, Saved run, Local solver, Simulated device are always labelled; live failures stay visible.
 5. **Every occupant accounted for.** `N_initial = N_completed + N_remaining` in every frame; the checker rebuilds the network independently and rejects any plan that breaks it.
@@ -288,6 +359,10 @@ Compiler, graph checks, Real2Sim, the agent lanes, the incident controller and p
 
 SpatialTwin began before the event as a physical tabletop demonstrator (servo gate, endpoint switches, overhead camera), tagged `demo-v1`. For this hackathon, with no hardware, the team built Real2Sim (Argon builds the venue), the two-lane managed-agent team, the virtual door controller, phone exit signs and Judge mode, and the 3D twin with the map underlay. The venue's evacuation-map photos stay on the presenter laptop under the owner's terms: they are not in this repository, and every screenshot here uses the built-in building or our own synthetic maps.
 
-**Repository:** <https://github.com/charliegillet/SpatialTwin> · **Contributors:** Nihal, Charlie, Codex, Claude
+## Team
+
+Built by **Charlie** and **Yahya**, with a lot of help from AI coding agents. Claude Code ran as a team lead with Opus and Sonnet teammates and an independent devil's-advocate reviewer, and Codex built the original core. The agents wrote, tested and reviewed much of the code; the humans set the direction, checked the results and made the calls.
+
+**Repository:** <https://github.com/charliegillet/SpatialTwin>
 
 **More:** [stage runbook](docs/demo/judge-experience.md) · [agent-team contract](docs/plans/contracts/agent-team.md) · [Real2Sim API](docs/plans/contracts/real2sim-api.md) · [compiler contract](docs/plans/contracts/compiler.md) · [signs contract](docs/plans/contracts/signs.md) · [managed agent guide](docs/ai/managed.md) · [grounding guide](docs/ai/grounding.md) · [interface system](DESIGN.md)
