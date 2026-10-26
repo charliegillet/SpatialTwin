@@ -3,6 +3,8 @@
 Drives every route in the order an operator session uses them and confirms each hop works:
 frontend assets -> API -> state/planner/checker -> event stream -> hardware bridge (simulator) -> observation.
 Grounding uses the fixture path and the investigation uses the local solver, so no Gemini tokens are spent.
+Then the demo v2 path on building-v2: incident mirror, virtual doors (ACK, endpoint, jam -> fallback), the unattended
+fail-safe (about 6 s of waiting) and a phone sign link. It resets the shared incident, so do not run it mid-demo.
 
     .venv/bin/python -m uvicorn backend.app.main:app --port 8765   # demo mode, SERIAL_PORT empty
     .venv/bin/python tools/smoke_connections.py --base http://127.0.0.1:8765
@@ -61,6 +63,107 @@ def wait_for(predicate, timeout: float, interval: float = 0.2):
             return value
         time.sleep(interval)
     return None
+
+
+LOBBY_FIRE = {"id": "smoke-lobby", "type": "FIRE", "position": {"x": 20, "y": 4}, "source": "simulated"}
+HALL_FIRE = {"id": "smoke-hall", "type": "FIRE", "position": {"x": 20, "y": 14}, "source": "simulated"}
+
+
+def incident_checks(http: httpx.Client, base: str, check: Check) -> None:
+    """Demo v2 (no hardware): incident mirror, virtual doors, jam -> fallback, the unattended fail-safe, phone signs."""
+
+    def state() -> dict:
+        return http.get("/api/incident").json()
+
+    def gate(current: dict, gate_id: str) -> dict:
+        return next((g for g in current["controller"]["gates"] if g["gate_id"] == gate_id), {})
+
+    def post_hazards(hazards: list) -> httpx.Response:
+        return http.post("/api/incident/hazards", json={"venue_id": "building-v2", "hazards": hazards,
+                                                        "expected_plan_revision": state()["plan_revision"]})
+
+    def approve(current: dict) -> httpx.Response:
+        plan = current["plan"]
+        return http.post("/api/incident/approve", json={"plan_revision": plan["plan_revision"], "candidate_hash": plan["candidate_hash"],
+                                                        "door_states": plan["door_states"]})
+
+    def fresh(hazard: dict) -> dict:
+        http.post("/api/incident/reset")
+        response = post_hazards([hazard])
+        return response.json() if response.status_code == 200 else {}
+
+    try:
+        reset = http.post("/api/incident/reset")
+        check.record("POST /api/incident/reset", reset.status_code == 200 and reset.json()["failsafe"]["armed"] is False
+                     and reset.json()["simulated"] is True, str(reset.status_code))
+
+        # Approve: an ACK is not arrival; only the endpoint switch makes D9 read open.
+        planned = post_hazards([LOBBY_FIRE])
+        plan = planned.json().get("plan") or {} if planned.status_code == 200 else {}
+        check.record("POST incident hazards FIRE in LOBBY (checked plan opens D9)",
+                     planned.status_code == 200 and plan.get("valid") is True and plan.get("door_states", {}).get("D9") == "open",
+                     f"r{plan.get('plan_revision')} {plan.get('completed_crossings')}/{plan.get('initial_population')} {plan.get('count_label')}")
+        record = approve(planned.json()) if plan else None
+        check.record("POST incident approve -> actuating (ACK, not arrival)",
+                     record is not None and record.status_code == 200 and record.json()["status"] == "actuating"
+                     and record.json()["commands"] == {"D9": "OPEN"}, record.text[:80] if record is not None else "no plan")
+        arrived = wait_for(lambda: (now := state())["approvals"] and now["approvals"][-1]["status"] == "applied"
+                           and gate(now, "D9").get("observed") == "open" and now, 10)
+        check.record("D9 endpoint observed open (virtual door controller)", bool(arrived),
+                     f"epoch={gate(arrived, 'D9').get('epoch')}" if arrived else "")
+
+        # Jam: the door is never observed open, it is marked stuck and the server publishes a fallback.
+        hall = fresh(HALL_FIRE)
+        jam = http.post("/api/incident/faults", json={"gate_id": "D4", "fault": "stall"})
+        jammed = approve(hall) if hall.get("plan") and jam.status_code == 200 else None
+        fallback = wait_for(lambda: ((now := state())["plan"] or {}).get("label") == "fallback" and "D4" in now["stuck_doors"] and now, 15)
+        check.record("Jam D4 then approve -> fallback with D4 stuck closed",
+                     jammed is not None and jammed.status_code == 200 and bool(fallback),
+                     (fallback["plan"]["reason"][:90] if fallback else (jammed.text[:80] if jammed is not None else "no plan")))
+        door_plan = http.get("/api/incident/door-plan").json()
+        check.record("GET /api/incident/door-plan follows the fallback",
+                     bool(fallback) and door_plan.get("plan_revision") == fallback["plan"]["plan_revision"] and door_plan.get("door_plan") is not None,
+                     f"r{door_plan.get('plan_revision')}")
+
+        # The unattended fail-safe: nobody approves, so it approves, holding D4 (into the burning hall) closed.
+        hall = fresh(HALL_FIRE)
+        armed = http.post("/api/incident/failsafe", json={"armed": True, "window_seconds": 5})
+        view = armed.json() if armed.status_code == 200 else {}
+        check.record("POST /api/incident/failsafe arm (5 s window)", armed.status_code == 200 and view.get("status") == "counting_down"
+                     and view.get("would_hold") == ["D4"], f"would_hold={view.get('would_hold')}")
+        acted = wait_for(lambda: (now := state())["failsafe"]["status"] == "acted" and now, 12)
+        last = (acted or {}).get("approvals", [{}])[-1] if acted else {}
+        check.record("Nobody approved: fail-safe approved with D4 held closed",
+                     bool(acted) and acted["plan"]["held_doors"] == ["D4"] and acted["plan"]["door_states"]["D4"] == "closed"
+                     and last.get("actor") == "fail_safe", (acted["failsafe"]["last_action"]["summary"][:110] if acted else ""))
+        off = http.post("/api/incident/failsafe", json={"armed": False})
+        after = state()
+        check.record("I'm here: disarm hands D4 back to the planner",
+                     off.status_code == 200 and off.json()["status"] == "off" and after["plan"] is not None
+                     and after["plan"]["held_doors"] == [] and after["plan"]["door_states"]["D4"] == "open",
+                     f"r{after['plan_revision']} {after['plan']['completed_crossings'] if after['plan'] else '-'} modeled crossings")
+
+        # A phone exit sign: mint (loopback only) -> redeem -> HttpOnly cookie -> the sign's own state.
+        minted = http.post("/api/signs/tokens", json={"scope": "sign:read", "venue_id": "building-v2"})
+        if minted.status_code == 503:
+            check.record("POST /api/signs/tokens (signs disabled)", True, minted.json().get("detail", {}).get("code", ""))
+            return
+        url = minted.json().get("url", "") if minted.status_code == 200 else ""
+        check.record("POST /api/signs/tokens (sign:read)", minted.status_code == 200 and "/s/" in url, str(minted.status_code))
+        with httpx.Client(base_url=base, timeout=10, follow_redirects=False) as phone:
+            redeemed = phone.get("/s/" + url.rsplit("/s/", 1)[-1])
+            cookie = redeemed.headers.get("set-cookie", "")
+            check.record("GET /s/<token> -> 303 to sign.html with an HttpOnly SameSite=Strict cookie",
+                         redeemed.status_code == 303 and "sign.html" in redeemed.headers.get("location", "")
+                         and "httponly" in cookie.lower() and "samesite=strict" in cookie.lower(), str(redeemed.status_code))
+            sign = phone.get("/api/public/signs/building-v2")
+            exits = sign.json().get("exits", []) if sign.status_code == 200 else []
+            check.record("GET /api/public/signs/building-v2 (exit states)", sign.status_code == 200 and len(exits) == 4,
+                         ", ".join(f"{x.get('exit_id')}:{x.get('state', x.get('lamp', '?'))}" for x in exits))
+    finally:
+        http.post("/api/incident/failsafe", json={"armed": False})
+        cleaned = http.post("/api/incident/reset")
+        check.record("POST /api/incident/reset (cleanup)", cleaned.status_code == 200, str(cleaned.status_code))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -294,6 +397,9 @@ def main(argv: list[str] | None = None) -> int:
         "type": "RESET_SCENARIO", "expected_context": ctx,
         "expected_scenario_revision": ctx["scenario_revision"], "idempotency_key": f"smoke-reset-{uuid4().hex}"})
     check.record("POST commands RESET_SCENARIO (cleanup)", final_reset.status_code == 200, str(final_reset.status_code))
+
+    # 9. Demo v2: incident, virtual doors, fail-safe, phone signs
+    incident_checks(http, base, check)
 
     failed = [name for name, ok, _ in check.rows if not ok]
     print(f"\n{len(check.rows) - len(failed)}/{len(check.rows)} connection checks passed")

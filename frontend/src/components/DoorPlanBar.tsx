@@ -1,24 +1,35 @@
 import { useEffect } from 'react';
 import { ChevronDown, DoorClosed, DoorOpen, LockKeyhole, TriangleAlert, Volume2 } from 'lucide-react';
 import { ANNOUNCE_LABEL, SPEECH_UNAVAILABLE, announcementText, confirmedAnnouncement, speak, speechAvailable, stopSpeaking } from '../twin/announce';
+import { FAILSAFE_SPOKEN } from '../twin/incidentFlow';
 import { FAILED_CHECK, NO_CHECKED_PLAN, alternativeRows, doorRows, gainFrom, groupDoorRows, planChecked, unsafeExits } from '../twin/twinHero';
 import type { DoorPlanResponse } from '../twin/types';
 import type { AgentTeamController } from '../twin/useAgentTeam';
 import { AgentTeamPanel } from './AgentTeamPanel';
 
 const SIMULATED = 'Simulated doors · a virtual door controller, no hardware';
+/** Fail-safe approvals already spoken, across remounts (Build and back must not repeat one). */
+const SPOKEN_FAILSAFE = new Set<string>();
 
 /** The door decisions that changed, unsafe exits, advisories and the alternatives the planner compared. No approval: nothing physical moves. */
-export function DoorPlanBar({ plan, pending, team, gates = [], executing = null }: { plan: DoorPlanResponse | null; pending: boolean; team?: AgentTeamController;
-  gates?: ReadonlyArray<{ id: string; observed: string | null; moving: boolean; warn: boolean }>; executing?: string | null }) {
+export function DoorPlanBar({ plan, pending, team, gates = [], executing = null, announceKey = null }: { plan: DoorPlanResponse | null; pending: boolean; team?: AgentTeamController;
+  gates?: ReadonlyArray<{ id: string; observed: string | null; moving: boolean; warn: boolean }>; executing?: string | null;
+  /** Set once the armed fail-safe has approved the plan drawn here: it is then announced once, with nobody pressing Announce. */
+  announceKey?: string | null }) {
   const text = announcementText(plan);
   // A planned door is announced open only once its endpoint switch says so (and "opening" while it moves).
   const spoken = confirmedAnnouncement(text, gates);
   const synth = typeof window !== 'undefined' ? window.speechSynthesis : undefined;
   const Utterance = typeof window !== 'undefined' ? window.SpeechSynthesisUtterance : undefined;
   const canSpeak = speechAvailable(synth, Utterance);
-  // A new plan, Clear, a mode switch or Next judge (unmount) silences a running announcement. Speech only ever starts from the button.
+  // A new plan, Clear, a mode switch or Next judge (unmount) silences a running announcement. Speech starts from the button,
+  // or once when the armed fail-safe acts: then nobody is there to press it.
   useEffect(() => { stopSpeaking(synth); return () => stopSpeaking(synth); }, [text, synth]);
+  useEffect(() => {
+    if (!announceKey || SPOKEN_FAILSAFE.has(announceKey)) return;
+    SPOKEN_FAILSAFE.add(announceKey);
+    speak(synth, Utterance, `${FAILSAFE_SPOKEN} ${spoken}`.trim());  // once per approval, worded as the doors stand then
+  }, [announceKey, text, synth]);
   if (!plan) return <section className="door-plan twin-card" aria-label="Door plan"><p className="twin-quiet">{pending ? 'Solving\u2026' : 'Waiting for the planner.'}</p><p className="twin-quiet">{SIMULATED}</p></section>;
   const rows = groupDoorRows(doorRows(plan));
   const unsafe = unsafeExits(plan);

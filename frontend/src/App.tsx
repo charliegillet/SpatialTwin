@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { RotateCcw, X } from 'lucide-react';
 import type { AiCapabilities, CaptureEvidence, CaptureRequest, GroundingResult, HazardSimulateResponse, HealthStatus, InvestigationMode, InvestigationProgress, InvestigationResult, RunContext, ScenarioSnapshot } from './types';
 import { cancelInvestigation, clearBlockage, fetchHealth, fetchInvestigationProgress, fetchScenario, getCapabilities, interpretGrounding, investigateScenario, operatorApproveGate, resetGate, sendCommand, simulateHazard, stopOutputs } from './api/client';
+import { resetIncident } from './api/incident';
 import { ObservationPanel, type BoardView } from './components/ObservationPanel';
 import { SpatialViewport } from './components/SpatialViewport';
 import { DecisionBar } from './components/DecisionBar';
@@ -543,6 +544,8 @@ export function App() {
     if (reset.phase === 'running' || !snapshotRef.current) return;
     // The next judge starts on the demo venue, for every screen, not on the previous judge's building.
     setTwinMode(modeAfterReset()); twin.reset();
+    // The virtual doors too: gates back to closed, faults and stuck doors cleared, the fail-safe off.
+    void resetIncident().catch(() => undefined);
     void twin.switchVenue(nextJudgeVenue(homeVenue, loadedVenue.current, twin.venues.map(item => item.venue_id))); setImageFile(null);
     setReset({ phase: 'running', message: 'Cancelling any run…' });
     try {

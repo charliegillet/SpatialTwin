@@ -44,7 +44,8 @@ app.include_router(build_incident_router())
                "applied": "open" | "closed" | "moving" | "unknown" | "sign"}],
     "exits": [{"id": "X1", "zone": "...", "safe": true, "lamp": "green_flash", "modeled_crossings": 40, "reason": "..."}],
     "lights_px": "gggFF...",                // exit signs / strip, same px code as door-plan lights.px
-    "stuck_doors": ["D9"], "advisories": [], "announcement": "...", "created_at": "ISO"
+    "stuck_doors": ["D9"], "held_doors": [],  // held: gates the unattended fail-safe keeps closed (see below)
+    "advisories": [], "announcement": "...", "created_at": "ISO"
   },
   "plan_error": null | "outside_building",  // plan withdrawn because a re-plan failed
   "controller": {
@@ -62,8 +63,15 @@ app.include_router(build_incident_router())
   "approvals": [{ "approval_id": "apv-...", "plan_revision": 3, "candidate_hash": "...", "door_states": {...},
                   "status": "actuating" | "applied" | "failed", "commands": {"D9": "OPEN"},
                   "results": {"D9": "fault:stall"}, "reason": null | "...", "fallback_plan_revision": null | 4,
-                  "started_at": "ISO", "finished_at": null | "ISO", "simulated": true }],
+                  "started_at": "ISO", "finished_at": null | "ISO",
+                  "actor": "operator" | "fail_safe", "simulated": true }],
   "approval_in_progress": false,
+  "failsafe": { "armed": false, "window_seconds": 15,
+                "status": "off" | "standing_by" | "counting_down" | "acted" | "approved",
+                "plan_revision": null | 7, "deadline_at": null | "ISO", "seconds_left": null | 9.2,
+                "held_doors": {"D4": ["HALL"]},   // gate -> hazard rooms it opens into, for gates held in the current plan
+                "would_hold": ["D4"],             // while counting down: gates it would hold closed
+                "note": "...", "last_action": null | {"at": "ISO", "plan_revision": 8, "approval_id": "apv-...", "summary": "..."} },
   "last_event_id": 17
 }
 ```
@@ -115,6 +123,29 @@ door stays stuck until it is observed again; `reset` is the full recovery.
 Clears hazards, plan, approvals, stuck doors and faults; every gate returns to its default endpoint (CLOSED for D4/D9),
 heartbeat ok, in-flight commands cancelled. `plan_revision` still increases. Returns IncidentState.
 
+## POST `/api/incident/failsafe` (the unattended fail-safe)
+
+Body `{armed: bool, window_seconds?: 5..120 (default 15)}`; returns the `failsafe` view. Local only, like every
+`/api/incident` route: a phone's scoped cookie never reaches it. **Off by default; reset and a venue change turn it off.**
+
+The one exception to "a human approves". Armed, every new checked plan (hazards, fallback, re-plan) starts a window. If
+nobody approves, changes the hazards or disarms in that window, the fail-safe approves the plan itself
+(`approval.actor: "fail_safe"`), after two rules a person would not need:
+
+- it never opens a gate into a room with a hazard: every controllable gate with `entry_denied_into` is held closed
+  (`plan.held_doors`, planned like a stuck door) and the plan is re-checked first, so a new `plan_revision` is approved;
+- a gate in `FAULT`/`UNKNOWN` is treated as stuck closed.
+
+It does nothing on a plan the checker did not accept, while doors are moving, or on a revision a person approved. If
+the re-check with the held gates is not checker-valid, nothing moves and the person's plan stays approvable. Locked
+gates (gas) are never switched. A held gate whose CLOSE is never observed is "position unknown, may still be open", not
+"closed", and the next action's summary names it. Scope: motorized and simulated-servo gates; rooms with fire, smoke,
+gas or a chemical (water does not deny entry).
+Everything after the approval is the normal path: ACK is not arrival, a jam re-plans to a fallback, and the fallback
+gets its own window. Disarming ("I'm here") hands held gates back to the planner (a new revision with the full plan, for
+a person to approve). `last_action.summary` says what it did and, when holding a gate cost crossings, what a person could
+approve instead ("a person could approve 105 by opening D4"). Counts stay modeled crossings.
+
 ## GET `/api/incident/events` (SSE)
 
 Headers: `Cache-Control: no-cache`, `X-Accel-Buffering: no`. `: ping` comment every 10 s. Reconnect with the `Last-Event-ID`
@@ -132,6 +163,7 @@ Each frame: `id: <seq>\nevent: <type>\ndata: <json>\n\n`; every `data` has `seq`
 | `gate` | the gate fields above plus `phase`, `line`, `boot_id`, `seq_dev` |
 | `fault` | `fault`, `gate_id`, `phase`, `line` (also `cleared`, `gates` on watchdog) |
 | `reset` | `venue_id`, `line`, `state` |
+| `failsafe` | `failsafe` (the view above), `line` (`FAILSAFE armed: ...`, `FAILSAFE r7: waiting 15 s ...`, `FAILSAFE r8: nobody approved within 15 s; ...`) |
 
 `gate.phase`: `command` -> `ack` -> `transit` -> `observed` (success), or `ack_timeout`, `fault`, `rejected`.
 `fault.phase`: `fault_injected`, `fault_cleared`, `controller_stale`. `line` is a ready-made serial-style string for the

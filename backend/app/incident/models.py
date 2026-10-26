@@ -37,6 +37,12 @@ class ClearFaultRequest(_Strict):
     gate_id: Optional[str] = Field(default=None, max_length=32)
 
 
+class FailSafeRequest(_Strict):
+    """Arm or disarm the unattended fail-safe. Disarming is how a person takes over ("I'm here")."""
+    armed: bool
+    window_seconds: float = Field(default=15.0, ge=5, le=120, allow_inf_nan=False)
+
+
 class PlanDoorView(_Strict):
     id: str
     state: Literal["open", "closed"]
@@ -78,6 +84,8 @@ class IncidentPlan(_Strict):
     exits: List[PlanExitView]
     lights_px: str
     stuck_doors: List[str]
+    # Gates the unattended fail-safe holds closed in this plan because they open into a hazard room.
+    held_doors: List[str] = Field(default_factory=list)
     advisories: List[str]
     announcement: str
     count_label: str = "modeled crossings"
@@ -96,7 +104,38 @@ class ApprovalRecord(_Strict):
     fallback_plan_revision: Optional[int] = None
     started_at: str
     finished_at: Optional[str] = None
+    # "fail_safe": nobody approved within the armed window, so the fail-safe approved its own checked plan.
+    actor: Literal["operator", "fail_safe"] = "operator"
     simulated: bool = True
+
+
+class FailSafeAction(_Strict):
+    at: str
+    plan_revision: int
+    approval_id: str
+    summary: str
+
+
+class FailSafeView(_Strict):
+    """The unattended fail-safe. Off by default: a person approves every door move.
+
+    Armed, it gives a person `window_seconds` on every new checked plan. If nobody approves in that window it approves
+    the plan itself, but it never opens a gate into a room with a hazard: those gates are held closed and the plan is
+    re-checked without them first. The checker still decides every number; ACK is still not arrival.
+    """
+    armed: bool
+    window_seconds: float
+    status: Literal["off", "standing_by", "counting_down", "acted", "approved"]
+    plan_revision: Optional[int] = None
+    deadline_at: Optional[str] = None
+    seconds_left: Optional[float] = None
+    # Gates the fail-safe holds closed in the current plan -> the hazard rooms each opens into.
+    held_doors: Dict[str, List[str]] = Field(default_factory=dict)
+    # Before it acts: the gates it would hold closed, and the gates in doubt (FAULT/UNKNOWN) it would treat as stuck.
+    would_hold: List[str] = Field(default_factory=list)
+    in_doubt: List[str] = Field(default_factory=list)
+    note: str
+    last_action: Optional[FailSafeAction] = None
 
 
 class IncidentState(_Strict):
@@ -111,4 +150,5 @@ class IncidentState(_Strict):
     stuck_doors: List[str]
     approvals: List[ApprovalRecord]
     approval_in_progress: bool
+    failsafe: FailSafeView
     last_event_id: int

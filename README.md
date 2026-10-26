@@ -5,13 +5,13 @@
 ### See the hazard. Plan the way out. Guide everyone to safety.
 
 **Gemini 4 Argon turns a building's evacuation map today, and its live CCTV next, into a 3D twin that plans the way out.**<br>
-Drop a fire anywhere: everyone is re-routed in under a second, exit signs and phones flip on their own, and Gemini managed agents stress-test the plan while a local checker re-runs every number they claim. A person approves door moves; when nobody is there to answer, a fail-safe mode is designed to keep guiding people away from harm.
+Drop a fire anywhere: everyone is re-routed in under a second, exit signs and phones flip on their own, and Gemini managed agents stress-test the plan while a local checker re-runs every number they claim. A person approves door moves; when nobody is there to answer, an opt-in fail-safe approves the checked plan itself and never opens a door into the fire.
 
 [![Gemini 4 Argon](https://img.shields.io/badge/Gemini_4-Argon-8E75B2?style=for-the-badge&logo=googlegemini&logoColor=white)](#gemini-4-argon) [![Managed Agents](https://img.shields.io/badge/Gemini-Managed_Agents-4285F4?style=for-the-badge&logo=googlegemini&logoColor=white)](#managed-agents) [![Interactions API](https://img.shields.io/badge/Interactions_API-stream_%C2%B7_think_%C2%B7_JSON-34A853?style=for-the-badge&logo=google&logoColor=white)](#gemini-4-argon) [![Hackathon](https://img.shields.io/badge/Gemini_4_Argon_Hackathon-SF_2026-EA4335?style=for-the-badge&logo=google&logoColor=white)](#provenance)
 
 [![Python](https://img.shields.io/badge/python-3.13-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)](requirements.lock) [![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi&logoColor=white)](backend/app/main.py) [![React](https://img.shields.io/badge/react_19-20232a?style=for-the-badge&logo=react&logoColor=61DAFB)](frontend/package.json) [![TypeScript](https://img.shields.io/badge/typescript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)](frontend/src) [![Three.js](https://img.shields.io/badge/three.js-R3F-000000?style=for-the-badge&logo=threedotjs&logoColor=white)](frontend/src/scene) [![Vite](https://img.shields.io/badge/vite-646CFF?style=for-the-badge&logo=vite&logoColor=white)](frontend/vite.config.ts) [![SQLite](https://img.shields.io/badge/sqlite-07405E?style=for-the-badge&logo=sqlite&logoColor=white)](backend/app/venues/registry.py)
 
-[![Backend tests](https://img.shields.io/badge/backend_tests-1197_passing-2EA44F?style=flat-square&logo=pytest&logoColor=white)](#tests) [![Frontend tests](https://img.shields.io/badge/frontend_tests-393_passing-2EA44F?style=flat-square&logo=nodedotjs&logoColor=white)](#tests) [![Agent claims](https://img.shields.io/badge/agent_claims-14%2F14_reproduced-8E75B2?style=flat-square&logo=googlegemini&logoColor=white)](#managed-agents) [![Verified live](https://img.shields.io/badge/verified_live-26_Oct_2026-1F6FEB?style=flat-square)](#verified-live) [![Hardware](https://img.shields.io/badge/hardware-none_needed-555555?style=flat-square)](#doors-an-acknowledgement-is-not-arrival) [![Safety](https://img.shields.io/badge/AI_proposes-checker_decides_%C2%B7_human_approves-F28C28?style=flat-square)](#safety-invariants) [![Built with AI coding agents](https://img.shields.io/badge/built_with-AI_coding_agents-D97757?style=flat-square&logo=claude&logoColor=white)](#team)
+[![Backend tests](https://img.shields.io/badge/backend_tests-1214_passing-2EA44F?style=flat-square&logo=pytest&logoColor=white)](#tests) [![Frontend tests](https://img.shields.io/badge/frontend_tests-403_passing-2EA44F?style=flat-square&logo=nodedotjs&logoColor=white)](#tests) [![Agent claims](https://img.shields.io/badge/agent_claims-14%2F14_reproduced-8E75B2?style=flat-square&logo=googlegemini&logoColor=white)](#managed-agents) [![Verified live](https://img.shields.io/badge/verified_live-26_Oct_2026-1F6FEB?style=flat-square)](#verified-live) [![Hardware](https://img.shields.io/badge/hardware-none_needed-555555?style=flat-square)](#doors-an-acknowledgement-is-not-arrival) [![Safety](https://img.shields.io/badge/AI_proposes-checker_decides_%C2%B7_human_approves-F28C28?style=flat-square)](#safety-invariants) [![Built with AI coding agents](https://img.shields.io/badge/built_with-AI_coding_agents-D97757?style=flat-square&logo=claude&logoColor=white)](#team)
 
 **[The demo](#the-demo-in-three-acts)** · **[Gemini 4 Argon](#gemini-4-argon)** · **[Managed Agents](#managed-agents)** · **[Architecture](#architecture)** · **[Phones](#judges-take-part-from-their-phones)** · **[Live CCTV](#from-blueprints-to-live-cctv)** · **[No one to approve](#when-nobody-is-there-to-approve)** · **[Run it](#run-it)** · **[Team](#team)**
 
@@ -35,7 +35,7 @@ For the demo it reads a photo of the posted blueprint. In a real building the sa
 |---|---|---|---|
 | **1 · Build** | photographs the posted evacuation map (or a sketch or PDF) and presses **Accept** | Argon reads it with streamed thinking; a deterministic compiler and graph checks decide; one critique round fixes errors; the photo is laid under the 3D model | read 19–50 s, critique 35–74 s; venue maps 12 → 0 and 16 → 0 errors |
 | **2 · Break it** | drops Fire, Smoke, Gas, Chemical or Water anywhere, on the laptop or from their own phone | the local planner solves and checks every state of the motorized doors; phones become live exit signs | 56–400 ms per plan |
-| **3 · Agents, checker, approval** | watches two managed agents investigate, presses **Approve**, then **Jam the gate** | every number the agents claim is re-run by the checker; the virtual door must reach its endpoint; a jam forces a checked fallback that needs a fresh approval | strategist 24–38 s, robustness 57 s – 2 min 52 s, 14/14 claims reproduced |
+| **3 · Agents, checker, approval** | watches two managed agents investigate, presses **Approve**, then **Jam the gate**; or arms the **fail-safe** and lets nobody answer | every number the agents claim is re-run by the checker; the virtual door must reach its endpoint; a jam forces a checked fallback that needs a fresh approval; unattended, the fail-safe approves after holding shut every door into the fire | strategist 24–38 s, robustness 57 s – 2 min 52 s, 14/14 claims reproduced |
 
 <table>
   <tr>
@@ -245,7 +245,7 @@ flowchart LR
   twin["Live twin<br/>venue + hazards"]
   plan["Planner + checker<br/>re-plans in under a second"]
   guide["Guidance<br/>exit signs, PA, phones"]
-  doors["Doors<br/>human approval, or the fail-safe playbook"]
+  doors["Doors<br/>human approval, or the opt-in fail-safe"]
   map --> argon
   cams -.-> argon
   argon --> twin
@@ -264,14 +264,14 @@ flowchart LR
 | **Hazards** | dropped by the judge on the laptop or a phone | seen by CCTV, confirmed by the fire panel and listed detectors |
 | **How Argon sees** | one image per reading, with streamed thinking | short clips from each camera with **agentic video understanding** (Argon takes video input; it has no Live API, so cameras are sampled, not streamed) |
 | **Camera to floor plan** | built: the camera mode maps an overhead camera onto the plan through a four-point homography ([`calibration.py`](backend/app/ai/grounding/calibration.py)), verified on synthetic stills | one calibration per CCTV camera, so a fire seen in a frame lands in the right room of the twin |
-| **Who confirms a hazard** | the operator (camera reads are proposals, [`camera.py`](backend/app/venues/camera.py)) | the operator, or the fail-safe playbook below when nobody answers |
+| **Who confirms a hazard** | the operator (camera reads are proposals, [`camera.py`](backend/app/venues/camera.py)) | the operator or the fire panel; when nobody answers, the fail-safe below acts on the checked plan |
 | **Where guidance goes** | the 3D twin, phone signs, the announcement | the building's dynamic exit signs, PA and phones |
 
 Video fire and smoke detection is a recognized technology: NFPA 72 covers flame and smoke video image detection as listed, performance-based systems ([SFPE](https://www.sfpe.org/FPEETIssue21)). SpatialTwin is meant to sit behind such detectors, adding the part they lack: where each hazard is in the building, and which way everyone should go now.
 
 ## When nobody is there to approve
 
-If you are caught near a fire, you cannot wait for an operator who is not there. SpatialTwin already acts on its own wherever acting is safe, and its next step is a fail-safe autonomous mode for exactly that moment.
+If you are caught near a fire, you cannot wait for an operator who is not there. SpatialTwin acts on its own wherever acting is safe, and its opt-in fail-safe covers exactly that moment.
 
 | Level | What SpatialTwin does | Status |
 |---|---|---|
@@ -279,7 +279,14 @@ If you are caught near a fire, you cannot wait for an operator who is not there.
 | **Guide** | the moment a hazard is confirmed, 3D exit signs and phone signs flip to a red X near the danger and a green arrow toward the checked safe exits, with no approval needed: guidance never moves a door | built |
 | **Recover** | a jammed door or a lost controller heartbeat triggers an automatic re-plan around the failure | built |
 | **Act with approval** | motorized doors move only on the operator's Approve, keyed to the exact plan; a door counts as open only when its switch says so | built |
-| **Act alone, fail-safe** | if a confirmed hazard gets no answer from an operator within a set time, SpatialTwin applies a fail-safe playbook: close fire doors to entry around the hazard (never against egress), red X on every exit near it, every sign, phone and the PA pointed at the checked safe exits, and a fresh plan whenever the cameras see the hazard move. Every step is logged, every route is checked first, and a person can take over at any moment | **design, not built** |
+| **Act alone, fail-safe** | armed from the Approve panel, every new checked plan gets a window (10–60 s). If nobody approves, the fail-safe approves the plan itself, with two rules a person does not need: it **never opens a motorized door into a room with fire, smoke, gas or a chemical** (those doors are held shut and the plan is re-checked without them; if that re-check fails, nothing moves) and it treats any door in doubt as stuck closed. It says so aloud, logs every step, re-plans after a jam with a fresh window, and **I'm here** hands control back with the full plan | **built, opt-in** ([`failsafe.py`](backend/app/incident/failsafe.py)) |
+| **Act alone, from cameras** | hazards seen by CCTV and the fire panel feed the same fail-safe, and the PA speaks its plan | next |
+
+Measured on the built-in building: a fire in the hall. The planner's best plan opens D4 from the burning hall into the north stair (105 of 125 modeled crossings). Unattended, the fail-safe keeps D4 shut and approves the re-checked plan: 93 of 125, and the panel says "a person could approve 105 by opening D4". A person can do better; without one, it still acts, keeps every door into the fire shut, and says what that costs.
+
+<img src="docs/assets/screenshots/failsafe.jpg" alt="The unattended fail-safe has acted: nobody approved within 10 s, so it held door D4 closed because it opens into the burning hall, approved the re-checked plan (93 of 125, fail-safe, D4 held closed, minus 12 vs the plan) and says a person could approve 105 by opening D4" width="100%">
+
+<sub>Fire in the hall, nobody at the screen. After 10 s the fail-safe holds D4 shut (it opens into the fire), approves the re-checked plan and says what a person could approve instead. <b>I'm here · take over</b> hands the full plan back.</sub>
 
 ```mermaid
 flowchart LR
@@ -287,9 +294,9 @@ flowchart LR
   plan --> guide["Signs, phones and PA guide people<br/>automatic today"]
   plan --> ask{"Operator answers<br/>within the set time?"}
   ask -- yes --> approve["Operator approves the door moves<br/>built"]
-  ask -- no --> playbook["Fail-safe playbook<br/>design"]
-  playbook --> act["Fire doors close to entry, never against egress<br/>red X near the hazard, everyone routed to safe exits"]
-  act --> watch["Re-plan as cameras update<br/>a person can take over any time"]
+  ask -- no --> playbook["Fail-safe approves<br/>built, opt-in"]
+  playbook --> act["Doors into the hazard held shut, plan re-checked<br/>then the rest move; ACK is still not arrival"]
+  act --> watch["Every new plan gets its own window<br/>I'm here hands control back"]
 ```
 
 This is the principle buildings already rely on. Fire doors held open on magnetic releases close automatically when the alarm sounds, with no person involved ([NFPA 80 FAQ](https://www.nfpa.org/news-blogs-and-articles/blogs/2025/04/11/fire-doors-faqs)). And adaptive exit signs that warn people off a dangerous exit need a central system choosing routes in real time ([NFPA Research Foundation review](https://www.nfpa.org/education-and-research/research/fire-protection-research-foundation/projects-and-reports/a-review-of-dynamic-directional-exit-signage-challenges-and-perspectives); see also [Evaclite](https://evaclite.com/)). SpatialTwin aims to be that system, with one rule kept: no sign changes and no door moves on a route the checker has not verified.
@@ -315,11 +322,11 @@ Stage runbook with measured timings, judge questions and the failure plan: [`doc
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q                                  # 1197 backend tests
-cd frontend && npm test && npx tsc --noEmit && npm run build   # 393 frontend tests
+.venv/bin/python -m pytest -q                                  # 1214 backend tests
+cd frontend && npm test && npx tsc --noEmit && npm run build   # 403 frontend tests
 ```
 
-Compiler, graph checks, Real2Sim, the agent lanes, the incident controller and phone signs are all covered. The offline harness blocks provider, network and device access: every Gemini path runs against recorded stream shapes and fake clients. Live behaviour is verified separately with receipts (below).
+Compiler, graph checks, Real2Sim, the agent lanes, the incident controller, the fail-safe and phone signs are all covered, and [CI](.github/workflows/ci.yml) runs both suites on every push to `main`. `tools/smoke_connections.py --base http://127.0.0.1:8000` drives a running server end to end (53 checks, no Gemini calls; it resets the shared incident, so not mid-demo). The offline harness blocks provider, network and device access: every Gemini path runs against recorded stream shapes and fake clients. Live behaviour is verified separately with receipts (below).
 
 ## Verified live
 
@@ -333,7 +340,7 @@ Compiler, graph checks, Real2Sim, the agent lanes, the incident controller and p
 ## Safety invariants
 
 1. **AI proposes, the checker decides.** Readings and claims are proposals; the compiler, graph checks and checker decide.
-2. **No cloud tool reaches the doors.** Only the operator's Approve commands a door, keyed to the exact plan revision and candidate hash. (The [fail-safe playbook](#when-nobody-is-there-to-approve) is designed as the one exception, limited to fail-safe actions on checked routes.)
+2. **No cloud tool reaches the doors.** Only an approval commands a door, keyed to the exact plan revision and candidate hash: the operator's, or, when armed and nobody answered in time, the [fail-safe's](#when-nobody-is-there-to-approve), which approves only a checked plan and never opens a motorized door into a room with a hazard.
 3. **ACK is not arrival.** A door counts as open only after its endpoint switch says so.
 4. **Honest provenance.** Live Gemini, Saved run, Local solver, Simulated device are always labelled; live failures stay visible.
 5. **Every occupant accounted for.** `N_initial = N_completed + N_remaining` in every frame; the checker rebuilds the network independently and rejects any plan that breaks it.

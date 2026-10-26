@@ -86,6 +86,17 @@ If the reading is slow or fails, say so and open a **saved run** (labelled as su
 4. **Jam the gate**, then approve again: the door is never observed open, it is marked stuck, the server re-plans with
    it closed and the whole twin switches to that **fallback** (hero "fallback · D9 stuck · −10 vs the plan", routes,
    lamps and door list). The fallback needs a fresh human approval.
+5. **Nobody there** (optional, 30 s). Reset devices, place a fire in a room next to a motorized door, then in the
+   Approve panel pick a window (10 s for the stage) and press **Arm fail-safe**. Nobody approves: the bar runs out,
+   the fail-safe holds shut every motorized door into the fire room, re-checks the plan, approves it and says so aloud
+   (speech needs the arm click, which the browser counts as a gesture). On building-v2, fire in the Hall: the best plan
+   opens D4 into the stair (105 of 125); unattended, D4 stays shut and the hero reads "93 · fail-safe · D4 held closed ·
+   −12 vs the plan", and the panel says "a person could approve 105 by opening D4". Press **I'm here · take over** and
+   the full plan returns for a person to approve.
+
+   Say: "With a person here, we can do better. With nobody here, it still acts, but it never opens a door into the
+   fire: here that costs 12 modeled crossings, and the screen says so." It covers motorized doors and fire, smoke, gas
+   and chemical rooms; it does not certify anything.
 
 Live team runs on 26 October (building-v2, fire in the lobby, four runs):
 
@@ -127,7 +138,11 @@ as open when its switch said so. A model of declared rates, not a survival figur
    lost heartbeat all become faults that trigger a re-plan.
 8. **Do 78 people survive?** 78 of 80 synthetic occupants reach a modeled exit within the horizon. Declared rates and
    capacities, not measured behaviour, not survival.
-9. **What does it cost?** Reading a map is a few thousand tokens. A two-lane team run is about $0.12 at list prices,
+9. **What if nobody is there to approve?** The opt-in fail-safe: armed, every new checked plan gets a window. If
+   nobody approves, it approves the checked plan itself, but never opens a motorized door into a room with a hazard,
+   and treats a door in doubt as stuck. It is off by default and after every reset. Do not claim it is certified or
+   "safe"; it is two conservative rules on top of the same checker and door protocol.
+10. **What does it cost?** Reading a map is a few thousand tokens. A two-lane team run is about $0.12 at list prices,
    and the panel shows its estimate.
 
 ## Failure plan
@@ -141,5 +156,5 @@ as open when its switch said so. A model of declared rates, not a survival figur
 
 ## Reset for the next judge
 
-Presenter menu → **Reset devices** (clears hazards, faults and stuck doors), or **Next judge** for a full reset back to
-the demo venue (Build mode, no hazards, doors closed).
+Presenter menu → **Reset devices** (clears hazards, faults and stuck doors, and turns the fail-safe off), or
+**Next judge** for a full reset back to the demo venue (Build mode, no hazards, doors closed).

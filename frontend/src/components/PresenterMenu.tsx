@@ -80,13 +80,13 @@ export function PresenterMenu({ open, onClose, triggerRef, boardSlot, mode, onMo
         <button type="button" aria-pressed={mode === 'live'} disabled={modeLocked} onClick={() => onModeChange('live')}>Live Gemini</button>
         <button type="button" aria-pressed={mode === 'local'} disabled={modeLocked} onClick={() => onModeChange('local')}>Local solver</button>
       </div>
-      <p className="pm-note">{mode === 'live' ? (apiConfigured ? 'Managed agent run, 40–57 s.' : 'Gemini is not configured.') : (localEnabled ? 'Instant. No Gemini call.' : 'Local solver is disabled.')}</p>
+      <p className="pm-note">{mode === 'live' ? (apiConfigured ? (twinMode === 'sim' || twinMode === 'build' ? 'Agent team: strategist about 30 s, robustness 1–3 min.' : 'Managed agent run, 40–57 s.') : 'Gemini is not configured.') : (localEnabled ? 'Instant. No Gemini call.' : 'Local solver is disabled.')}</p>
     </div>
 
-    <div className="pm-group">
+    {(twinMode === 'tabletop' || twinMode === 'camera') && <div className="pm-group">
       <h3>Board source</h3>
       <div ref={boardSlot} className="pm-board" />
-    </div>
+    </div>}
 
     {physical && <div className="pm-group">
       <h3><label htmlFor={`${uid}-token`}>Operator token</label></h3>

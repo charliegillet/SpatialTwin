@@ -6,6 +6,7 @@ POST /api/incident/approve         -> {plan_revision, candidate_hash, door_state
 POST /api/incident/faults          -> {gate_id, fault}
 POST /api/incident/faults/clear    -> {gate_id?}
 POST /api/incident/reset
+POST /api/incident/failsafe        -> {armed, window_seconds?}; the unattended fail-safe (off by default)
 GET  /api/incident/events          -> SSE (id:, Last-Event-ID replay, ": ping" every 10 s)
 
 Mount (backend/app/main.py, lead): `app.include_router(build_incident_router())`
@@ -19,7 +20,8 @@ from fastapi.responses import StreamingResponse
 
 from backend.app.incident.manager import IncidentError, IncidentManager
 from backend.app.incident.models import (
-    ApprovalRecord, ApproveRequest, ClearFaultRequest, FaultRequest, HazardsRequest, IncidentState,
+    ApprovalRecord, ApproveRequest, ClearFaultRequest, FailSafeRequest, FailSafeView, FaultRequest, HazardsRequest,
+    IncidentState,
 )
 
 _default_manager: Optional[IncidentManager] = None
@@ -96,6 +98,14 @@ def build_incident_router(manager: Optional[IncidentManager] = None) -> APIRoute
     async def post_reset() -> IncidentState:
         try:
             return await mgr().reset()
+        except IncidentError as error:
+            raise _http(error) from None
+
+    @router.post("/failsafe", response_model=FailSafeView)
+    async def post_failsafe(request: FailSafeRequest) -> FailSafeView:
+        """Arm or disarm. Local only, like every /api/incident route: a phone's scoped token never reaches it."""
+        try:
+            return await mgr().set_failsafe(request.armed, request.window_seconds)
         except IncidentError as error:
             raise _http(error) from None
 

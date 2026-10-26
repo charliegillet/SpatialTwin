@@ -21,6 +21,20 @@
 .incident-approval.is-failed { border-left-color: var(--hazard-core); color: var(--warning); }
 .incident-error { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; padding: 6px 8px; border-left: 3px solid var(--hazard-core); background: #2a1415; font-size: .75rem; line-height: 1.5; }
 
+/* The unattended fail-safe. Armed reads as a warning: it is the one path where no person approves. */
+.incident-failsafe { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.incident-failsafe > header { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.incident-failsafe > header strong { margin-right: auto; font-size: .8125rem; }
+.incident-failsafe.is-armed, .incident-failsafe.is-approved { border-color: #ffb45466; }
+.incident-failsafe.is-counting, .incident-failsafe.is-acted { border-color: var(--pending); background: #1f1a12; }
+.incident-failsafe.is-counting > header svg, .incident-failsafe.is-acted > header svg { color: var(--pending); }
+.incident-failsafe-line { margin: 0; font-size: .875rem; font-weight: 600; line-height: 1.4; }
+.incident-failsafe-detail { margin: 0; overflow-wrap: anywhere; }
+.incident-failsafe-bar i { background: #6b5527; }
+.incident-failsafe-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.incident-failsafe-window { display: inline-flex; align-items: center; gap: 6px; font-size: .75rem; color: var(--muted); }
+.incident-failsafe-window select { min-height: 36px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-raised); color: var(--text); font-size: .75rem; }
+
 .incident-gates { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 10px; }
 .incident-gate { display: grid; gap: 8px; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .incident-gate.is-open { border-color: #5cf28a66; }

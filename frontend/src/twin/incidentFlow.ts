@@ -1,5 +1,5 @@
 import { TWIN_ERRORS } from '../api/twin.ts';
-import { INCIDENT_EVENTS_URL, parseIncidentEvent } from '../api/incident.ts';
+import { FAILSAFE_OFF, INCIDENT_EVENTS_URL, parseIncidentEvent } from '../api/incident.ts';
 import type { GateFault, IncidentApproval, IncidentEvent, IncidentGate, IncidentPlan, IncidentState } from '../api/incident.ts';
 import type { HazardInput } from './types.ts';
 
@@ -32,7 +32,7 @@ const isMoving = (gate: IncidentGate) => MOVING.includes(gate.state);
 const hasActuating = (approvals: readonly IncidentApproval[]) => approvals.some(approval => approval.status === 'actuating');
 
 function lineTone(text: string): ConsoleLine['tone'] {
-  if (/\b(FAULT|UNKNOWN|TIMEOUT|stale|failed|rejected|stall)\b/i.test(text)) return 'warn';
+  if (/^FAILSAFE\b/.test(text) || /\b(FAULT|UNKNOWN|TIMEOUT|stale|failed|rejected|stall)\b/i.test(text)) return 'warn';
   if (/\b(OBSERVATION|applied)\b/i.test(text)) return 'ok';
   return 'info';
 }
@@ -56,7 +56,7 @@ function eventText(event: IncidentEvent): string | null {
     const plan = event.plan;
     return plan ? `PLAN r${plan.plan_revision} ${plan.label}${plan.valid ? ` ${plan.completed_crossings}/${plan.initial_population} ${plan.count_label}` : ' not checker-valid'}` : `PLAN withdrawn${event.plan_error ? ` (${event.plan_error})` : ''}`;
   }
-  if (event.type === 'approval' && event.approval) return `APPROVAL ${event.approval.approval_id} ${event.approval.status} r${event.approval.plan_revision}`;
+  if (event.type === 'approval' && event.approval) return `APPROVAL ${event.approval.approval_id} ${event.approval.status} r${event.approval.plan_revision}${event.approval.actor === 'fail_safe' ? ' by the fail-safe' : ''}`;
   return null;
 }
 
@@ -87,6 +87,7 @@ export function reduceIncidentEvent(state: IncidentFlowState, event: IncidentEve
         plan_error: event.plan_error ?? null, plan_revision: Math.max(incident.plan_revision, event.plan_revision),
       },
     };
+    case 'failsafe': return event.failsafe ? { ...base, incident: { ...incident, failsafe: event.failsafe } } : base;
     case 'approval': {
       if (!event.approval) return base;
       const approvals = incident.approvals.some(item => item.approval_id === event.approval!.approval_id)
@@ -262,6 +263,9 @@ export function fallbackBanner(incident: IncidentState | null): { headline: stri
     return { headline: 'The door controller stopped reporting — every door is held closed in this plan. Approve the fallback?', reason: plan.reason };
   }
   const names = listJoin(stuck) || 'A door';
+  if (/close never observed/.test(plan.reason)) {
+    return { headline: `${names} never reached its closed endpoint — its position is unknown; re-planned treating it as closed. Approve the fallback?`, reason: plan.reason };
+  }
   return { headline: `${names} never reached its open endpoint — re-planned with ${names} stuck closed. Approve the fallback?`, reason: plan.reason };
 }
 
@@ -273,15 +277,93 @@ export function latestApproval(incident: IncidentState | null): IncidentApproval
 export function approvalSummary(approval: IncidentApproval | null): string | null {
   if (!approval) return null;
   const commands = Object.entries(approval.commands).map(([id, target]) => `${id} ${target.toLowerCase()}`);
-  if (approval.status === 'actuating') return `Actuating r${approval.plan_revision}${commands.length ? `: ${commands.join(', ')}` : ''} — waiting for endpoint switches`;
-  if (approval.status === 'applied') return commands.length ? `Applied r${approval.plan_revision}: every endpoint observed` : `Applied r${approval.plan_revision}: nothing needed to move`;
-  return `Failed r${approval.plan_revision}: ${approval.reason ?? 'an endpoint was never observed'}`;
+  const who = approval.actor === 'fail_safe' ? 'Fail-safe · ' : '';
+  if (approval.status === 'actuating') return `${who}Actuating r${approval.plan_revision}${commands.length ? `: ${commands.join(', ')}` : ''} — waiting for endpoint switches`;
+  if (approval.status === 'applied') return commands.length ? `${who}Applied r${approval.plan_revision}: every endpoint observed` : `${who}Applied r${approval.plan_revision}: nothing needed to move`;
+  return `${who}Failed r${approval.plan_revision}: ${approval.reason ?? 'an endpoint was never observed'}`;
 }
 
 export function planSummary(plan: IncidentPlan | null): string | null {
   if (!plan || !plan.valid) return null;
   return `${plan.completed_crossings} of ${plan.initial_population} ${plan.count_label}`;
 }
+
+// ---- unattended fail-safe ------------------------------------------------------------------------------------
+
+export const FAILSAFE_WINDOWS: readonly number[] = [10, 15, 30, 60];
+export const FAILSAFE_RULE = 'Armed, it approves a checked plan nobody approved in time. It never opens a motorized door into a room with fire, smoke, gas or a chemical, and treats a door in doubt as stuck closed. Reset turns it off.';
+
+export interface FailSafeDisplay {
+  tone: 'off' | 'armed' | 'counting' | 'acted' | 'approved';
+  headline: string;
+  /** For screen readers: changes only when the state does, never every second of the countdown. */
+  status: string;
+  detail: string | null;
+  /** Whole seconds left in the window, while counting down. */
+  secondsLeft: number | null;
+  /** 0..1 of the window used, for the bar. */
+  fraction: number | null;
+  armed: boolean;
+}
+
+/** What the fail-safe is doing, from the server's view plus a clock. A countdown for an older plan, or for a plan someone
+ *  already approved, is not shown as one: the server re-decides on the next event. */
+export function failsafeDisplay(incident: IncidentState | null, now: number): FailSafeDisplay {
+  const failsafe = incident?.failsafe ?? FAILSAFE_OFF;
+  const window = failsafe.window_seconds;
+  const base = { detail: null, secondsLeft: null, fraction: null, armed: failsafe.armed };
+  if (!incident || !failsafe.armed) {
+    const headline = 'Fail-safe off · a person approves every door move';
+    return { ...base, tone: 'off', headline, status: headline };
+  }
+  const plan = incident.plan;
+  const approved = plan ? incident.approvals.find(item => item.plan_revision === plan.plan_revision && item.status !== 'failed') : undefined;
+  if (approved?.actor === 'fail_safe' || (failsafe.status === 'acted' && failsafe.plan_revision === plan?.plan_revision)) {
+    const headline = `Fail-safe acted · nobody approved within ${window} s`;
+    return { ...base, tone: 'acted', headline, status: headline, detail: failsafe.last_action?.summary ?? null };
+  }
+  if (approved) return { ...base, tone: 'approved', headline: 'A person approved · the fail-safe stands by', status: 'A person approved · the fail-safe stands by' };
+  const deadline = failsafe.deadline_at ? Date.parse(failsafe.deadline_at) : NaN;
+  if (failsafe.status === 'counting_down' && plan && failsafe.plan_revision === plan.plan_revision && Number.isFinite(deadline)) {
+    const left = Math.max(0, (deadline - now) / 1000);
+    const hold = failsafe.would_hold;
+    const doubt = failsafe.in_doubt ?? [];
+    const parts = [
+      hold.length ? `It will keep ${listJoin(hold)} closed: ${hold.length === 1 ? 'it opens' : 'they open'} into a room with a hazard. Approve to open ${hold.length === 1 ? 'it' : 'them'} yourself.` : null,
+      doubt.length ? `It will treat ${listJoin(doubt)} as stuck closed: position unknown.` : null,
+    ].filter(Boolean);
+    return {
+      ...base, tone: 'counting', secondsLeft: Math.ceil(left), fraction: Math.min(1, Math.max(0, 1 - left / window)),
+      headline: left > 0 ? `No approval yet · the fail-safe acts in ${Math.ceil(left)} s` : 'No approval · the fail-safe is acting',
+      status: `No approval yet · the fail-safe acts in ${window} s unless a person approves r${plan.plan_revision}`,
+      detail: parts.length ? parts.join(' ') : `It will approve r${plan.plan_revision} as it is.`,
+    };
+  }
+  const headline = plan?.valid ? 'Fail-safe armed · standing by' : 'Fail-safe armed · waiting for a checked plan';
+  return { ...base, tone: 'armed', headline, status: headline, detail: failsafe.last_action?.summary ?? null };
+}
+
+/** The line under the door plan while the doors follow a plan the stateless planner never saw (a fallback, or held gates). */
+export function executingNote(plan: IncidentPlan | null): string | null {
+  if (!plan) return null;
+  const stuck = plan.stuck_doors;
+  const held = plan.held_doors ?? [];
+  if (!stuck.length && !held.length) return null;
+  const parts = [stuck.length ? `${listJoin(stuck)} stuck closed` : null, held.length ? `${listJoin(held)} held closed by the fail-safe: ${held.length === 1 ? 'it opens' : 'they open'} into a room with a hazard` : null].filter(Boolean);
+  return `${stuck.length ? 'Fallback' : 'Fail-safe'} plan r${plan.plan_revision}: the doors now follow it (${parts.join('; ')}).`;
+}
+
+/** Speak once when the fail-safe has approved the plan this screen is drawing. Key = the approval id; null while the
+ *  drawn plan is not the approved one (its full plan still being fetched, or this screen's hazards not yet synced). */
+export function failsafeAnnounceKey(incident: IncidentState | null, drawnCandidateHash: string | null, hazardsSynced: boolean): string | null {
+  const plan = incident?.plan;
+  if (!incident || !plan || !incident.failsafe?.armed || !hazardsSynced || !drawnCandidateHash) return null;
+  const approval = incident.approvals.find(item => item.plan_revision === plan.plan_revision && item.actor === 'fail_safe' && item.status !== 'failed');
+  return approval && approval.candidate_hash === drawnCandidateHash ? approval.approval_id : null;
+}
+
+/** Spoken before the plan's own announcement. Says what happened, not that everyone is safe. */
+export const FAILSAFE_SPOKEN = 'Nobody approved in time. The fail-safe approved the checked plan.';
 
 // ---- hazard sync ---------------------------------------------------------------------------------------------
 
@@ -384,7 +466,7 @@ interface ConnectionOptions {
   clearTimer?: (handle: unknown) => void;
 }
 
-const EVENT_TYPES = ['snapshot', 'plan', 'approval', 'gate', 'fault', 'reset'] as const;
+const EVENT_TYPES = ['snapshot', 'plan', 'approval', 'gate', 'fault', 'reset', 'failsafe'] as const;
 const CLOSED = 2;
 
 /** SSE first (the browser reconnects with Last-Event-ID by itself). When the stream errors, GET /api/incident every 1.5 s until frames flow again. */

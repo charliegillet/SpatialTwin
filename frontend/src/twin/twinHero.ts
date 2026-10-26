@@ -60,18 +60,21 @@ export function twinHero(input: { plan: DoorPlanResponse | null; pending: boolea
   return { ready: !stale, stale, digits: String(done), label, tag, delta, reason, spoken: `${done} ${label}, ${tag}${delta ? `, ${delta.text}` : ''}`, withheld: false };
 }
 
-/** The incident's checked fallback (a door jammed and the server re-planned with it stuck closed), when one is in force. */
-export interface HeroFallback { valid: boolean; completed: number; population: number; stuck: string[] }
+/** The incident's checked plan when it is not the stateless one: a fallback (a door jammed and the server re-planned with
+ *  it stuck closed) or the fail-safe's (gates into a hazard room held closed). */
+export interface HeroFallback { valid: boolean; completed: number; population: number; stuck: string[]; held?: string[] }
 
-/** After a jam the doors being executed are the fallback's, so the headline follows it and says why it fell.
- *  An unchecked fallback withholds the number like any unchecked plan. */
+/** After a jam, or once the fail-safe holds a gate closed, the doors being executed follow that plan, so the headline
+ *  follows it and says why it differs. An unchecked plan withholds the number like any unchecked plan. */
 export function withFallback(hero: TwinHero, fallback: HeroFallback | null | undefined, primary: DoorPlanResponse | null): TwinHero {
   if (!fallback || !hero.ready || !primary) return hero;
-  const stuck = fallback.stuck.length ? joinIds(fallback.stuck) : 'a door';
+  const held = fallback.held ?? [];
+  const stuck = fallback.stuck.length ? joinIds(fallback.stuck) : held.length ? null : 'a door';
   if (!fallback.valid) return { ...hero, ready: false, digits: '\u2014', label: 'no checked plan', delta: null, reason: NO_CHECKED_PLAN, spoken: NO_CHECKED_PLAN, withheld: true };
   const loss = primary.chosen.completed_crossings - fallback.completed;
   const label = `of ${fallback.population} reach an exit in ${primary.chosen.horizon_seconds} s`;
-  const delta = { text: `fallback · ${stuck} stuck${loss > 0 ? ` · ${MINUS}${loss} vs the plan` : ''}`, tone: 'loss' as const };
+  const why = [stuck ? `${stuck} stuck` : null, held.length ? `${joinIds(held)} held closed` : null].filter(Boolean).join(' · ');
+  const delta = { text: `${stuck ? 'fallback' : 'fail-safe'} · ${why}${loss > 0 ? ` · ${MINUS}${loss} vs the plan` : ''}`, tone: 'loss' as const };
   return { ...hero, digits: String(fallback.completed), label, delta, spoken: `${fallback.completed} ${label}, ${hero.tag}, ${delta.text}` };
 }
 

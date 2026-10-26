@@ -7,6 +7,8 @@ export type GateState = 'CLOSED' | 'OPENING' | 'OPEN' | 'CLOSING' | 'UNKNOWN' | 
 export type GateFault = 'stall' | 'switch_disagreement' | 'dropped_ack' | 'heartbeat_timeout';
 export type GateApplied = 'open' | 'closed' | 'moving' | 'unknown' | 'sign';
 export type ApprovalStatus = 'actuating' | 'applied' | 'failed';
+export type ApprovalActor = 'operator' | 'fail_safe';
+export type FailSafeStatus = 'off' | 'standing_by' | 'counting_down' | 'acted' | 'approved';
 
 export interface IncidentGate {
   gate_id: string;
@@ -62,6 +64,8 @@ export interface IncidentPlan {
   door_states: DoorStateMap;
   doors: IncidentPlanDoor[];
   stuck_doors: string[];
+  /** Gates the unattended fail-safe holds closed in this plan: each opens into a room with a hazard. */
+  held_doors: string[];
   advisories: unknown[];
   announcement: string;
 }
@@ -76,7 +80,35 @@ export interface IncidentApproval {
   results: Record<string, string>;
   reason: string | null;
   fallback_plan_revision: number | null;
+  /** fail_safe: nobody approved within the armed window, so the fail-safe approved its own checked plan. */
+  actor: ApprovalActor;
 }
+
+export interface FailSafeAction { at: string; plan_revision: number; approval_id: string; summary: string }
+
+/** The unattended fail-safe (off by default). Armed, it approves a checked plan nobody approved in its window, never
+ *  opening a gate into a room with a hazard. */
+export interface FailSafe {
+  armed: boolean;
+  window_seconds: number;
+  status: FailSafeStatus;
+  plan_revision: number | null;
+  /** Server wall clock (ISO) when the window ends; the presenter laptop serves and shows it, so the clocks agree. */
+  deadline_at: string | null;
+  seconds_left: number | null;
+  /** Gate -> the hazard rooms it opens into, for the gates held closed in the current plan. */
+  held_doors: Record<string, string[]>;
+  /** Before it acts: gates in the current plan it would hold closed, and gates in doubt it would treat as stuck. */
+  would_hold: string[];
+  in_doubt: string[];
+  note: string;
+  last_action: FailSafeAction | null;
+}
+
+export const FAILSAFE_OFF: FailSafe = {
+  armed: false, window_seconds: 15, status: 'off', plan_revision: null, deadline_at: null, seconds_left: null, held_doors: {},
+  would_hold: [], in_doubt: [], note: 'Off: a person approves every door move.', last_action: null,
+};
 
 export interface IncidentState {
   venue_id: string;
@@ -88,10 +120,11 @@ export interface IncidentState {
   stuck_doors: string[];
   approvals: IncidentApproval[];
   approval_in_progress: boolean;
+  failsafe: FailSafe;
   last_event_id: number;
 }
 
-export type IncidentEventType = 'snapshot' | 'plan' | 'approval' | 'gate' | 'fault' | 'reset';
+export type IncidentEventType = 'snapshot' | 'plan' | 'approval' | 'gate' | 'fault' | 'reset' | 'failsafe';
 export interface IncidentEvent {
   type: IncidentEventType;
   seq: number;
@@ -105,6 +138,7 @@ export interface IncidentEvent {
   stuck_doors?: string[];
   plan_error?: string | null;
   approval?: IncidentApproval;
+  failsafe?: FailSafe;
   gate?: IncidentGate;
   phase?: string;
   fault?: string;
@@ -174,6 +208,27 @@ export function parseApproval(raw: unknown): IncidentApproval {
     door_states: strMap(raw.door_states) as DoorStateMap, status: raw.status as ApprovalStatus,
     commands: strMap(raw.commands), results: strMap(raw.results), reason: typeof raw.reason === 'string' ? raw.reason : null,
     fallback_plan_revision: typeof raw.fallback_plan_revision === 'number' ? raw.fallback_plan_revision : null,
+    actor: raw.actor === 'fail_safe' ? 'fail_safe' : 'operator',
+  };
+}
+
+const FAILSAFE_STATUSES: readonly string[] = ['off', 'standing_by', 'counting_down', 'acted', 'approved'];
+
+/** Tolerant: a server without the fail-safe (or a broken field) reads as "off", never as armed. */
+export function parseFailSafe(raw: unknown): FailSafe {
+  if (!isRecord(raw) || raw.armed !== true) return { ...FAILSAFE_OFF, window_seconds: isRecord(raw) ? num(raw.window_seconds, 15) : 15 };
+  const action = isRecord(raw.last_action) && typeof raw.last_action.approval_id === 'string' ? {
+    at: str(raw.last_action.at), plan_revision: num(raw.last_action.plan_revision), approval_id: raw.last_action.approval_id,
+    summary: str(raw.last_action.summary),
+  } : null;
+  const held = isRecord(raw.held_doors) ? Object.fromEntries(Object.entries(raw.held_doors).map(([gate, rooms]) => [gate, strList(rooms)])) : {};
+  return {
+    armed: true, window_seconds: num(raw.window_seconds, 15),
+    status: FAILSAFE_STATUSES.includes(raw.status as string) && raw.status !== 'off' ? raw.status as FailSafeStatus : 'standing_by',
+    plan_revision: typeof raw.plan_revision === 'number' ? raw.plan_revision : null,
+    deadline_at: typeof raw.deadline_at === 'string' ? raw.deadline_at : null,
+    seconds_left: typeof raw.seconds_left === 'number' ? raw.seconds_left : null,
+    held_doors: held, would_hold: strList(raw.would_hold), in_doubt: strList(raw.in_doubt), note: str(raw.note), last_action: action,
   };
 }
 
@@ -193,7 +248,8 @@ export function parsePlan(raw: unknown): IncidentPlan | null {
       changed: door.changed === true, stuck: door.stuck === true, reason: str(door.reason),
       applied: APPLIED.includes(door.applied as string) ? door.applied as GateApplied : 'unknown',
     })) : [],
-    stuck_doors: strList(raw.stuck_doors), advisories: Array.isArray(raw.advisories) ? raw.advisories : [], announcement: str(raw.announcement),
+    stuck_doors: strList(raw.stuck_doors), held_doors: strList(raw.held_doors),
+    advisories: Array.isArray(raw.advisories) ? raw.advisories : [], announcement: str(raw.announcement),
   };
 }
 
@@ -204,7 +260,7 @@ export function parseIncidentState(raw: unknown): IncidentState {
     venue_id: raw.venue_id, plan_revision: raw.plan_revision, hazards: raw.hazards as HazardInput[],
     plan: parsePlan(raw.plan), plan_error: typeof raw.plan_error === 'string' ? raw.plan_error : null,
     controller: parseController(raw.controller), stuck_doors: strList(raw.stuck_doors), approvals: raw.approvals.map(parseApproval),
-    approval_in_progress: raw.approval_in_progress === true, last_event_id: num(raw.last_event_id),
+    approval_in_progress: raw.approval_in_progress === true, failsafe: parseFailSafe(raw.failsafe), last_event_id: num(raw.last_event_id),
   };
 }
 
@@ -223,6 +279,7 @@ export function parseIncidentEvent(type: string, data: string): IncidentEvent | 
         stuck_doors: strList(raw.stuck_doors), plan_error: typeof raw.plan_error === 'string' ? raw.plan_error : null,
       };
       case 'approval': return { ...common, type, approval: parseApproval(raw.approval) };
+      case 'failsafe': return { ...common, type, failsafe: parseFailSafe(raw.failsafe) };
       case 'gate': return { ...common, type, gate: parseGate(raw), phase: str(raw.phase) };
       case 'fault': return { ...common, type, fault: str(raw.fault), gate_id: str(raw.gate_id), phase: str(raw.phase) };
       default: return null;
@@ -269,5 +326,12 @@ export const clearIncidentFault = async (gateId?: string): Promise<IncidentContr
 
 export const resetIncident = async (): Promise<IncidentState> =>
   parseIncidentState(await requestJson<unknown>(`${base}/reset`, { method: 'POST', body: {}, timeoutMs: 8_000, fallback: 'The devices could not be reset', describe }));
+
+/** Arm (window 5-120 s) or disarm the unattended fail-safe. Disarming is a person taking over. */
+export const setIncidentFailsafe = async (armed: boolean, windowSeconds = 15): Promise<FailSafe> =>
+  parseFailSafe(await requestJson<unknown>(`${base}/failsafe`, {
+    method: 'POST', body: armed ? { armed, window_seconds: windowSeconds } : { armed }, timeoutMs: 20_000,
+    fallback: armed ? 'The fail-safe could not be armed' : 'The fail-safe could not be turned off', describe,
+  }));
 
 export const INCIDENT_EVENTS_URL = `${base}/events`;

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Lock, RotateCcw, ShieldCheck, TriangleAlert } from 'lucide-react';
+import { Hand, Lock, RotateCcw, ShieldAlert, ShieldCheck, TriangleAlert } from 'lucide-react';
 import type { GateFault } from '../api/incident';
-import { ACK_COPY, approvalSummary, FAULT_COPY, planSummary, SIM_LABEL, type GateView } from '../twin/incidentFlow';
+import { approvalSummary, FAILSAFE_RULE, FAILSAFE_WINDOWS, FAULT_COPY, planSummary, SIM_LABEL, type GateView } from '../twin/incidentFlow';
 import type { IncidentController } from '../twin/useIncident';
 import './Incident.css';
 
@@ -17,6 +17,7 @@ export function IncidentPanel({ incident }: { incident: IncidentController }) {
   const approvalLine = approvalSummary(approval);
   const reasonId = 'incident-approve-reason';
   const failed = approval?.status === 'failed';
+  const held = plan?.held_doors ?? [];
 
   return <section className="incident" aria-label="Approval and door controller" aria-busy={busy !== null}>
     <header className="incident-head">
@@ -33,7 +34,7 @@ export function IncidentPanel({ incident }: { incident: IncidentController }) {
     <div className={`incident-plan${plan?.label === 'fallback' ? ' is-fallback' : ''}`}>
       {plan ? <>
         <div className="incident-plan-top">
-          <span className={`chip ${plan.label === 'fallback' ? 'chip-warn' : 'chip-ok'}`}>{plan.label === 'fallback' ? 'FALLBACK plan' : 'Primary plan'}</span>
+          <span className={`chip ${plan.label === 'fallback' || held.length ? 'chip-warn' : 'chip-ok'}`}>{plan.label === 'fallback' ? 'FALLBACK plan' : held.length ? 'Fail-safe plan' : 'Primary plan'}</span>
           <span className="chip chip-data">r{plan.plan_revision}</span>
           {plan.note && <span className="chip chip-warn">{plan.note}</span>}
         </div>
@@ -42,7 +43,7 @@ export function IncidentPanel({ incident }: { incident: IncidentController }) {
         {plan.reason && <p className="twin-quiet">{plan.reason}</p>}
         <ul className="incident-doors" aria-label="Door states this plan asks for">
           {Object.entries(plan.door_states).sort(([a], [b]) => a.localeCompare(b)).map(([id, doorState]) =>
-            <li key={id} className={`chip chip-data${plan.stuck_doors.includes(id) ? ' chip-warn' : ''}`}>{id} {doorState}{plan.stuck_doors.includes(id) ? ' · stuck' : ''}</li>)}
+            <li key={id} className={`chip chip-data${plan.stuck_doors.includes(id) || held.includes(id) ? ' chip-warn' : ''}`}>{id} {doorState}{plan.stuck_doors.includes(id) ? ' · stuck' : held.includes(id) ? ' · held' : ''}</li>)}
         </ul>
       </> : <p className="twin-quiet">{state.incident ? 'No plan yet. Place a hazard and the checker plans the doors.' : 'Connecting to the door controller…'}</p>}
       <button type="button" className="btn btn-primary incident-approve" disabled={!availability.allowed || busy !== null} aria-describedby={reasonId} onClick={() => void incident.approve()}>
@@ -52,6 +53,8 @@ export function IncidentPanel({ incident }: { incident: IncidentController }) {
       {approvalLine && <p className={`incident-approval is-${approval?.status}`} role="status">{approvalLine}</p>}
       {failed && !banner && <p className="door-advisory">The plan did not complete. Re-planning…</p>}
     </div>
+
+    <FailSafeCard incident={incident} />
 
     {error && <p className="incident-error" role="alert">{error}<button type="button" className="btn btn-quiet btn-ghost" onClick={incident.dismissError}>Dismiss</button></p>}
 
@@ -66,6 +69,40 @@ export function IncidentPanel({ incident }: { incident: IncidentController }) {
     </div>
 
     <IncidentConsole lines={incident.console} />
+  </section>;
+}
+
+/** The unattended fail-safe: off by default; armed, it acts only when nobody approves a checked plan in its window. */
+function FailSafeCard({ incident }: { incident: IncidentController }) {
+  const display = incident.state.failsafe;
+  const [seconds, setSeconds] = useState(15);
+  const busy = incident.busy !== null;
+  const disabled = busy || !incident.state.incident;
+  return <section className={`incident-failsafe is-${display.tone}`} aria-label="Unattended fail-safe">
+    <header>
+      <ShieldAlert size={16} aria-hidden="true" />
+      <strong>Unattended fail-safe</strong>
+      <span className={`chip ${display.armed ? 'chip-warn' : 'chip-data'}`}>{display.armed ? 'Armed' : 'Off'}</span>
+    </header>
+    <p className="incident-failsafe-line" aria-hidden="true">{display.headline}</p>
+    <p className="sr-only" role="status">{display.status}</p>
+    {display.tone === 'counting' && <div className="incident-transit incident-failsafe-bar" role="progressbar" aria-label="Fail-safe window" aria-valuemin={0}
+      aria-valuemax={100} aria-valuenow={Math.round((display.fraction ?? 0) * 100)} aria-valuetext={`${display.secondsLeft ?? 0} s left`}>
+      <i style={{ width: `${Math.round((display.fraction ?? 0) * 100)}%` }} />
+      <small>{display.secondsLeft ?? 0} s left for a person to approve</small>
+    </div>}
+    {display.detail && <p className="twin-quiet incident-failsafe-detail">{display.detail}</p>}
+    <div className="incident-failsafe-actions">
+      {display.armed
+        ? <button type="button" className="btn btn-primary" disabled={disabled} onClick={() => void incident.setFailsafe(false)}><Hand size={14} aria-hidden="true" />I'm here · take over</button>
+        : <>
+          <button type="button" className="btn" disabled={disabled} onClick={() => void incident.setFailsafe(true, seconds)}><ShieldAlert size={14} aria-hidden="true" />Arm fail-safe</button>
+          <label className="incident-failsafe-window">Window<select aria-label="Fail-safe window" value={seconds} disabled={disabled} onChange={event => setSeconds(Number(event.target.value))}>
+            {FAILSAFE_WINDOWS.map(item => <option key={item} value={item}>{item} s</option>)}
+          </select></label>
+        </>}
+    </div>
+    <small className="twin-quiet">{FAILSAFE_RULE}</small>
   </section>;
 }
 

@@ -24,6 +24,7 @@ ALLOWED_FOR_SIGN = [("/sign.html", "GET"), ("/sign.html", "HEAD"), ("/assets/sig
                     ("/assets/react-vendor-BXFnCW6P.css", "GET"), ("/api/public/signs/building-v2", "GET"),
                     ("/api/public/signs/building-v2/events", "GET")]
 NEVER = ["/", "/index.html", "/secret.txt", "/health", "/api/incident", "/api/incident/events", "/api/incident/approve",
+         "/api/incident/failsafe",
          "/api/signs/tokens", "/api/signs/proposals", "/api/signs/status", "/api/venues", "/api/scenarios/facility-demo",
          "/api/public/signs/home-flat", "/api/public/signs/building-v2/", "/api/public/signs/building-v2/events/",
          "/api/public/signs/building-v2/../../incident", "/api/public/signs/building-v2/events/../../../incident",
