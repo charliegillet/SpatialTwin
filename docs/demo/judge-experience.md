@@ -20,8 +20,9 @@ managed agents stress-tests the plan, and you approve. AI proposes, the checker 
   next to our synthetic sketch and office map. Start the server with them so Act 1 always has a fallback, and on the
   LAN so phones can reach it:
   `SPATIALTWIN_REAL2SIM_FIXTURES_DIR=runtime/saved-runs SPATIALTWIN_SIGN_SECRET=<32+ chars> .venv/bin/python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000`
-- Presenter menu → choose the venue to start on. **Next judge** returns to the built-in building; the venue picker in
-  the presenter menu switches back.
+- Presenter menu → **Demo venue** → Ferry Building Level 2 (the venue most of the demo happens in). **Next judge**
+  returns to the demo venue, never to a previous judge's own building; without a pick it returns to the venue that was
+  active when the screen opened.
 - Phones: Simulation → **Phone exit signs** → **Show QR codes** (one per exit, one to propose hazards). Turn on
   **Judge mode** so judges' hazards join the twin at once; doors still need your Approve. If phones cannot reach the
   laptop (the panel warns), open **Signs on this laptop** on a second screen instead.
@@ -140,5 +141,5 @@ as open when its switch said so. A model of declared rates, not a survival figur
 
 ## Reset for the next judge
 
-Presenter menu → **Reset devices** (clears hazards, faults and stuck doors), or **Next judge** for a full reset to the
-built-in building.
+Presenter menu → **Reset devices** (clears hazards, faults and stuck doors), or **Next judge** for a full reset back to
+the demo venue (Build mode, no hazards, doors closed).

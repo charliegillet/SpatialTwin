@@ -63,7 +63,7 @@ export function PresenterMenu({ open, onClose, triggerRef, boardSlot, mode, onMo
       <div className="seg" role="group" aria-labelledby={`${uid}-twin`}>
         {visibleModes().map(item => <button key={item} type="button" aria-pressed={twinMode === item} disabled={twinLocked} onClick={() => onTwinMode(item)}>{MODE_LABEL[item]}</button>)}
       </div>
-      {(twinMode === 'sim' || twinMode === 'build') && venues.length > 1 && <label className="clip-mode">Venue<select aria-label="Venue" value={venueId} disabled={twinLocked} onChange={event => onVenue(event.target.value)}>
+      {(twinMode === 'sim' || twinMode === 'build') && venues.length > 1 && <label className="clip-mode" title="The demo venue: Next judge returns here">Demo venue<select aria-label="Venue" value={venueId} disabled={twinLocked} onChange={event => onVenue(event.target.value)}>
         {venues.map(item => <option key={item.venue_id} value={item.venue_id}>{item.builtin ? item.name : `${item.name} · ${item.zones} rooms`}</option>)}
       </select></label>}
       {twinMode === 'camera' && <>

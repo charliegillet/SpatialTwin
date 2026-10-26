@@ -39,7 +39,7 @@ import { cleanHazardEvents, toHazardView } from './ai/hazardView';
 import { TwinWorkspace } from './components/TwinWorkspace';
 import { preloadScene3D } from './components/TwinStage';
 import { canSwitchMode, DEFAULT_TWIN_MODE, MODE_LOCKED, modeAfterReset } from './twin/modes';
-import { BUILTIN_VENUE_ID } from './api/twin';
+import { nextJudgeVenue, readHomeVenue, writeHomeVenue } from './twin/homeVenue';
 import { useTwin } from './twin/useTwin';
 import type { TwinMode } from './twin/types';
 
@@ -462,6 +462,11 @@ export function App() {
 
   // Simulation never touches the v1 investigation: switching only changes what the stage shows, and leaving clears the twin.
   const twin = useTwin({ mode: twinMode, notify: showNotice, log: (message, level = 'info') => addEvent('analysis', message, level) });
+  // The demo venue Next judge returns to: the presenter's pick, else the venue the server had active when this screen opened.
+  const [homeVenue, setHomeVenue] = useState<string | null>(readHomeVenue);
+  const loadedVenue = useRef<string | null>(null);
+  if (loadedVenue.current === null && twin.activeRevision > 0 && twinMode !== 'camera') loadedVenue.current = twin.venueId;
+  const chooseVenue = (venueId: string) => { writeHomeVenue(venueId); setHomeVenue(venueId); void twin.switchVenue(venueId); };
   const sim = twinMode !== 'tabletop';
   const [calibrateTick, setCalibrateTick] = useState(0);
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -536,8 +541,9 @@ export function App() {
   const resetMessage = reset.phase === 'waiting' ? (pendingMessage(resetFacts, physical) ?? reset.message) : reset.message;
   const resetNow = async () => {
     if (reset.phase === 'running' || !snapshotRef.current) return;
-    // The next judge starts on the built-in venue, for every screen, not on the previous judge's building.
-    setTwinMode(modeAfterReset()); twin.reset(); void twin.switchVenue(BUILTIN_VENUE_ID); setImageFile(null);
+    // The next judge starts on the demo venue, for every screen, not on the previous judge's building.
+    setTwinMode(modeAfterReset()); twin.reset();
+    void twin.switchVenue(nextJudgeVenue(homeVenue, loadedVenue.current, twin.venues.map(item => item.venue_id))); setImageFile(null);
     setReset({ phase: 'running', message: 'Cancelling any run…' });
     try {
       if (activeInvestigation) {
@@ -590,7 +596,7 @@ export function App() {
   return <div className={`app${presenting ? ' presenting' : ''}`}>
     <a className="skip-link" href="#workspace-main">Skip to workspace</a>
     <TopBar hardware={hardwareChip(health?.hardware_mode)} checked={checkedChip(Boolean(snapshot), planCurrent)} connection={connection} presenting={presenting} presenterRef={presenterTriggerRef} onTogglePresenting={() => setPresenting(value => !value)} onStop={stop} onOpenDetails={() => openSheet()} onToggleMenu={toggleMenu} menuOpen={menuOpen} menuRef={menuTriggerRef} onResetJudge={() => void resetNow()} isResetting={reset.phase === 'running'} canReset={Boolean(snapshot) && connection === 'connected'} />
-    <PresenterMenu open={menuOpen} onClose={() => setMenuOpen(false)} triggerRef={menuTriggerRef} boardSlot={setMenuSlot} mode={mode} onModeChange={setSelectedMode} modeLocked={isInvestigating} apiConfigured={apiConfigured} localEnabled={localEnabled} physical={physical} operatorToken={operatorToken} onOperatorToken={setOperatorToken} preflight={preflight} facts={resetFacts} resetMessage={resetMessage} isResetting={reset.phase === 'running'} canReset={Boolean(snapshot) && connection === 'connected'} onReset={() => void resetNow()} onClearHazards={() => void clearHazards()} clearMessage={clearMessage} twinMode={twinMode} onTwinMode={changeTwinMode} twinLocked={isInvestigating} onCalibrate={() => { setMenuOpen(false); setCalibrateTick(value => value + 1); }} imageFile={imageFile} onImageFile={setImageFile} venues={twin.venues} venueId={twin.venueId} onVenue={id => void twin.switchVenue(id)} />
+    <PresenterMenu open={menuOpen} onClose={() => setMenuOpen(false)} triggerRef={menuTriggerRef} boardSlot={setMenuSlot} mode={mode} onModeChange={setSelectedMode} modeLocked={isInvestigating} apiConfigured={apiConfigured} localEnabled={localEnabled} physical={physical} operatorToken={operatorToken} onOperatorToken={setOperatorToken} preflight={preflight} facts={resetFacts} resetMessage={resetMessage} isResetting={reset.phase === 'running'} canReset={Boolean(snapshot) && connection === 'connected'} onReset={() => void resetNow()} onClearHazards={() => void clearHazards()} clearMessage={clearMessage} twinMode={twinMode} onTwinMode={changeTwinMode} twinLocked={isInvestigating} onCalibrate={() => { setMenuOpen(false); setCalibrateTick(value => value + 1); }} imageFile={imageFile} onImageFile={setImageFile} venues={twin.venues} venueId={twin.venueId} onVenue={chooseVenue} />
     <main id="workspace-main" className={`main${sim ? ' is-sim' : ''}`} tabIndex={-1}>
       <div className="alerts">
         {loadError && <div className="alert" role="alert"><span>{loadError}</span><button type="button" onClick={() => void refresh()}>Reconnect<RotateCcw size={13} aria-hidden="true" /></button></div>}
