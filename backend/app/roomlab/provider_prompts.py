@@ -1,4 +1,4 @@
-"""System instructions and user prompt builders for RoomLab direct Argon extraction and scene critique."""
+"""System instructions and user prompt builders for SpatialTwin direct Argon extraction and scene critique."""
 from __future__ import annotations
 
 from backend.app.roomlab.contracts import MediaRecord, RoomSceneV1, SolveResult
@@ -99,7 +99,7 @@ def build_extraction_prompt(media: MediaRecord) -> str:
     )
 
 
-CRITIC_SYSTEM_INSTRUCTION = """You are a spatial verification critic for RoomLab.
+CRITIC_SYSTEM_INSTRUCTION = """You are a spatial verification critic for SpatialTwin.
 Given a canonical RoomSceneV1 JSON and deterministic solver/validation receipts, provide a concise, grounded explanation of:
 1. Which bottleneck or uncalibrated/occluded gap currently limits reachability,
 2. What targeted measurement or camera view would resolve any uncertain clearance,

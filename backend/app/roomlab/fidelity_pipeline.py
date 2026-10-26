@@ -66,7 +66,7 @@ def geometry_overview(tracking:dict)->bytes|None:
     _,_,axes=np.linalg.svd(centered,full_matrices=False)
     xy=centered@axes[:2].T;lo,hi=np.percentile(xy,[2,98],axis=0);span=np.maximum(hi-lo,.001)
     image=Image.new('RGB',(900,650),'#f7f8f5');draw=ImageDraw.Draw(image)
-    draw.text((20,15),'UNSCALED sparse structure / PCA view. Axes are NOT RoomLab axes.',fill='#283b30')
+    draw.text((20,15),'UNSCALED sparse structure / PCA view. Axes are NOT SpatialTwin axes.',fill='#283b30')
     for value,point in zip(xy,tracking['points']):
         x,y=(value-lo)/span*[830,550]+[35,60]
         if 20<=x<=880 and 40<=y<=630:draw.ellipse((x-2,y-2,x+2,y+2),fill=tuple(point['color']))

@@ -14,7 +14,7 @@ export function RoomBrand() {
         <path d="m24 25 21-3v23Z" fill="#3c714b" />
       </svg>
       <div>
-        <h1 className="rl-title">RoomLab</h1>
+        <h1 className="rl-title">SpatialTwin</h1>
         <span className="rl-brand-note">A new perspective.</span>
       </div>
     </div>

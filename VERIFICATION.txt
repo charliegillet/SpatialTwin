@@ -457,3 +457,20 @@ Adaptive extraction verification (2026-10-25, side conversation):
   event trace uses neutral bullets. Existing whole-scene ID and topology guards stay.
 - Verification:91 backend tests,14 frontend tests and TypeScript/Vite build passed.
   This is a bounded model-directed refinement pass, not an unbounded tool-calling loop.
+
+2026-10-25 SPATIALTWIN BRAND / PUBLIC HTTPS CHECK
+- Renamed product-facing title, logo text, API title/health, rendered plan labels,
+  prompts and descriptions to SpatialTwin. Internal roomlab paths/API URLs remain
+  stable for existing scenes/clients.
+- Existing Cloudflare proxied DNS for spatialtwin.alhinai.dev points to named tunnel
+  19952203-dd14-45f6-a692-a5bea5daa9df. DNS was verified through the live Cloudflare API;
+  no DNS change, credential rotation or security-setting change was needed.
+- Public HTTPS returned200 for HTML,JS,CSS,health,config,room library and a real source
+  thumbnail. Public JS/CSS matched local assets byte-for-byte. Same-origin validation
+  POST also returned200. Public browser opened an existing editable3D room with
+  SpatialTwin branding and no console errors. Screenshot: runtime/roomlab/spatialtwin-public-live.png.
+- Tunnel LaunchAgent has RunAtLoad/KeepAlive enabled. Host/backend remain required.
+  Tunnel metadata/config API reads were unauthorized with available scoped tokens;
+  no unverified account-side configuration change is claimed. DNS and public routing
+  behavior were independently verified without modifying token permissions.
+- Production build passed;29 relevant backend API/core tests passed.

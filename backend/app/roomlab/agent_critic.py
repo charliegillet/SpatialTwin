@@ -1,4 +1,4 @@
-"""Multimodal advisory Argon scene critic for RoomLab.
+"""Multimodal advisory Argon scene critic for SpatialTwin.
 
 Accepts a canonical `CritiqueContext` (with `RoomSceneV1`, `ValidationReport`, optional
 `SolveResult`, rendered `bev_png`, and bounded `CritiqueFrame` records) and returns a

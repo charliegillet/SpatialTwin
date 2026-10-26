@@ -1,5 +1,5 @@
 """Deterministic Pillow-based frame quality scoring, perceptual deduplication, and
-coverage-aware keyframe selection for RoomLab video walkthroughs.
+coverage-aware keyframe selection for SpatialTwin video walkthroughs.
 
 Scores each decoded frame on edge-gradient sharpness (Laplacian/Sobel luma energy),
 brightness mean, contrast std, and a 64-bit horizontal difference hash (dHash).

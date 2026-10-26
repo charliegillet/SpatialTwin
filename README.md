@@ -221,3 +221,13 @@ The Source panel shows persisted processing-stage events. Completion is recorded
 only after the room has been saved; failures/cancellation retain their terminal
 stages. Added bed, shelf, appliance and TV proxies remain inside canonical OBBs.
 Category labels take precedence over incidental words in object names.
+
+## Public address
+
+The local application is published at **https://spatialtwin.alhinai.dev** through
+an existing Cloudflare named tunnel forwarding to port8001. The cloudflared macOS
+LaunchAgent is configured with RunAtLoad and KeepAlive. The Mac must remain awake,
+connected to the internet, and running the backend; the tunnel does not host a copy
+of the application. Public access includes the app's room library, source media and
+API. No Tailscale connection is needed. Tunnel credentials are stored outside this
+repository and must never be committed.

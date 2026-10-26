@@ -1,4 +1,4 @@
-"""Bounded video container validation, duration probing, and timestamped frame extraction for RoomLab.
+"""Bounded video container validation, duration probing, and timestamped frame extraction for SpatialTwin.
 
 Uses the bundled imageio_ffmpeg binary to decode real video streams without relying on
 browser-reported duration or legacy board-specific helpers.

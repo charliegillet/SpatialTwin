@@ -1,4 +1,4 @@
-"""Standalone RoomLab app: no imported SpatialTwin runtime or hardware."""
+"""Standalone SpatialTwin app: no imported SpatialTwin runtime or hardware."""
 from __future__ import annotations
 import asyncio,os,json,uuid,logging,ipaddress
 from contextlib import asynccontextmanager
@@ -40,7 +40,7 @@ def create_app(runtime:Path|None=None)->FastAPI:
         pending=[task for task in tasks.values() if not task.done()]
         for task in pending:task.cancel()
         if pending:await asyncio.gather(*pending,return_exceptions=True)
-    app=FastAPI(title='RoomLab',version='1.0.0',lifespan=lifespan)
+    app=FastAPI(title='SpatialTwin',version='1.0.0',lifespan=lifespan)
     app.state.store=store;app.state.runtime=runtime;app.state.jobs=jobs
     # Test injection replaces only a provider function; default is always a real model call.
     app.state.extractor=None;app.state.media_processor=None
@@ -54,7 +54,7 @@ def create_app(runtime:Path|None=None)->FastAPI:
         if request.client and not network_enabled:
             try:allowed=ipaddress.ip_address(request.client.host).is_loopback
             except ValueError:allowed=request.client.host=='testclient'
-            if not allowed:return JSONResponse({'detail':'RoomLab is a local-only application.'},status_code=403)
+            if not allowed:return JSONResponse({'detail':'SpatialTwin is a local-only application.'},status_code=403)
         if request.method not in ('GET','HEAD','OPTIONS'):
             origin=request.headers.get('origin')
             same_origin=f'{request.url.scheme}://{request.url.netloc}'
@@ -72,7 +72,7 @@ def create_app(runtime:Path|None=None)->FastAPI:
         except KeyError:raise HTTPException(404,'Scene not found.')
 
     @app.get('/health')
-    def health():return {'status':'healthy','application':'RoomLab','hardware':'none'}
+    def health():return {'status':'healthy','application':'SpatialTwin','hardware':'none'}
 
     @app.get('/api/roomlab/config')
     def config():return {'gemini_configured':bool(os.environ.get('GEMINI_API_KEY')),'model':'gemini-4-argon',

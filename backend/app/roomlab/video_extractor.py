@@ -1,4 +1,4 @@
-"""Direct Gemini 4 Argon room layout extractor for RoomLab.
+"""Direct Gemini 4 Argon room layout extractor for SpatialTwin.
 
 Reads decoded frame files from media_root / frame.relative_path (path-safe, no external URLs),
 calls gemini-4-argon with a structured JSON schema, and normalizes the provider output into

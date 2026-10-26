@@ -1,4 +1,4 @@
-"""Deterministic 2D Bird's-Eye View (BEV) PNG renderer for RoomLab scenes.
+"""Deterministic 2D Bird's-Eye View (BEV) PNG renderer for SpatialTwin scenes.
 
 Renders `RoomSceneV1` in top-down plan coordinates (`+X` right/east, `+Z` down/south)
 with floor polygon, non-walkable `floor_voids`, role-colored walls (`shell`, `partition`,
@@ -205,7 +205,7 @@ def render_scene_preview(
         else "Uncalibrated (model_estimate)"
     )
     header_text = (
-        f"RoomLab BEV Plan | {scene.name} | {scene.scene_id} rev={scene.scene_revision} | {cal_tag}"
+        f"SpatialTwin BEV Plan | {scene.name} | {scene.scene_id} rev={scene.scene_revision} | {cal_tag}"
     )
     draw.rectangle([0, 0, CANVAS_WIDTH, 28], fill=(234, 237, 229, 255))
     draw.text((14, 8), header_text[:125], fill=(38, 46, 40, 255), font=font)

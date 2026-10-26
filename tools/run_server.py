@@ -1,4 +1,4 @@
-"""Start RoomLab locally; optionally read backend-only credentials from .env."""
+"""Start SpatialTwin locally; optionally read backend-only credentials from .env."""
 from pathlib import Path
 import os
 import uvicorn

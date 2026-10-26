@@ -1,4 +1,4 @@
-"""Canonical RoomLab contracts. Revisions and receipts are application-owned."""
+"""Canonical SpatialTwin contracts. Revisions and receipts are application-owned."""
 from __future__ import annotations
 import hashlib
 import json
