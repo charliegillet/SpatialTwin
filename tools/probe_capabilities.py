@@ -245,7 +245,7 @@ def make_synthetic_clip(seconds=5):
                 return out.read_bytes()
             except Exception:
                 pass
-    ftyp = struct.pack('>I4s4sI4s4s', 20, b'ftyp', b'isom', 0, b'isom', b'mp41')
+    ftyp = struct.pack('>I4s4sI4s4s', 24, b'ftyp', b'isom', 0, b'isom', b'mp41')  # the box is 24 bytes
     mvhd = struct.pack('>I4sBxxxIIII', 108, b'mvhd', 0, 0, 0, 1000, seconds * 1000) + bytes(108 - 28)
     return ftyp + struct.pack('>I4s', 8 + len(mvhd), b'moov') + mvhd
 
