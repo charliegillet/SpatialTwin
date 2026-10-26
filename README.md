@@ -1,71 +1,91 @@
+<div align="center">
+
 # SpatialTwin
 
-**Photograph any building's evacuation map. Gemini 4 Argon turns it into a live 3D twin, a team of Gemini managed agents stress-tests the door plan, a local checker decides, and a person approves before any door moves.**
+### Photograph any evacuation map. Gemini 4 Argon builds a live 3D twin, Gemini managed agents stress-test the door plan, a local checker decides, and a person approves before any door moves.
 
-[![Gemini 4 Argon](https://img.shields.io/badge/Gemini_4-Argon-4285F4?logo=googlegemini&logoColor=white)](#gemini-4-argon-what-we-use-and-why)
-[![Managed Agents](https://img.shields.io/badge/Gemini-Managed_Agents-34A853?logo=google&logoColor=white)](#managed-agents-the-team)
-[![Interactions API](https://img.shields.io/badge/Gemini-Interactions_API-FBBC04?logo=google&logoColor=black)](#gemini-4-argon-what-we-use-and-why)
-[![google-genai](https://img.shields.io/badge/google--genai-2.33.0-4285F4?logo=python&logoColor=white)](requirements.lock)
-[![Hackathon](https://img.shields.io/badge/Gemini_4_Argon_Hackathon-San_Francisco_%C2%B7_Oct_2026-8E75B2)](#provenance)
-<br>
-[![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)](requirements.lock)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.162-009688?logo=fastapi&logoColor=white)](backend/app/main.py)
-[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](frontend/package.json)
-[![Three.js](https://img.shields.io/badge/Three.js-React_Three_Fiber-000000?logo=threedotjs&logoColor=white)](frontend/src/scene)
-[![Tests](https://img.shields.io/badge/tests-1197_backend_%C2%B7_393_frontend-2EA44F)](#tests)
-[![Hardware](https://img.shields.io/badge/hardware-none_needed-555555)](#doors-an-acknowledgement-is-not-arrival)
+[![Gemini 4 Argon](https://img.shields.io/badge/Gemini_4-Argon-8E75B2?style=for-the-badge&logo=googlegemini&logoColor=white)](#gemini-4-argon) [![Managed Agents](https://img.shields.io/badge/Gemini-Managed_Agents-4285F4?style=for-the-badge&logo=googlegemini&logoColor=white)](#managed-agents) [![Interactions API](https://img.shields.io/badge/Interactions_API-stream_%C2%B7_think_%C2%B7_JSON-34A853?style=for-the-badge&logo=google&logoColor=white)](#gemini-4-argon) [![Hackathon](https://img.shields.io/badge/Gemini_4_Argon_Hackathon-SF_2026-EA4335?style=for-the-badge&logo=google&logoColor=white)](#provenance)
 
-> **AI proposes · the checker decides · a human approves.** Every count is a *modeled crossing* of a synthetic population, never a survival figure. Every label says where a number came from: Live Gemini, Saved run, Local solver, Simulated device.
+[![Python](https://img.shields.io/badge/python-3.13-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)](requirements.lock) [![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi&logoColor=white)](backend/app/main.py) [![React](https://img.shields.io/badge/react_19-20232a?style=for-the-badge&logo=react&logoColor=61DAFB)](frontend/package.json) [![TypeScript](https://img.shields.io/badge/typescript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)](frontend/src) [![Three.js](https://img.shields.io/badge/three.js-R3F-000000?style=for-the-badge&logo=threedotjs&logoColor=white)](frontend/src/scene) [![Vite](https://img.shields.io/badge/vite-646CFF?style=for-the-badge&logo=vite&logoColor=white)](frontend/vite.config.ts) [![SQLite](https://img.shields.io/badge/sqlite-07405E?style=for-the-badge&logo=sqlite&logoColor=white)](backend/app/venues/registry.py)
 
----
+[![Backend tests](https://img.shields.io/badge/backend_tests-1197_passing-2EA44F?style=flat-square&logo=pytest&logoColor=white)](#tests) [![Frontend tests](https://img.shields.io/badge/frontend_tests-393_passing-2EA44F?style=flat-square&logo=nodedotjs&logoColor=white)](#tests) [![Agent claims](https://img.shields.io/badge/agent_claims-14%2F14_reproduced-8E75B2?style=flat-square&logo=googlegemini&logoColor=white)](#managed-agents) [![Verified live](https://img.shields.io/badge/verified_live-26_Oct_2026-1F6FEB?style=flat-square)](#verified-live) [![Hardware](https://img.shields.io/badge/hardware-none_needed-555555?style=flat-square)](#doors-an-acknowledgement-is-not-arrival) [![Safety](https://img.shields.io/badge/AI_proposes-checker_decides_%C2%B7_human_approves-F28C28?style=flat-square)](#safety-invariants)
+
+**[The demo](#the-demo-in-three-acts)** · **[Gemini 4 Argon](#gemini-4-argon)** · **[Managed Agents](#managed-agents)** · **[Architecture](#architecture)** · **[Phones](#judges-take-part-from-their-phones)** · **[Run it](#run-it)** · **[Verified live](#verified-live)**
+
+<img src="docs/assets/screenshots/hero.jpg" alt="SpatialTwin Simulation: a fire in the lobby of a 3D building twin; the door plan closes three fire doors to entry, marks the south exit unsafe and opens D9; two live Gemini managed agents are working" width="100%">
+
+<sub>Fire in the lobby. The local planner closes three fire doors to entry, marks the south exit unsafe and opens D9 (+29 modeled crossings) in 56 ms; two live Gemini managed agents start investigating on their own.</sub>
+
+</div>
+
+> **AI proposes · the checker decides · a human approves.** Every count is a *modeled crossing* of a synthetic population, never a survival figure. Every number on screen says where it came from: Live Gemini, Saved run, Local solver, Simulated device.
+
+## Why
+
+Evacuation maps hang on every floor and nobody checks them against the room as it is today. SpatialTwin turns the posted map into a model you can break: drop a fire and see which doors to open, which exits to avoid, and whether the plan survives a jammed door, with every AI number re-checked before anyone acts on it.
 
 ## The demo in three acts
 
 | Act | The judge… | Under the hood | Measured live (26 Oct) |
 |---|---|---|---|
-| **1 · Build** | photographs the posted evacuation map (or a sketch or PDF) and presses **Accept** | Argon reads it with streamed thinking; a deterministic compiler and graph checks decide; one critique round fixes errors; the photo is laid under the 3D model | read 19–50 s, critique 35–74 s; Ferry Building maps 12 → 0 and 16 → 0 errors |
-| **2 · Break it** | drops Fire, Smoke, Gas, Chemical or Water anywhere, on the laptop or from their own phone | the local planner solves and checks every state of the motorized doors in well under a second; phones become live exit signs | 0.1–0.4 s per plan |
-| **3 · Agents, checker, approval** | watches two managed agents investigate, presses **Approve**, then **Jam the gate** | every number the agents claim is re-run by the checker; the virtual door must reach its endpoint; a jam forces a checked fallback that needs a fresh approval | strategist 24–38 s, robustness 57–172 s, 12/12 claims reproduced |
+| **1 · Build** | photographs the posted evacuation map (or a sketch or PDF) and presses **Accept** | Argon reads it with streamed thinking; a deterministic compiler and graph checks decide; one critique round fixes errors; the photo is laid under the 3D model | read 19–50 s, critique 35–74 s; venue maps 12 → 0 and 16 → 0 errors |
+| **2 · Break it** | drops Fire, Smoke, Gas, Chemical or Water anywhere, on the laptop or from their own phone | the local planner solves and checks every state of the motorized doors; phones become live exit signs | 56–400 ms per plan |
+| **3 · Agents, checker, approval** | watches two managed agents investigate, presses **Approve**, then **Jam the gate** | every number the agents claim is re-run by the checker; the virtual door must reach its endpoint; a jam forces a checked fallback that needs a fresh approval | strategist 24–38 s, robustness 57 s – 2 min 52 s, 14/14 claims reproduced |
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/assets/screenshots/build.jpg" alt="Build mode: Argon's reading drawn back onto an evacuation map, local checks with 0 errors, motorized doors marked, and the 3D draft preview"><br><sub><b>Act 1 · Build.</b> Argon's reading drawn back onto the map, checks at 0 errors, the 3D draft before Accept. (Our synthetic test map.)</sub></td>
+    <td width="50%"><img src="docs/assets/screenshots/underlay.jpg" alt="The accepted venue in 3D with its source drawing laid under the walls, a Map photo toggle and opacity slider"><br><sub><b>The map under the model.</b> The source image aligned under the 3D walls through the compiler's own frame, with a toggle and opacity slider.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/assets/screenshots/agents.jpg" alt="Agent team panel: strategist and robustness lanes, live Gemini 4 Argon managed agents, tokens, cost and time, and a table of agent-claimed versus checker-verified numbers"><br><sub><b>Act 3 · Two live managed agents.</b> Strategist 25 s, robustness 2 min 9 s; every claimed number re-run by the checker, 14 of 14 reproduced.</sub></td>
+    <td width="50%"><img src="docs/assets/screenshots/fallback.jpg" alt="After a jammed door: banner saying D9 never reached its endpoint, a fallback plan with D9 stuck closed, the hero showing 102 of 125 with fallback D9 stuck minus 23"><br><sub><b>Jam the gate.</b> D9 never reached its endpoint: the whole twin follows the checked fallback (102 of 125, "D9 stuck · −23"), which needs a fresh approval.</sub></td>
+  </tr>
+</table>
 
 ---
 
-## Gemini 4 Argon: what we use and why
+## Gemini 4 Argon
+
+Argon is the eyes of the system: it reads a building from a photo and proposes its geometry. It never writes the venue; a deterministic compiler and graph checks do.
 
 | Capability | How SpatialTwin uses it | Code |
 |---|---|---|
-| **Spatial reading of images and documents** | A photo, pen sketch or PDF becomes a `VenueDraftV1`: rooms (with kind: corridor, stair, void…), doors, exits, interior stairs, scale and "you are here", in 0–1000 `[y, x]` image coordinates | [`extract.py`](backend/app/ai/real2sim/extract.py) |
+| **Spatial reading of images and documents** | A photo, pen sketch or PDF becomes a `VenueDraftV1`: rooms with their kind (corridor, stair, void…), doors, exits, interior stairs, scale and "you are here", in 0–1000 `[y, x]` image coordinates | [`extract.py`](backend/app/ai/real2sim/extract.py) |
 | **High-resolution image parts** | `resolution: "high"` on every image part, for the fine print of posted maps (EXIT, room numbers, scale bars) | `extract.py` |
 | **Thinking with streamed summaries** | `thinking_level: "medium"`, `thinking_summaries: "auto"`, `max_output_tokens: 32768`; summaries stream into the Build panel while it reads | `extract.py` |
 | **Structured output** | `response_format` with the draft's JSON schema. The API rejected the fully bounded schema ("too many states"), so it gets a structural-only copy and the laptop re-validates strictly, salvaging element by element | [`schema.py`](backend/app/ai/real2sim/schema.py) |
-| **Stored, chained interactions** | `store: true`; when graph checks fail, a critique turn chains on `previous_interaction_id` and adds a second image: Argon's own reading drawn back onto the photo. The correction is kept only if the errors drop | [`critique.py`](backend/app/ai/real2sim/critique.py) |
-| **Streaming (SSE)** | typed events relayed to the browser as `status · thought · draft · checks · round · done`, replayable with `Last-Event-ID` | [`drafts.py`](backend/app/ai/real2sim/drafts.py) |
-| **Model identity** | the provider-echoed model must be `gemini-4-argon`; anything else discards the run (`provider_model_mismatch`). Receipts record latency and token usage, never raw content | [`receipts.py`](backend/app/ai/receipts.py) |
+| **Stored, chained interactions** | `store: true`; when checks fail, a critique turn chains on `previous_interaction_id` and adds a second image, Argon's own reading drawn back onto the photo. The correction is kept only if the errors drop | [`critique.py`](backend/app/ai/real2sim/critique.py) |
+| **Streaming (SSE)** | typed events relayed to the browser (`status · thought · draft · checks · round · done`), replayable with `Last-Event-ID` | [`drafts.py`](backend/app/ai/real2sim/drafts.py) |
+| **Model identity** | the provider-echoed model must be `gemini-4-argon`, or the run is discarded (`provider_model_mismatch`). Receipts keep latency and token usage, never content | [`receipts.py`](backend/app/ai/receipts.py) |
 | **Agentic execution** | the same model drives both managed agents (`agent_config.model = "gemini-4-argon"`) | [`adapter.py`](backend/app/ai/managed/adapter.py) |
 
-Argon never writes the venue. A **deterministic compiler** turns the draft into a strict `VenueV2` (rectilinear rooms, doors on shared walls, exits on outside walls, interior exit stairs inside their stairwell, voids excluded) and **graph checks** gate Accept: overlap, reachability, door and exit fit, `exit_overlaps_door`, capacity, horizon. If a map draws a room with no door, the operator may leave it out of the walkable floor; the venue's provenance says so.
+**What happens to Argon's reading.** The compiler builds a strict `VenueV2`: rectilinear rooms, doors on shared walls, exits on outside walls, interior exit stairs inside their stairwell, voids excluded. Graph checks gate Accept (overlap, reachability, door and exit fit, `exit_overlaps_door`, capacity, horizon). If a map draws a room with no door, the operator can leave it out of the walkable floor, and the venue's provenance says so.
 
 ---
 
-## Managed Agents: the team
+## Managed Agents
 
-Two managed agents run in parallel on **`antigravity-preview-09-2026`** with an inline **`agent_config` on `gemini-4-argon`** (named agents only accept Flash models). They start by themselves 2.5 s after the planner has a checked plan for new hazards.
+Two managed agents run in parallel on **`antigravity-preview-09-2026`** with an inline **`agent_config` on `gemini-4-argon`** (named agents only accept Flash models). They start by themselves 2.5 s after the planner has a checked plan for new hazards; a newer hazard set supersedes them.
 
 | Lane | Job | Tools | Budget · deadline | Live (26 Oct) |
 |---|---|---|---|---|
-| **Strategist** | the best door state now, and the fallback if a door jams | `submit_recommendation` | 40k tokens · 45 s | 24–38 s, 2/2 claims reproduced, ≈ $0.02 |
-| **Robustness** | the plan that survives single failures | `code_execution` in a network-disabled sandbox, `verify_candidates`, `submit_recommendation` | 150k tokens · 210 s | 57–172 s, 12/12 claims reproduced (all 12 computed in the sandbox), ≈ $0.05–0.10 |
-| **Follow-up** | "What if D3 jams?" in the same sandbox | same as robustness | 80k tokens · 90 s | continues on `previous_interaction_id` + the same environment |
+| **Strategist** | the best door state now, and the fallback if a door jams | `submit_recommendation` | 40k tokens · 45 s | 24–38 s · 2/2 claims reproduced · ≈ $0.02 |
+| **Robustness** | the plan that survives single failures | `code_execution` in a network-disabled sandbox, `verify_candidates`, `submit_recommendation` | 150k tokens · 210 s | 57 s – 2 min 52 s · 12/12 reproduced, all computed in the sandbox · ≈ $0.05–0.10 |
+| **Follow-up** | "What if D3 jams?" in the same sandbox | same as robustness | 80k tokens · 90 s | continues on `previous_interaction_id` and the same environment |
 
-**How they are integrated** ([`door_agent.py`](backend/app/ai/managed/door_agent.py), [`sandbox.py`](backend/app/ai/managed/sandbox.py), [`robustness.py`](backend/app/ai/managed/robustness.py))
+<p align="center"><img src="docs/assets/screenshots/sandbox-trace.jpg" alt="The robustness lane's live trace: a code_execution step running python3 -m spatialtwin_kit.sweep --only-single in the sandbox, and its stdout with suggested claims" width="90%"><br><sub>The robustness lane's live trace: the agent runs our solver kit in Google's network-disabled sandbox (<code>code_execution</code>) and its own stdout becomes the claims the checker then re-runs.</sub></p>
+
+**How they are integrated** ([`door_agent.py`](backend/app/ai/managed/door_agent.py) · [`sandbox.py`](backend/app/ai/managed/sandbox.py) · [`robustness.py`](backend/app/ai/managed/robustness.py) · [`trace.py`](backend/app/ai/managed/trace.py))
 
 - **Sandbox kit.** Each robustness run gets `environment: {type: remote, network: disabled, sources: inline}` carrying a 15-file, ~71 KB kit pinned by a sha256 manifest: copies of our flow solver, checker and hazard effects, a sweep, `.agents/AGENTS.md` rules and skills (`robustness-sweep`, `hazard-rules`, `responder-brief`), plus the venue, hazards and checked plan as read-only inputs.
 - **Client functions, not trust.** `verify_candidates` asks the laptop's checker for numbers; `submit_recommendation` is terminal and typed: door states for every motorized door, `fallback_if_jammed`, at most 12 claims `{scenario, completed_crossings, candidate_hash}`, a 400-character rationale.
-- **The checker re-runs every claim** in a scenario grammar (`stuck_closed:D3`, `exit_blocked:E2`, `jam:D2@0.50`, `untenable:h1=12`, `second_hazard:GAS@HALL`). A claim counts only if crossings and hash match and the state is checker-valid. Each claim is labelled `sandbox` only when its number appeared in that run's code output.
-- **Live trace.** `background + store + stream`; `step.start / delta / stop` events (code cells, results, function calls; never hidden reasoning) flow through a trace hub to the browser over SSE with replay. A silent stream falls back to polling after 20 s; 429/503 retry with backoff inside the deadline.
-- **Governance.** Per-lane deadlines, token budgets and tool-call caps; a cost estimate on screen; cancel and supersede (a new hazard set replaces the run, its local sweep stops); model echo checked; follow-ups refused if the venue geometry changed.
+- **The checker re-runs every claim** in a scenario grammar (`stuck_closed:D3`, `exit_blocked:E2`, `jam:D2@0.50`, `untenable:h1=12`, `second_hazard:GAS@HALL`). A claim counts only if crossings and hash match and the state is checker-valid; it is labelled `sandbox` only when its number appeared in that run's code output.
+- **Live trace.** `background + store + stream`: `step.start / delta / stop` events (code cells, results, function calls; never hidden reasoning) flow through a trace hub to the browser over SSE with replay. A silent stream falls back to polling after 20 s; 429/503 retry with backoff inside the deadline.
+- **Governance.** Per-lane deadlines, token budgets and tool-call caps; a cost estimate on screen; cancel and supersede (the local sweep stops too); the echoed model is checked; follow-ups are refused if the venue geometry changed.
 - **Honest fallback.** A lane that fails or times out is replaced by a labelled local lane ("Local fallback · live robustness lane failed (investigation_deadline)"), with its failure still on screen.
 
-**Not claimed.** The sandbox has no networkx, so the kit runs its pure-Python estimator (labelled "sandbox estimate"; the exact local checker reproduced all 12 of its numbers). A pre-tool hook that denies writes is configured, but our probe never observed a denial, so no hook guardrail is claimed.
+> **Not claimed.** The sandbox has no networkx, so the kit runs its pure-Python estimator, labelled "sandbox estimate"; the exact local checker reproduced every one of its numbers. A pre-tool hook that denies writes is configured, but our probe never observed a denial, so no hook guardrail is claimed.
 
 ---
 
@@ -109,7 +129,8 @@ flowchart LR
   guard --> signs
 ```
 
-## Act 1: from a photo to a checked venue
+<details>
+<summary><b>Act 1 in detail: from a photo to a checked venue</b> (sequence diagram)</summary>
 
 ```mermaid
 sequenceDiagram
@@ -137,7 +158,10 @@ sequenceDiagram
   chk-->>ui: venue stored and active, photo under the 3D model
 ```
 
-## Act 3: two agents investigate, the checker decides
+</details>
+
+<details>
+<summary><b>Act 3 in detail: two agents investigate, the checker decides</b> (sequence diagram)</summary>
 
 ```mermaid
 sequenceDiagram
@@ -166,6 +190,8 @@ sequenceDiagram
   Note over run,chk: A lane that fails is replaced by a labelled local lane, never hidden
 ```
 
+</details>
+
 ## Doors: an acknowledgement is not arrival
 
 There is no hardware at this event. The virtual door controller keeps the hardware protocol, so the safety story is testable live.
@@ -182,13 +208,15 @@ stateDiagram-v2
   Open --> Closed: reset
 ```
 
-- The chip reads **"ACK · heard, not arrived"** in transit and **"Endpoint confirmed · open"** only from the switch.
+- In transit the chip reads **"ACK · heard, not arrived"**; only the switch makes it **"Endpoint confirmed · open"**.
 - The announcement says a door *"is to be opened"*, and *"is open"* only after its switch confirms it.
-- After a jam the whole twin follows the fallback: hero ("fallback · D5 stuck · −33 vs the plan"), routes, lamps, door list, phone signs.
+- After a jam the whole twin follows the fallback: hero, routes, lamps, door list and phone signs.
 
 ## Judges take part from their phones
 
-- **A QR per exit** turns a phone into that exit's live sign: green running man, red X, locked, "no checked plan", "not updating".
+<p align="center"><img src="docs/assets/screenshots/phones.jpg" alt="Three phones: a green EXIT sign with a running man for E2 Back door, a red DO NOT USE sign for E1 Front door with Hazard Fire Living room, and the Drop a hazard page with a floor plan and a smoke pin" width="80%"></p>
+
+- **A QR per exit** turns a phone into that exit's live sign: green running man with the modeled crossings routed there, red X with the hazard, locked, "no checked plan", "not updating".
 - **A proposer QR** opens a floor plan: pick a hazard, tap any spot, send. With **Judge mode** on, it joins the twin at once; doors still need the operator's Approve.
 - HMAC-signed links set an `HttpOnly; SameSite=Strict` cookie; the network guard lets a phone reach only its sign page and its own API, nothing of the operator's.
 
@@ -203,7 +231,7 @@ cp .env.example .env   # then set GEMINI_API_KEY (optional: everything local wor
 ./run.sh --help        # --port, --build, --no-build, --setup
 ```
 
-- [`.env.example`](.env.example) lists every setting: the Gemini key, Real2Sim thinking level and critique rounds, demo/production mode, phone-link secret and address.
+- [`.env.example`](.env.example) lists every setting: the Gemini key, Real2Sim thinking level and critique rounds, demo or production mode, phone-link secret and address.
 - Without `GEMINI_API_KEY` every local path works: planner, Simulation, saved runs, local agent lanes, virtual doors. Live Argon and the live agent team need it.
 - `SPATIALTWIN_SIGN_SECRET` (32+ characters) keeps phone links valid across restarts. Never point phones at `vite --host`: its proxy makes every phone look like the laptop.
 - Requires Python 3.13 and Node.js; `uv` is used when present, `pip` otherwise.
@@ -219,13 +247,13 @@ cd frontend && npm test && npx tsc --noEmit && npm run build   # 393 frontend te
 
 Compiler, graph checks, Real2Sim, the agent lanes, the incident controller and phone signs are all covered. The offline harness blocks provider, network and device access: every Gemini path runs against recorded stream shapes and fake clients. Live behaviour is verified separately with receipts (below).
 
-## Verified live (25–26 October)
+## Verified live
 
 | What | Result |
 |---|---|
-| Real2Sim on the venue's own posted maps | Level 3: 12 → 0 errors, accepted · Level 2: 16 → 0, accepted · a full live run-through: 14 → 3, three doorless rooms left out, accepted |
+| Real2Sim on the venue's own posted maps (25–26 Oct) | Level 3: 12 → 0 errors, accepted · Level 2: 16 → 0, accepted · a full live run-through: 14 → 3, three doorless rooms left out, accepted |
 | Full three-act run-through in the browser | fire → 71/80 "+33 by opening D5" → agents (26 s, 75 s, 12/12) → approve → endpoint → jam → fallback 38/80 |
-| Agent team, five live runs | strategist always completed; robustness completed four times, once missed its old 150 s deadline (the labelled local fallback took over) |
+| Agent team, six live runs | strategist always completed (24–38 s); robustness completed five times (57 s – 2 min 52 s), once missed its old 150 s deadline and the labelled local fallback took over |
 | Capability probes | sandbox code execution with the network off · stream shape · environment reuse · networkx absent (estimator) · hook denial **not** observed |
 
 ## Safety invariants
@@ -236,7 +264,8 @@ Compiler, graph checks, Real2Sim, the agent lanes, the incident controller and p
 4. **Honest provenance.** Live Gemini, Saved run, Local solver, Simulated device are always labelled; live failures stay visible.
 5. **Every occupant accounted for.** `N_initial = N_completed + N_remaining` in every frame; the checker rebuilds the network independently and rejects any plan that breaks it.
 
-## Repository map
+<details>
+<summary><b>Repository map</b></summary>
 
 | Path | What |
 |---|---|
@@ -250,9 +279,11 @@ Compiler, graph checks, Real2Sim, the agent lanes, the incident controller and p
 | [`docs/plans/contracts/`](docs/plans/contracts) | API contracts: Real2Sim, compiler, agent team, incident, signs |
 | [`docs/research/`](docs/research) | background: the original build handoff and plans, research notes, dated status reports |
 
+</details>
+
 ## Provenance
 
-SpatialTwin began before the event as a physical tabletop demonstrator (servo gate, endpoint switches, overhead camera), tagged `demo-v1`. For this hackathon, with no hardware, the team built Real2Sim (Argon builds the venue), the two-lane managed-agent team, the virtual door controller, phone exit signs and Judge mode, and the 3D twin with the map underlay. The venue's evacuation-map photos stay on the presenter laptop under the owner's terms; they are not in this repository.
+SpatialTwin began before the event as a physical tabletop demonstrator (servo gate, endpoint switches, overhead camera), tagged `demo-v1`. For this hackathon, with no hardware, the team built Real2Sim (Argon builds the venue), the two-lane managed-agent team, the virtual door controller, phone exit signs and Judge mode, and the 3D twin with the map underlay. The venue's evacuation-map photos stay on the presenter laptop under the owner's terms: they are not in this repository, and every screenshot here uses the built-in building or our own synthetic maps.
 
 **Repository:** <https://github.com/charliegillet/SpatialTwin> · **Contributors:** Nihal, Charlie, Codex, Claude
 
