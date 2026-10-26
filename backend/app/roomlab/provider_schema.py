@@ -17,6 +17,7 @@ from shapely.geometry import LineString, Polygon
 from backend.app.roomlab.contracts import (
     AppearanceProvenance,
     FloorVoid,
+    InspectionRequest,
     Material,
     Opening,
     Provenance,
@@ -192,10 +193,21 @@ class ProviderObjectDraft(BaseModel):
     note: str = ""
 
 
+class ProviderDetailTarget(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    element_id: str = ""
+    timestamp_s: float
+    reason: str = ""
+
+
 class ProviderRoomPayload(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     name: str = "Estimated room"
+    room_type: str = ""
+    agent_reasoning: list[str] = Field(default_factory=list)
+    inspect_requests: list[ProviderDetailTarget] = Field(default_factory=list)
     floor_vertices: list[ProviderFloorVertex]
     floor_voids: list[ProviderFloorVoidDraft] = Field(default_factory=list)
     interior_walls: list[ProviderInteriorWallDraft] = Field(default_factory=list)
@@ -229,6 +241,28 @@ def provider_response_json_schema() -> dict:
         ],
         "properties": {
             "name": {"type": "string", "description": "Short descriptive room title."},
+            "room_type": {
+                "type": "string",
+                "description": "Classified indoor environment type (e.g. bedroom, living_room, kitchen, office, studio_apartment, corridor, retail, mezzanine_hall, clinic, warehouse).",
+            },
+            "agent_reasoning": {
+                "type": "array",
+                "description": "2 to 4 concise agentic observations explaining topology choices (e.g. rectangular vs L-shaped perimeter, interior glass partitions vs outer walls, floor voids) and scale uncertainty.",
+                "items": {"type": "string"},
+            },
+            "inspect_requests": {
+                "type": "array",
+                "description": "Up to 6 targeted high-resolution (1600px) reinspection requests where the agent wants closer 4fps frame bursts to verify uncertain corners, doorways, stairs, or dense furniture.",
+                "items": {
+                    "type": "object",
+                    "required": ["element_id", "timestamp_s", "reason"],
+                    "properties": {
+                        "element_id": {"type": "string"},
+                        "timestamp_s": {"type": "number"},
+                        "reason": {"type": "string"},
+                    },
+                },
+            },
             "wall_height_m": {
                 "type": "number",
                 "description": "Estimated outer shell wall height in meters (typically 2.5 to 4.0).",
@@ -1111,6 +1145,10 @@ def normalize_provider_payload(
         )
 
     notes = [str(n).strip()[:400] for n in payload.notes[:25] if str(n).strip()]
+    for step in reversed([str(s).strip()[:300] for s in payload.agent_reasoning[:4] if str(s).strip()]):
+        tag = f"Agent reasoning ({payload.room_type.strip() or 'room'}): {step}"
+        if tag not in notes:
+            notes.insert(0, tag)
     if topology_review_required:
         notes.insert(
             0,
@@ -1175,3 +1213,43 @@ def normalize_provider_payload(
         notes=notes[:30],
     )
     return draft, warnings
+
+
+def extract_valid_inspect_requests(
+    payload: ProviderRoomPayload,
+    draft: RoomDraft,
+    duration_s: float,
+) -> list[InspectionRequest]:
+    """Validate and bound up to 6 model-directed reinspection requests against known draft IDs and media duration."""
+    known_ids = {
+        *(w.id for w in draft.walls),
+        *(o.id for o in draft.openings),
+        *(o.id for o in draft.objects),
+        *(v.id for v in draft.floor_voids),
+    }
+    valid_requests: list[InspectionRequest] = []
+    seen_pairs: set[tuple[str, float]] = set()
+    for req in payload.inspect_requests:
+        eid = (req.element_id or "").strip()
+        if not eid or eid not in known_ids:
+            continue
+        if not isinstance(req.timestamp_s, (int, float)) or isinstance(req.timestamp_s, bool) or not math.isfinite(float(req.timestamp_s)):
+            continue
+        ts = round(float(req.timestamp_s), 3)
+        if not (0.0 <= ts <= float(duration_s) + 1e-6):
+            continue
+        ts_clamped = min(float(duration_s), max(0.0, ts))
+        key = (eid, round(ts_clamped, 2))
+        if key in seen_pairs:
+            continue
+        seen_pairs.add(key)
+        valid_requests.append(
+            InspectionRequest(
+                element_id=eid[:80],
+                timestamp_s=round(ts_clamped, 3),
+                reason=(req.reason or "").strip()[:240],
+            )
+        )
+        if len(valid_requests) >= 6:
+            break
+    return valid_requests

@@ -251,7 +251,7 @@ export function updateObjectInScene(
         source: 'user_edit',
         visibility: updated.provenance?.visibility ?? 'observed',
         evidence_frame_ids: updated.provenance?.evidence_frame_ids ?? [],
-        note: updated.provenance?.note || 'Edited in RoomLab 3D editor.',
+        note: updated.provenance?.note || 'Edited in SpatialTwin 3D editor.',
       },
     };
   });
@@ -265,10 +265,13 @@ export function addObjectToScene(scene: RoomSceneV1, category = 'table'): { scen
   while (existingIds.has(`obj-${idx}`)) idx += 1;
   const newId = `obj-${idx}`;
 
-  const presets: Record<string, { label: string; w: number; d: number; h: number; movable: boolean; color: string; material: 'wood' | 'fabric' | 'foliage' | 'concrete' }> = {
+  const presets: Record<string, { label: string; w: number; d: number; h: number; movable: boolean; color: string; material: 'wood' | 'fabric' | 'foliage' | 'concrete' | 'metal' }> = {
     table: { label: `Table ${idx}`, w: 1.4, d: 0.8, h: 0.75, movable: true, color: '#a8743f', material: 'wood' },
     chair: { label: `Chair ${idx}`, w: 0.55, d: 0.55, h: 0.82, movable: true, color: '#5d6875', material: 'fabric' },
     sofa: { label: `Sofa ${idx}`, w: 1.9, d: 0.9, h: 0.85, movable: true, color: '#6f7f8e', material: 'fabric' },
+    bed: { label: `Bed ${idx}`, w: 1.55, d: 2.05, h: 0.95, movable: true, color: '#d8d4cb', material: 'fabric' },
+    shelf: { label: `Bookshelf ${idx}`, w: 0.9, d: 0.35, h: 1.85, movable: true, color: '#9c7248', material: 'wood' },
+    appliance: { label: `Appliance ${idx}`, w: 0.75, d: 0.75, h: 1.75, movable: false, color: '#c4c9ce', material: 'metal' },
     counter: { label: `Desk ${idx}`, w: 1.5, d: 0.75, h: 0.76, movable: true, color: '#a8743f', material: 'wood' },
     stool: { label: `Stool ${idx}`, w: 0.42, d: 0.42, h: 0.48, movable: true, color: '#cbb696', material: 'wood' },
     plant: { label: `Potted Plant ${idx}`, w: 0.65, d: 0.65, h: 1.5, movable: true, color: '#4a8a3e', material: 'foliage' },

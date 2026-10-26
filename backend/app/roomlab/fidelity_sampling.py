@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 import imageio_ffmpeg
-from .contracts import EvidenceFrame, MediaRecord
+from .contracts import EvidenceFrame, InspectionRequest, MediaRecord
 from .media import _extract_frame_jpeg
 from .video_extractor import _safe_media_child
 
@@ -23,27 +23,112 @@ def prepare_evidence(media: MediaRecord, media_root: Path) -> tuple[MediaRecord,
     return media.model_copy(update={'frames':frames}),report
 
 
-def detail_evidence(media: MediaRecord, media_root: Path, draft) -> tuple[list[EvidenceFrame], list[dict]]:
-    """Revisit evidence around ambiguous architectural elements at 4fps, with a strict budget."""
-    catalog={f.frame_id:f for f in media.frames};targets=[]
-    elements=[*draft.walls,*draft.openings,*draft.objects]
+def detail_evidence(
+    media: MediaRecord,
+    media_root: Path,
+    draft,
+    plan: list[InspectionRequest] | None = None,
+) -> tuple[list[EvidenceFrame], list[dict]]:
+    """Revisit evidence around model-requested and validation-flagged elements at 4fps, with a strict budget."""
+    catalog = {f.frame_id: f for f in media.frames}
+    targets: list[dict] = []
+    seen_el: set[str] = set()
+    known_ids = {
+        *(w.id for w in draft.walls),
+        *(o.id for o in draft.openings),
+        *(o.id for o in draft.objects),
+        *(v.id for v in draft.floor_voids),
+    }
+
+    # 1. Consume up to 6 validated model-directed InspectionRequests first
+    for req in (plan or [])[:6]:
+        eid = (req.element_id or "").strip()
+        if not eid or eid not in known_ids:
+            continue
+        ts = float(req.timestamp_s)
+        if not (0.0 <= ts <= float(media.duration_s) + 1e-6):
+            continue
+        ts_clamped = round(min(float(media.duration_s), max(0.0, ts)), 3)
+        if any(t["element_id"] == eid and abs(t["timestamp_s"] - ts_clamped) < 0.05 for t in targets):
+            continue
+        seen_el.add(eid)
+        targets.append(
+            dict(
+                element_id=eid,
+                timestamp_s=ts_clamped,
+                source="model_plan",
+                reason=(req.reason or "").strip()[:240],
+            )
+        )
+        if len(targets) >= 6:
+            break
+
+    # 2. Include any elements currently flagged by deterministic validation (e.g. object_wall_overlap, object_overlap, object_outside)
+    try:
+        from .contracts import RoomSceneV1
+        from .validation import validate_scene
+        val = validate_scene(RoomSceneV1(**draft.model_dump(), scene_id="detail-check", evidence_frames=media.frames))
+        flagged_ids = {
+            eid
+            for issue in val.issues
+            if issue.code in (
+                "object_wall_overlap",
+                "object_outside",
+                "object_overlap",
+                "overlapping_openings",
+                "opening_outside_wall",
+                "opening_above_wall",
+                "partition_outside",
+                "invalid_void",
+            )
+            for eid in issue.element_ids
+        }
+    except Exception:
+        flagged_ids = set()
+
+    elements = [*draft.walls, *draft.openings, *draft.objects, *draft.floor_voids]
     def priority(element):
-        category=str(getattr(element,'category','')).lower()
-        if 'stair' in category:return 0
-        if getattr(element,'kind','') in ('door','window'):return 1
-        appearance=getattr(element,'appearance',None)
-        if appearance and appearance.material=='glass':return 2
-        return 3 if getattr(element,'uncertainty_radius_m',0)>.2 else 4
-    for element in sorted(elements,key=priority):
-        tag=(getattr(element,'category','')+' '+getattr(element,'label','')).lower()
-        appearance=getattr(element,'appearance',None)
-        critical=('stair' in tag or getattr(element,'kind','')=='door' or
-                  (appearance is not None and appearance.material=='glass') or
-                  getattr(element,'uncertainty_radius_m',0)>.2 or element.provenance.visibility!='observed')
+        eid = getattr(element, "id", "")
+        if eid in flagged_ids:
+            return -1
+        category = str(getattr(element, "category", "")).lower()
+        if "stair" in category:
+            return 0
+        if getattr(element, "kind", "") in ("door", "window"):
+            return 1
+        appearance = getattr(element, "appearance", None)
+        if appearance and appearance.material == "glass":
+            return 2
+        return 3 if getattr(element, "uncertainty_radius_m", 0) > 0.2 else 4
+
+    for element in sorted(elements, key=priority):
+        if len(targets) >= 8:
+            break
+        eid = getattr(element, "id", "")
+        if eid in seen_el:
+            continue
+        tag = (getattr(element, "category", "") + " " + getattr(element, "label", "")).lower()
+        appearance = getattr(element, "appearance", None)
+        critical = (
+            eid in flagged_ids
+            or "stair" in tag
+            or getattr(element, "kind", "") == "door"
+            or (appearance is not None and appearance.material == "glass")
+            or getattr(element, "uncertainty_radius_m", 0) > 0.2
+            or element.provenance.visibility != "observed"
+        )
         if critical:
-            cited=[catalog[i] for i in element.provenance.evidence_frame_ids if i in catalog]
-            if cited:targets.append(dict(element_id=element.id,timestamp_s=cited[len(cited)//2].timestamp_s))
-    targets=targets[:8]
+            cited = [catalog[i] for i in element.provenance.evidence_frame_ids if i in catalog]
+            if cited:
+                seen_el.add(eid)
+                targets.append(
+                    dict(
+                        element_id=eid,
+                        timestamp_s=cited[len(cited) // 2].timestamp_s,
+                        source="validation" if eid in flagged_ids else "heuristic",
+                    )
+                )
+    targets = targets[:8]
     source=_safe_media_child(media_root,media.video_url.removeprefix('/media/'))
     known={round(f.timestamp_s,2) for f in media.frames};frames=[];seen=set()
     for target in targets:

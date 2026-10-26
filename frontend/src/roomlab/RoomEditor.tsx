@@ -623,9 +623,11 @@ export const RoomEditor: React.FC<RoomEditorProps> = ({
           {(
             [
               { cat: "sofa", label: "+ Sofa" },
+              { cat: "bed", label: "+ Bed" },
               { cat: "counter", label: "+ Desk" },
               { cat: "table", label: "+ Table" },
               { cat: "chair", label: "+ Chair" },
+              { cat: "shelf", label: "+ Shelf" },
               { cat: "plant", label: "+ Plant" },
             ] as const
           ).map((item) => (

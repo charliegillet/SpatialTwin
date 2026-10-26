@@ -7,7 +7,7 @@ import { wallFrameParts } from './wallVisualParts.ts';
 import { resolveFloorAppearance, resolveAppearance, resolveWallAppearance, materialHint } from './appearance.ts';
 
 test('actual proxy vertices stay inside canonical OBB with unequal tiny dimensions and parent yaw',()=>{
-  for(const category of ['plant','stool','sofa','counter','table','chair','bicycle','stairs','door_leaf','stand','pillar','bin','custom'])
+  for(const category of ['plant','stool','sofa','bed','shelf','appliance','tv','counter','table','chair','bicycle','stairs','door_leaf','stand','pillar','bin','custom'])
   for(const [w,h,d] of [[.011,.007,.003],[.003,.007,.011],[1.2,.8,2.4],[2.4,.8,1.2],[1.6,3.2,2.8],[3.2,3.2,1.6],[.4,3.2,.8],[.8,.8,.8]])
   for(const mode of ['proxy','bounds'])
   for(const yaw of [0,Math.PI/6,Math.PI/2]) {

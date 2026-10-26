@@ -33,7 +33,7 @@ def create_app(runtime:Path|None=None)->FastAPI:
     async def lifespan(_app):
         for previous in jobs.values():
             if previous.status in ('queued','running'):
-                previous.status='failed';previous.error='Room building stopped when the server restarted. Retry this walkthrough.';journal.save(previous)
+                previous.status='failed';previous.stage='failed';previous.error='Room building stopped when the server restarted. Retry this walkthrough.';journal.save(previous)
         yield
         await critic.close()
         await close_fidelity()
@@ -103,18 +103,24 @@ def create_app(runtime:Path|None=None)->FastAPI:
         except (ValueError,FileNotFoundError):raise HTTPException(404,'Media not found.')
 
     async def extract_job(job:JobRecord,media:MediaRecord,quality:str):
+        def record_progress(stage:str,msg:str):
+            job.stage=stage
+            if msg and msg not in job.agent_steps:
+                job.agent_steps=[*job.agent_steps[-29:],msg]
+            journal.save(job)
         try:
             async with limit:
-                job.status='running';journal.save(job)
+                job.status='running';record_progress('starting',f'Started {quality} reconstruction for {media.filename} ({media.duration_s:.1f}s)…')
                 from .video_extractor import propose_room,extraction_timeout_s
                 extractor=app.state.extractor or propose_room
                 fidelity_report=None
                 if quality=='high' and app.state.extractor is None:
                     from .fidelity_pipeline import high_fidelity_room
                     result,media,fidelity_report=await asyncio.wait_for(
-                        high_fidelity_room(media,media_root,api_key=os.environ.get('GEMINI_API_KEY')),
+                        high_fidelity_room(media,media_root,api_key=os.environ.get('GEMINI_API_KEY'),progress=record_progress),
                         timeout=min(10800,extraction_timeout_s(media.duration_s)+2280))
                 else:
+                    record_progress('drafting_room',f'Running Gemini 4 Argon room layout extraction across {len(media.frames)} keyframes…')
                     result=await asyncio.wait_for(extractor(media,media_root,api_key=os.environ.get('GEMINI_API_KEY')),timeout=extraction_timeout_s(media.duration_s))
                 from .contracts import Wall
                 pending=RoomSceneV1(**result.draft.model_dump(),scene_id='pending',evidence_frames=media.frames)
@@ -124,6 +130,7 @@ def create_app(runtime:Path|None=None)->FastAPI:
                 if errors:
                     result.draft.topology_review_required=True
                     if fidelity_report is not None:fidelity_report['geometry_errors']=errors
+                record_progress('saving',f'Saving room "{result.draft.name}" ({len(result.draft.objects)} objects, {len(media.frames)} evidence frames)…')
                 scene=store.create(result.draft,media.frames)
                 if fidelity_report is not None:
                     from .fidelity_pipeline import atomic_json
@@ -133,10 +140,14 @@ def create_app(runtime:Path|None=None)->FastAPI:
                 report=validate_scene(scene)
                 job.warnings += [x.message for x in report.issues]
                 job.status='completed'
-        except asyncio.CancelledError:job.status='cancelled';job.error='Room building was cancelled. You can retry.'
-        except asyncio.TimeoutError:job.status='failed';job.error='Extraction exceeded its adaptive time budget. Your uploaded video is preserved; retry the extraction.'
+                job.stage='completed'
+                job.agent_steps=[*job.agent_steps[-29:],f'Saved editable room {scene.scene_id} (rev {scene.scene_revision}).']
+        except asyncio.CancelledError:
+            job.status='cancelled';job.stage='cancelled';job.error='Room building was cancelled. You can retry.'
+        except asyncio.TimeoutError:
+            job.status='failed';job.stage='failed';job.error='Extraction exceeded its adaptive time budget. Your uploaded video is preserved; retry the extraction.'
         except Exception as exc:
-            job.status='failed'
+            job.status='failed';job.stage='failed'
             # Provider modules supply user-safe RuntimeError/ValueError messages. Never emit key-bearing raw SDK errors.
             job.error=str(exc)[:600] if isinstance(exc,(RuntimeError,ValueError)) else 'Room extraction failed. Try a clearer translated walkthrough.'
             log.warning('Extraction job failed: %s',type(exc).__name__)
@@ -163,7 +174,7 @@ def create_app(runtime:Path|None=None)->FastAPI:
     async def cancel(id:str):
         value=job(id)
         if value.status in ('running','queued'):
-            tasks[id].cancel();value.status='cancelled';value.error='Room building was cancelled. You can retry.';journal.save(value)
+            tasks[id].cancel();value.status='cancelled';value.stage='cancelled';value.error='Room building was cancelled. You can retry.';journal.save(value)
         return value
 
     @app.get('/api/roomlab/rooms',response_model=RoomLibrary)

@@ -881,6 +881,35 @@
     "title": "RoomSceneV1",
     "type": "object"
   },
+  "InspectionRequest": {
+    "additionalProperties": false,
+    "properties": {
+      "element_id": {
+        "maxLength": 80,
+        "minLength": 1,
+        "title": "Element Id",
+        "type": "string"
+      },
+      "timestamp_s": {
+        "maximum": 1000,
+        "minimum": 0,
+        "title": "Timestamp S",
+        "type": "number"
+      },
+      "reason": {
+        "default": "",
+        "maxLength": 240,
+        "title": "Reason",
+        "type": "string"
+      }
+    },
+    "required": [
+      "element_id",
+      "timestamp_s"
+    ],
+    "title": "InspectionRequest",
+    "type": "object"
+  },
   "RoomDraftResult": {
     "additionalProperties": false,
     "properties": {
@@ -909,6 +938,14 @@
           "type": "string"
         },
         "title": "Warnings",
+        "type": "array"
+      },
+      "inspect_requests": {
+        "items": {
+          "$ref": "#/$defs/InspectionRequest"
+        },
+        "maxItems": 6,
+        "title": "Inspect Requests",
         "type": "array"
       }
     },
@@ -1374,6 +1411,26 @@
         ],
         "title": "Status",
         "type": "string"
+      },
+      "stage": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Stage"
+      },
+      "agent_steps": {
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 30,
+        "title": "Agent Steps",
+        "type": "array"
       },
       "media_id": {
         "title": "Media Id",

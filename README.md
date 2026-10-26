@@ -209,3 +209,15 @@ References: [COLMAP capture guidance](https://colmap.github.io/tutorial),
 [PyCOLMAP](https://colmap.github.io/pycolmap/index.html),
 [Gemini video processing](https://ai.google.dev/gemini-api/docs/video-understanding.md),
 [Apple RoomPlan](https://developer.apple.com/augmented-reality/roomplan/).
+
+Detailed extraction can now consume up to six model-directed inspection requests.
+Only known scene elements and finite timestamps inside the uploaded clip are accepted;
+requests are deduplicated and share the existing eight-target/48-detail-frame budget
+with validation-driven and heuristic fallback. The refiner receives the initial BEV,
+validation diagnostics, wider source views and targeted detail views. This is one
+bounded model-directed reinspection pass, not an open-ended autonomous tool loop.
+
+The Source panel shows persisted processing-stage events. Completion is recorded
+only after the room has been saved; failures/cancellation retain their terminal
+stages. Added bed, shelf, appliance and TV proxies remain inside canonical OBBs.
+Category labels take precedence over incidental words in object names.

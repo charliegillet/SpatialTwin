@@ -126,12 +126,18 @@ class RoomSceneV1(RoomDraft):
     calibration: Calibration | None = None
     evidence_frames: list[EvidenceFrame] = Field(default_factory=list,max_length=200)
 
+class InspectionRequest(Contract):
+    element_id: str = Field(min_length=1, max_length=80)
+    timestamp_s: Nonnegative
+    reason: str = Field(default='', max_length=240)
+
 class RoomDraftResult(Contract):
     draft: RoomDraft
     model: str = 'gemini-4-argon'
     provenance: Literal['live'] = 'live'
     latency_ms: Annotated[float, Field(ge=0, le=10_800_000, allow_inf_nan=False)]
     warnings: list[str] = Field(default_factory=list)
+    inspect_requests: list[InspectionRequest] = Field(default_factory=list, max_length=6)
 
 class ValidationIssue(Contract):
     code: str
@@ -194,6 +200,8 @@ class ExtractRequest(Contract):
 class JobRecord(Contract):
     job_id: str
     status: Literal['queued','running','completed','failed','cancelled']
+    stage: str | None = None
+    agent_steps: list[str] = Field(default_factory=list, max_length=30)
     media_id: str
     scene_id: str | None = None
     error: str | None = None

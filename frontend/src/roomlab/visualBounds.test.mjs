@@ -20,6 +20,10 @@ test("all object categories fit strictly inside declared OBB in both proxy and b
     { category: "stairs", label: "Interior Staircase", w: 3.2, h: 3.2, d: 1.6 },
     { category: "bin", label: "White Bin", w: 0.4, h: 0.65, d: 0.4 },
     { category: "pillar", label: "Structural Column", w: 0.5, h: 3.0, d: 0.5 },
+    { category: "bed", label: "Queen Bed", w: 1.55, h: 0.95, d: 2.05 },
+    { category: "shelf", label: "Tall Bookshelf", w: 0.9, h: 1.85, d: 0.35 },
+    { category: "appliance", label: "Refrigerator", w: 0.8, h: 1.8, d: 0.8 },
+    { category: "tv", label: "Wall Display & Stand", w: 1.4, h: 1.1, d: 0.4 },
     { category: "unknown_custom", label: "Mystery Crate", w: 1.1, h: 0.6, d: 0.7 },
   ];
 
@@ -46,6 +50,9 @@ test("all object categories fit strictly inside declared OBB in both proxy and b
   // Ensure incidental "Near Stairs" plant is classified as plant, not stairs
   assert.equal(classifyVisualCategory("plant", "Potted Plant (Near Stairs)"), "plant");
   assert.equal(classifyVisualCategory("stairs", "Interior Staircase"), "stairs");
+  // Ensure explicit category precedes label keywords ('Countertop microwave', 'Reception display')
+  assert.equal(classifyVisualCategory("appliance", "Countertop microwave"), "appliance");
+  assert.equal(classifyVisualCategory("tv", "Reception display"), "tv");
 });
 
 test("opening visual parts fit strictly within aperture width, sill..sill+height, and wall thickness", () => {
@@ -66,7 +73,7 @@ test("opening visual parts fit strictly within aperture width, sill..sill+height
 });
 
 test("small imported dimensions never enlarge proxy or aperture geometry", () => {
-  for (const category of ['table','counter','chair','stool','sofa','plant','bicycle','stairs','bin','pillar','custom']) {
+  for (const category of ['table','counter','chair','stool','sofa','bed','shelf','appliance','tv','plant','bicycle','stairs','bin','pillar','custom']) {
     for (const mode of ['proxy','bounds']) {
       assert.ok(verifyPartsWithinOBB(buildObjectVisualParts(.003,.007,.011,category,'',mode),.003,.007,.011), category);
     }
@@ -77,4 +84,9 @@ test("small imported dimensions never enlarge proxy or aperture geometry", () =>
     assert.ok(b.minY>=.2-1e-6 && b.maxY<=.207+1e-6);
     assert.ok(b.minZ>=-.0005-1e-6 && b.maxZ<=.0005+1e-6);
   }
+});
+
+
+test('explicit cabinets do not match incidental bin or bedside words',()=>{
+  assert.equal(classifyVisualCategory('cabinet','Bedside cabinet'),'box');
 });

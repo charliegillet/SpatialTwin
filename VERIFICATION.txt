@@ -441,3 +441,19 @@ Adaptive extraction verification (2026-10-25, side conversation):
   openings return422 and create no scene. Eight importer/geometry tests passed.
 - Refinement architecture preservation, wide source anchors, canonical shell ordering
   and preservation of existing review flags were already in the earlier commits.
+
+2026-10-25 AGENTIC REVIEW INTEGRATION
+- Model InspectionRequests now survive provider normalization in RoomDraftResult and
+  control targeted detail timestamps. Requests are finite, clip-bounded, known-ID,
+  deduplicated and capped at6; total fallback/detail budgets remain bounded.
+- Regression verifies two model plans decode different timestamps and an observed,
+  low-uncertainty object_wall_overlap triggers validation-driven reinspection.
+- Added terminal-stage regressions for storage failure, cancellation and interrupted
+  restart. No completed stage or saved-room trace appears after a failed scene save.
+- Canonical appliance/TV categories override Countertop microwave/Reception display
+  labels. Explicit cabinets do not match incidental bin/bedside words. Actual proxy
+  vertex containment tests now include bed/shelf/appliance/TV with yaw and tiny boxes.
+- Added BEV + deterministic validation diagnostics to the source refinement input;
+  event trace uses neutral bullets. Existing whole-scene ID and topology guards stay.
+- Verification:91 backend tests,14 frontend tests and TypeScript/Vite build passed.
+  This is a bounded model-directed refinement pass, not an unbounded tool-calling loop.

@@ -21,6 +21,10 @@ export type CanonicalVisualCategory =
   | "chair"
   | "stool"
   | "sofa"
+  | "bed"
+  | "shelf"
+  | "appliance"
+  | "tv"
   | "plant"
   | "bicycle"
   | "stairs"
@@ -58,34 +62,54 @@ export function classifyVisualCategory(
   const cat = (category || "").trim().toLowerCase();
   const lbl = (label || "").trim().toLowerCase();
 
+  // 1. Check category string first so an explicit category (e.g. 'appliance', 'tv')
+  // is never overridden by incidental words in the label (e.g. 'Countertop microwave', 'Reception display').
+  if (cat === "cabinet") return "box"; // A cabinet is not a trash bin or a bed inferred from its label.
   if (cat === "door_leaf") return "door_leaf";
   if (cat === "stand" || cat === "sanitizer_stand") return "stand";
+  if (cat === "stairs" || cat === "staircase" || cat === "stair") return "stairs";
+  if (cat.includes("stool")) return "stool";
   if (
-    cat === "stairs" ||
-    cat === "staircase" ||
-    cat === "stair" ||
-    lbl.startsWith("stair") ||
-    lbl.startsWith("interior stair")
+    cat.includes("appliance") ||
+    cat.includes("fridge") ||
+    cat.includes("refrigerator") ||
+    cat.includes("washer") ||
+    cat.includes("dryer") ||
+    cat.includes("stove") ||
+    cat.includes("oven") ||
+    cat.includes("microwave")
   ) {
-    return "stairs";
+    return "appliance";
   }
-  if (cat.includes("stool") || lbl.includes("stool")) return "stool";
+  if (
+    cat.includes("tv") ||
+    cat.includes("screen") ||
+    cat.includes("monitor") ||
+    cat.includes("display")
+  ) {
+    return "tv";
+  }
+  if (cat.includes("bed") || cat.includes("mattress") || cat.includes("cot")) {
+    return "bed";
+  }
+  if (
+    cat.includes("shelf") ||
+    cat.includes("bookcase") ||
+    cat.includes("bookshelf") ||
+    cat.includes("rack") ||
+    cat.includes("wardrobe") ||
+    cat.includes("closet")
+  ) {
+    return "shelf";
+  }
   if (
     cat.includes("counter") ||
     cat.includes("reception") ||
-    cat.includes("island") ||
-    lbl.includes("reception") ||
-    lbl.includes("counter")
+    cat.includes("island")
   ) {
     return "counter";
   }
-  if (
-    cat.includes("sofa") ||
-    cat.includes("couch") ||
-    cat.includes("bench") ||
-    lbl.includes("sofa") ||
-    lbl.includes("couch")
-  ) {
+  if (cat.includes("sofa") || cat.includes("couch") || cat.includes("bench")) {
     return "sofa";
   }
   if (cat.includes("chair") || cat.includes("seat")) return "chair";
@@ -95,21 +119,25 @@ export function classifyVisualCategory(
   if (
     cat.includes("bicycle") ||
     cat.includes("bike") ||
-    cat.includes("scooter") ||
-    lbl.includes("bicycle") ||
-    lbl.includes("scooter")
+    cat.includes("scooter")
   ) {
     return "bicycle";
   }
-  if (
-    cat.includes("bin") ||
-    cat.includes("trash") ||
-    lbl.includes("bin") ||
-    lbl.includes("trash")
-  ) {
-    return "bin";
-  }
+  if (cat.includes("bin") || cat.includes("trash")) return "bin";
   if (cat.includes("pillar") || cat.includes("column")) return "pillar";
+
+  // 2. Fallback to label heuristics only when category is generic/unspecified
+  if (lbl.startsWith("stair") || lbl.startsWith("interior stair")) return "stairs";
+  if (lbl.includes("stool")) return "stool";
+  if (lbl.includes("fridge") || lbl.includes("refrigerator")) return "appliance";
+  if (lbl.includes("tv") || lbl.includes("monitor")) return "tv";
+  if (lbl.includes("bed")) return "bed";
+  if (lbl.includes("shelf") || lbl.includes("bookcase") || lbl.includes("wardrobe"))
+    return "shelf";
+  if (lbl.includes("reception") || lbl.includes("counter")) return "counter";
+  if (lbl.includes("sofa") || lbl.includes("couch")) return "sofa";
+  if (lbl.includes("bicycle") || lbl.includes("scooter")) return "bicycle";
+  if (lbl.includes("bin") || lbl.includes("trash")) return "bin";
   return "box";
 }
 
@@ -564,6 +592,131 @@ function buildRawObjectVisualParts(
       size: [w, h, d],
       role: "frame",
     });
+  } else if (kind === "bed") {
+    const baseH = h * 0.36;
+    const mattH = h * 0.28;
+    const headThick = Math.min(0.14, d * 0.12);
+    const pillowD = Math.min(0.32, d * 0.2);
+    const pillowH = Math.min(0.12, h * 0.15);
+    rawParts.push(
+      {
+        id: "bed-frame",
+        shape: "box",
+        position: [0, baseH * 0.5, 0],
+        size: [w, baseH, d],
+        role: "frame",
+      },
+      {
+        id: "bed-mattress",
+        shape: "box",
+        position: [0, baseH + mattH * 0.5, headThick * 0.3],
+        size: [w * 0.96, mattH, Math.max(0.1, d - headThick * 0.6)],
+        role: "primary",
+      },
+      {
+        id: "bed-headboard",
+        shape: "box",
+        position: [0, h * 0.5, -d * 0.5 + headThick * 0.5],
+        size: [w, h, headThick],
+        role: "secondary",
+      },
+      {
+        id: "bed-pillow-l",
+        shape: "box",
+        position: [-w * 0.24, baseH + mattH + pillowH * 0.5, -d * 0.5 + headThick + pillowD * 0.6],
+        size: [w * 0.38, pillowH, pillowD],
+        role: "secondary",
+      },
+      {
+        id: "bed-pillow-r",
+        shape: "box",
+        position: [w * 0.24, baseH + mattH + pillowH * 0.5, -d * 0.5 + headThick + pillowD * 0.6],
+        size: [w * 0.38, pillowH, pillowD],
+        role: "secondary",
+      },
+    );
+  } else if (kind === "shelf") {
+    const sideT = Math.min(0.05, w * 0.08);
+    const shelfT = Math.min(0.04, h * 0.04);
+    const backT = Math.min(0.03, d * 0.1);
+    rawParts.push(
+      {
+        id: "shelf-side-l",
+        shape: "box",
+        position: [-w * 0.5 + sideT * 0.5, h * 0.5, 0],
+        size: [sideT, h, d],
+        role: "frame",
+      },
+      {
+        id: "shelf-side-r",
+        shape: "box",
+        position: [w * 0.5 - sideT * 0.5, h * 0.5, 0],
+        size: [sideT, h, d],
+        role: "frame",
+      },
+      {
+        id: "shelf-back",
+        shape: "box",
+        position: [0, h * 0.5, -d * 0.5 + backT * 0.5],
+        size: [w, h, backT],
+        role: "secondary",
+      },
+    );
+    for (let i = 0; i < 4; i++) {
+      const sy = shelfT * 0.5 + (i / 3) * (h - shelfT);
+      rawParts.push({
+        id: `shelf-tier-${i + 1}`,
+        shape: "box",
+        position: [0, sy, 0],
+        size: [Math.max(0.04, w - sideT * 2), shelfT, d * 0.94],
+        role: "primary",
+      });
+    }
+  } else if (kind === "appliance") {
+    const doorT = Math.min(0.06, d * 0.12);
+    rawParts.push(
+      {
+        id: "appliance-body",
+        shape: "box",
+        position: [0, h * 0.5, -doorT * 0.5],
+        size: [w, h, Math.max(0.05, d - doorT)],
+        role: "primary",
+      },
+      {
+        id: "appliance-door-upper",
+        shape: "box",
+        position: [0, h * 0.68, d * 0.5 - doorT * 0.5],
+        size: [w * 0.96, h * 0.58, doorT],
+        role: "secondary",
+      },
+      {
+        id: "appliance-door-lower",
+        shape: "box",
+        position: [0, h * 0.18, d * 0.5 - doorT * 0.5],
+        size: [w * 0.96, h * 0.34, doorT],
+        role: "secondary",
+      },
+    );
+  } else if (kind === "tv") {
+    const standH = h * 0.35;
+    const screenH = Math.max(0.08, h - standH);
+    const screenT = Math.min(0.08, d * 0.25);
+    rawParts.push(
+      {
+        id: "tv-console",
+        shape: "box",
+        position: [0, standH * 0.5, 0],
+        size: [w, standH, d],
+        role: "secondary",
+      },
+      {
+        id: "tv-panel",
+        shape: "box",
+        position: [0, standH + screenH * 0.5, 0],
+        size: [w * 0.92, screenH, screenT],
+        role: "frame",
+      },
+    );
   } else {
     rawParts.push({
       id: "generic-box",

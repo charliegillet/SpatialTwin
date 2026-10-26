@@ -74,14 +74,20 @@ def geometry_overview(tracking:dict)->bytes|None:
 
 
 async def high_fidelity_room(media:MediaRecord,media_root:Path,api_key:str|None=None,*,client=None,
-                             tracker=track_camera,extractor=propose_room)->tuple[RoomDraftResult,MediaRecord,dict]:
+                             tracker=track_camera,extractor=propose_room,progress=None)->tuple[RoomDraftResult,MediaRecord,dict]:
+    def emit(stage:str,msg:str):
+        if callable(progress):progress(stage,msg)
     started=time.monotonic()
+    emit('scoring_frames',f'Scanning {media.duration_s:.1f}s walkthrough at 2fps for sharpness, exposure & viewpoint diversity…')
     selected,selection=await asyncio.to_thread(prepare_evidence,media,media_root)
+    emit('tracking_cameras',f'Selected {len(selected.frames)}/{selection.get("candidate_count",len(selected.frames))} sharp keyframes ({selection.get("duplicate_skipped_count",0)} duplicates skipped). Running multi-view camera tracking…')
     work=media_root/media.media_id/('fidelity-'+uuid.uuid4().hex)
     tracking=await tracker(selected,media_root,work)
+    emit('drafting_room',f'Camera tracking: {tracking.get("status","done")} ({tracking.get("registered_images",0)}/{tracking.get("input_images",len(selected.frames))} views). Running Gemini 4 Argon spatial draft…')
     initial=await extractor(selected,media_root,api_key=api_key,**({'client':client} if client is not None else {}))
     atomic_json(work/'initial-draft.json',initial.draft.model_dump(mode='json'))
-    details,targets=await asyncio.to_thread(detail_evidence,selected,media_root,initial.draft)
+    emit('extracting_detail_crops',f'Drafted "{initial.draft.name}" ({len(initial.draft.walls)} walls, {len(initial.draft.objects)} objects). Extracting 1600px 4fps detail crops around {len(initial.inspect_requests)} model-requested and uncertain elements…')
+    details,targets=await asyncio.to_thread(detail_evidence,selected,media_root,initial.draft,initial.inspect_requests)
     augmented=selected.model_copy(update={'frames':sorted([*selected.frames,*details],key=lambda f:f.timestamp_s)})
     report=dict(version=1,selection=selection,tracking=tracking,
         refinement=dict(status='not_needed',additional_frames=len(details),targets=targets),
@@ -93,18 +99,31 @@ async def high_fidelity_room(media:MediaRecord,media_root:Path,api_key:str|None=
         report['refinement']['status']='unavailable'
         report['refinement']['message']='Targeted views could not be decoded; the initial complete draft was retained.'
     if details:
-        inputs=[dict(type='text',text='Refine this ESTIMATED single-level room using additional source views. '
+        emit('refining_geometry',f'Extracted {len(details)} high-res (1600px) close-up views across {len(targets)} target elements. Running closed-loop BEV + detail refinement with Gemini 4 Argon…')
+        before_scene=RoomSceneV1(**initial.draft.model_dump(),scene_id='before',evidence_frames=selected.frames)
+        before=validate_scene(before_scene)
+        diag_issues=[dict(code=i.code,severity=i.severity,element_ids=i.element_ids,message=i.message) for i in before.issues]
+        inputs=[dict(type='text',text='Refine this ESTIMATED single-level room using additional source views and the rendered 2D BEV plan preview of the initial draft. '
             'Prioritize these targets: '+json.dumps(targets)+'. Retain distinct furniture, stair direction and glass walls. '
             'Only correct what source views support; do not guess hidden geometry. '
             'Do not infer metres from the unscaled camera reconstruction. '
             'Preserve original element IDs and valid citations; old views remain evidence through their citations. '
             'Keep geometry not contradicted by the additional views. '
+            'If validation_diagnostics reports object_overlap or object_outside and the video shows those items are distinct and non-overlapping, adjust their estimated centers/dimensions slightly to match the video. '
             'Return the complete provider room schema, not a patch. '
             'Camera diagnostics: '+json.dumps({k:v for k,v in tracking.items() if k not in ('points','cameras')})+
+            '\nValidation diagnostics on initial draft: '+json.dumps(diag_issues)+
             '\nExisting draft: '+initial.draft.model_dump_json()+
             '\nNOTE canonical draft uses floor [x,z], object center [x,z]; output must convert these '
             'back to provider floor_vertices {x_m,z_m}, objects x_m,z_m and wall-attached openings. '
             '\nAllowed evidence IDs: '+json.dumps([f.frame_id for f in augmented.frames]))]
+        try:
+            from .scene_preview import render_scene_preview
+            bev_png=render_scene_preview(before_scene)
+            inputs.extend([dict(type='text',text='Rendered 2D BEV Floor Plan of Initial Draft (compare against video frames):'),
+                dict(type='image',mime_type='image/png',data=base64.b64encode(bev_png).decode('ascii'))])
+        except Exception:
+            pass
         overview_ids=sorted({round(i*(len(selected.frames)-1)/3) for i in range(4)}) if selected.frames else []
         review_frames=[*[selected.frames[i] for i in overview_ids],*details]
         for frame in review_frames:
@@ -117,7 +136,6 @@ async def high_fidelity_room(media:MediaRecord,media_root:Path,api_key:str|None=
             payload=await _request_payload(active,inputs,initial_tokens=32768,synthesis=True)
             refined,warnings=normalize_provider_payload(payload,{f.frame_id for f in augmented.frames})
             atomic_json(work/'refinement-candidate.json',refined.model_dump(mode='json'))
-            before=validate_scene(RoomSceneV1(**initial.draft.model_dump(),scene_id='before',evidence_frames=selected.frames))
             after=validate_scene(RoomSceneV1(**refined.model_dump(),scene_id='after',evidence_frames=augmented.frames))
             before_errors=sum(i.severity=='error' for i in before.issues)
             after_errors=sum(i.severity=='error' for i in after.issues)
@@ -127,16 +145,21 @@ async def high_fidelity_room(media:MediaRecord,media_root:Path,api_key:str|None=
             if after_errors>before_errors or not old_ids.issubset(new_ids):
                 report['refinement']['status']='rejected'
                 report['refinement']['message']='Refinement introduced validation errors or dropped existing architecture/furniture; initial draft retained.'
+                emit('refinement_reviewed','Refinement candidate dropped elements or increased errors; retained complete initial draft.')
             else:
                 refined.topology_review_required = refined.topology_review_required or initial.draft.topology_review_required
                 result=initial.model_copy(update={'draft':refined,'warnings':[*initial.warnings,*warnings]})
                 report['refinement']['status']='applied'
                 report['refinement']['message']='Source-informed model revision, not a measured accuracy improvement.'
+                emit('refinement_reviewed',f'Applied closed-loop refinement ({len(refined.objects)} objects, {after_errors} errors).')
         except RuntimeError:
             report['refinement']['status']='failed'
             report['refinement']['message']='Optional source reinspection did not complete; initial complete draft retained.'
+            emit('refinement_reviewed','Optional refinement call did not complete; retained complete initial draft.')
         finally:
             if client is None:await _close_sdk_client(active)
+    else:
+        emit('refinement_reviewed',f'Completed spatial extraction ({len(result.draft.objects)} objects).')
     result=result.model_copy(update={'latency_ms':round((time.monotonic()-started)*1000,2),
         'warnings':[*result.warnings,*selection['warnings'],
                     f"Camera tracking: {tracking['status']}. {tracking.get('message','')}",

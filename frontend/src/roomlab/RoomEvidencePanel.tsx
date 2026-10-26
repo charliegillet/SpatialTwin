@@ -106,7 +106,10 @@ export const RoomEvidencePanel: React.FC<RoomEvidencePanelProps> = ({
       {job && (
         <div className={`rl-job-banner rl-job-banner--${job.status}`}>
           <div className="rl-job-row">
-            <strong>Extraction Job: {job.status.toUpperCase()}</strong>
+            <strong>
+              Extraction Job: {job.status.toUpperCase()}
+              {job.stage ? ` (${job.stage.replace(/_/g, " ")})` : ""}
+            </strong>
             {job.latency_ms != null && (
               <span>{(job.latency_ms / 1000).toFixed(2)}s</span>
             )}
@@ -115,6 +118,13 @@ export const RoomEvidencePanel: React.FC<RoomEvidencePanelProps> = ({
             <div className="rl-job-meta">
               Model: {job.model} · Provenance: live
             </div>
+          )}
+          {job.agent_steps && job.agent_steps.length > 0 && (
+            <ul className="rl-job-warnings" aria-label="Agent progress steps">
+              {job.agent_steps.map((step, idx) => (
+                <li key={idx}>• {step}</li>
+              ))}
+            </ul>
           )}
           {job.error && (
             <div className="rl-job-error">

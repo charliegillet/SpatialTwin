@@ -29,6 +29,7 @@ from backend.app.roomlab.provider_prompts import (
 )
 from backend.app.roomlab.provider_schema import (
     ProviderRoomPayload,
+    extract_valid_inspect_requests,
     normalize_provider_payload,
     provider_response_json_schema,
 )
@@ -296,6 +297,7 @@ async def propose_room(
             payload = await _request_payload(active_client, synthesis, initial_tokens=MAX_OUTPUT_TOKENS, synthesis=True)
         try:
             draft, warnings = normalize_provider_payload(payload, {f.frame_id for f in media.frames})
+            inspect_requests = extract_valid_inspect_requests(payload, draft, media.duration_s)
         except (ValidationError, ValueError) as exc:
             raise RuntimeError("Gemini room draft failed local schema or geometric validation.") from exc
     finally:
@@ -314,4 +316,5 @@ async def propose_room(
         provenance="live",
         latency_ms=max(0.01, latency_ms),
         warnings=warnings,
+        inspect_requests=inspect_requests,
     )

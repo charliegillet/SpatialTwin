@@ -14,6 +14,9 @@ COORDINATE & GEOMETRIC CONVENTIONS:
 - Ground plane: [x_m, z_m], where +X is right/east and +Z is south/forward; +Y is vertical up.
 - Center the room near the origin (0, 0) on the ground plane.
 - `floor_vertices`: ordered polygon corners [x_m, z_m] around the outer room/mezzanine perimeter (minimum 3 vertices, simple closed loop without self-intersection).
+  - Choose the true room polygon topology for ANY environment: 4 vertices for a rectangular room, 6 vertices for an L-shaped studio/apartment/corridor, 8+ vertices for U-shaped or multi-bay spaces. Never force a non-rectangular room into a rectangle!
+- Populate `room_type` (e.g. `bedroom`, `living_room`, `kitchen`, `office`, `studio_apartment`, `corridor`, `mezzanine_hall`, `clinic`, `retail`), `agent_reasoning` (2-4 concise agentic steps explaining how you determined the perimeter shape, partitions, and furniture grouping), and `inspect_requests` (up to 6 `{element_id, timestamp_s, reason}` requests where 1600px 4fps close-up crops will best resolve ambiguous doors, stairs, glass, or tight furniture).
+- Universal object categories (`objects[].category`): use specific canonical categories across residential, commercial, and industrial rooms: `sofa`, `chair`, `stool`, `table`, `desk`, `counter`, `cabinet`, `bed`, `shelf`, `appliance`, `tv`, `wardrobe`, `plant`, `bin`, `stairs`, `bicycle`, `stand`, `pillar`, `door_leaf`.
 - Outer shell walls are automatically derived in order along `floor_vertices`:
   - `wall-1` connects `floor_vertices[0]` to `floor_vertices[1]`
   - `wall-2` connects `floor_vertices[1]` to `floor_vertices[2]`
