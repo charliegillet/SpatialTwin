@@ -17,14 +17,19 @@ armed, it approves a checked plan nobody approved within its window, after holdi
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import time
+from collections import OrderedDict
+from dataclasses import dataclass
 from typing import Any, Awaitable, Dict, List, Literal, Optional, Set, Tuple
 from uuid import uuid4
 
+from backend.app.ai.receipts import record_live_receipt
+from backend.app.ai.tts import Synthesizer, VoiceClip, VoiceError
 from backend.app.hazard.door_planner import DoorPlanError, plan_doors
 from backend.app.incident.events import EventHub, now_iso
 from backend.app.incident.failsafe import (
-    DEFAULT_WINDOW_SECONDS, deadline_iso, gates_into_hazard, held_reason, join_ids, left_open,
+    DEFAULT_WINDOW_SECONDS, deadline_iso, gates_into_hazard, held_reason, join_ids, left_open, spoken_text,
 )
 from backend.app.incident.gates import ControllerConfig, GateState, VirtualDoorController
 from backend.app.incident.models import (
@@ -36,6 +41,29 @@ from backend.app.venues.schemas import DoorPlanRequest, DoorPlanResponse, Hazard
 
 CONTROLLABLE = ("motorized", "simulated_servo")
 MAX_APPROVALS_KEPT = 20
+MAX_VOICE_JOBS = 8
+
+
+@dataclass
+class _Decision:
+    """What the fail-safe would approve: ``checked`` (an uncommitted re-check) or, when None, ``primary`` as is."""
+    primary: IncidentPlan
+    opening: List[str]
+    doubtful: Set[str]
+    parts: List[str]
+    stuck: Set[str]
+    held: Dict[str, List[str]]
+    checked: Optional[IncidentPlan] = None
+    door_plan: Optional[DoorPlanResponse] = None
+    failed: Optional[str] = None
+
+
+@dataclass
+class _VoiceJob:
+    text: str
+    task: "asyncio.Task[Any]"
+    clip: Optional[VoiceClip] = None
+    error: Optional[str] = None
 
 
 class IncidentError(Exception):
@@ -73,7 +101,8 @@ def _current_task() -> Optional["asyncio.Task[Any]"]:
 
 
 class IncidentManager:
-    def __init__(self, config: Optional[ControllerConfig] = None, hub: Optional[EventHub] = None):
+    def __init__(self, config: Optional[ControllerConfig] = None, hub: Optional[EventHub] = None,
+                 synthesizer: Optional[Synthesizer] = None):
         self.config = config or ControllerConfig()
         self.hub = hub or EventHub()
         self.venue: Optional[VenueV2] = None
@@ -100,6 +129,12 @@ class IncidentManager:
         self._failsafe_revision: Optional[int] = None
         self._failsafe_deadline: Optional[float] = None  # time.monotonic()
         self._failsafe_deadline_at: Optional[str] = None
+        # The fail-safe's voice: Gemini TTS when armed with it and a key is configured, else the browser speaks.
+        self.synthesizer = synthesizer
+        self.failsafe_voice: Literal["gemini", "browser"] = "browser"
+        self._voices: "OrderedDict[str, _VoiceJob]" = OrderedDict()
+        self._approval_voice: Dict[str, str] = {}
+        self._voice_prep: Optional["asyncio.Task[Any]"] = None
 
     # -- binding -------------------------------------------------------------------------------------------------
 
@@ -322,11 +357,7 @@ class IncidentManager:
 
     def _approve_locked(self, plan: IncidentPlan, actor: Literal["operator", "fail_safe"] = "operator") -> ApprovalRecord:
         """Commands every gate whose observed state differs from the plan. Callers hold the lock and checked the plan."""
-        assert self.controller is not None
-        commands: Dict[str, str] = {}
-        for door_id, state in plan.door_states.items():
-            if self.controller.has_gate(door_id) and door_id not in self.stuck and self._observed(door_id) != state:
-                commands[door_id] = "OPEN" if state == "open" else "CLOSED"
+        commands = self._gate_commands(plan, self.stuck)
         approval = ApprovalRecord(
             approval_id=f"apv-{uuid4().hex[:12]}", plan_revision=plan.plan_revision, candidate_hash=plan.candidate_hash,
             door_states=dict(plan.door_states), status="actuating" if commands else "applied", commands=commands,
@@ -440,6 +471,11 @@ class IncidentManager:
         self.held = {}
         self.failsafe_last = None
         self._cancel_failsafe_timer()
+        for job in self._voices.values():
+            if not job.task.done():
+                job.task.cancel()
+        self._voices.clear()
+        self._approval_voice.clear()
 
     def _publish_failsafe(self, line: str) -> None:
         self.hub.publish("failsafe", {"plan_revision": self.plan_revision, "line": line,
@@ -457,6 +493,8 @@ class IncidentManager:
         self._failsafe_deadline_at = deadline_iso(window)
         self._failsafe_timer = asyncio.ensure_future(self._failsafe_after(plan.plan_revision, self._epoch, window))
         self._publish_failsafe(f"FAILSAFE r{plan.plan_revision}: waiting {window:g} s for a person to approve")
+        if self.failsafe_voice == "gemini" and self.voice_available():
+            self._voice_prep = asyncio.ensure_future(self._prepare_voice(plan.plan_revision, self._epoch))
 
     async def _failsafe_after(self, revision: int, epoch: int, delay: float) -> None:
         await asyncio.sleep(delay)
@@ -471,17 +509,11 @@ class IncidentManager:
             except Exception as error:  # noqa: BLE001 - the view must never say "acting" forever
                 self._publish_failsafe(f"FAILSAFE: could not act ({type(error).__name__}); nothing moved; a person must approve")
 
-    async def _failsafe_act_locked(self) -> None:
-        """Nobody approved in time: hold every gate into a hazard room closed, re-check, then approve as the fail-safe."""
-        assert self.controller is not None and self.venue is not None
+    async def _failsafe_decide(self) -> "_Decision":
+        """What the fail-safe would approve now, without changing anything: the current plan as is, or a re-check with
+        every gate into a hazard room held closed and every gate in doubt treated as stuck. Callers hold the lock."""
+        assert self.controller is not None and self.venue is not None and self.plan is not None
         plan, window = self.plan, self.failsafe_window
-        if plan is None or not plan.valid:
-            self._publish_failsafe("FAILSAFE: no checked plan; nothing moved")
-            return
-        if any(a.status == "actuating" for a in self.approvals) or self._approved(plan.plan_revision):
-            return
-        primary = plan
-        # A gate whose position is unknown is never trusted: it counts as stuck closed.
         doubtful = {gid for gid, g in self.controller.gates.items()
                     if g.state in (GateState.FAULT, GateState.UNKNOWN)} - self.stuck
         risky = gates_into_hazard(self.door_plan, self.controller.gates, self.stuck | doubtful) if self.door_plan else {}
@@ -494,25 +526,46 @@ class IncidentManager:
                          f"{join_ids(rooms)}, a room with a hazard)")
         if doubtful:
             parts.append(f"treated {join_ids(sorted(doubtful))} as stuck closed (position unknown)")
-        if opening or doubtful:
-            saved = (set(self.stuck), dict(self.held))
-            self.stuck |= doubtful
-            self.held.update(risky)  # every gate into a hazard room, so the re-check cannot open another one
-            reason = f"fail-safe: nobody approved within {window:g} s; " + "; ".join(parts)
-            try:
-                checked, door_plan = await self._plan(self.hazards, set(self.stuck), reason)
-            except Exception as error:
-                self.stuck, self.held = saved
-                if not isinstance(error, IncidentError):
-                    raise
-                checked = None
-            if checked is None or not checked.valid:
-                # The person's plan stays as it was, approvable; the fail-safe moves nothing it could not check.
-                self.stuck, self.held = saved
-                self._publish_failsafe(f"FAILSAFE r{plan.plan_revision}: no checked plan with "
-                                       f"{join_ids(sorted(set(opening) | doubtful))} closed; nothing moved; a person must approve")
-                return
-            plan = self._commit_plan(checked, self.hazards, door_plan, schedule=False)
+        decision = _Decision(primary=plan, opening=opening, doubtful=doubtful, parts=parts,
+                             stuck=set(self.stuck), held=dict(self.held))
+        if not (opening or doubtful):
+            return decision
+        saved = (set(self.stuck), dict(self.held))
+        self.stuck |= doubtful
+        self.held.update(risky)  # every gate into a hazard room, so the re-check cannot open another one
+        decision.stuck, decision.held = set(self.stuck), dict(self.held)
+        reason = f"fail-safe: nobody approved within {window:g} s; " + "; ".join(parts)
+        try:
+            checked, door_plan = await self._plan(self.hazards, set(self.stuck), reason)
+        except IncidentError:
+            checked, door_plan = None, None
+        finally:
+            self.stuck, self.held = saved  # deciding never changes the incident
+        if checked is None or not checked.valid:
+            decision.failed = (f"no checked plan with {join_ids(sorted(set(opening) | doubtful))} closed; nothing moved; "
+                               "a person must approve")
+        else:
+            decision.checked, decision.door_plan = checked, door_plan
+        return decision
+
+    async def _failsafe_act_locked(self) -> None:
+        """Nobody approved in time: hold every gate into a hazard room closed, re-check, then approve as the fail-safe."""
+        assert self.controller is not None and self.venue is not None
+        plan, window = self.plan, self.failsafe_window
+        if plan is None or not plan.valid:
+            self._publish_failsafe("FAILSAFE: no checked plan; nothing moved")
+            return
+        if any(a.status == "actuating" for a in self.approvals) or self._approved(plan.plan_revision):
+            return
+        decision = await self._failsafe_decide()
+        if decision.failed:
+            # The person's plan stays as it was, approvable; the fail-safe moves nothing it could not check.
+            self._publish_failsafe(f"FAILSAFE r{plan.plan_revision}: {decision.failed}")
+            return
+        primary, parts, opening = decision.primary, list(decision.parts), decision.opening
+        if decision.checked is not None:
+            self.stuck, self.held = decision.stuck, decision.held
+            plan = self._commit_plan(decision.checked, self.hazards, decision.door_plan, schedule=False)
         if self.door_plan is not None:
             open_into = sorted(d.id for d in self.door_plan.doors if d.id in self.close_unseen and d.entry_denied_into)
             if open_into:
@@ -524,15 +577,109 @@ class IncidentManager:
         if opening and primary.completed_crossings > plan.completed_crossings:
             parts.append(f"a person could approve {primary.completed_crossings} by opening {join_ids(opening)}")
         summary = "; ".join(parts)
+        voice: Optional[str] = None
+        if self.failsafe_voice == "gemini" and self.voice_available():
+            self._approval_voice[approval.approval_id] = self._voice_job(spoken_text(plan.announcement, approval.commands))
+            voice = "gemini"
         self.failsafe_last = FailSafeAction(at=now_iso(), plan_revision=plan.plan_revision,
-                                            approval_id=approval.approval_id, summary=summary)
+                                            approval_id=approval.approval_id, summary=summary, voice=voice)
         self._publish_failsafe(f"FAILSAFE r{plan.plan_revision}: nobody approved within {window:g} s; {summary}")
+
+    # -- the fail-safe's voice (Gemini TTS) ------------------------------------------------------------------------
+
+    def voice_available(self) -> bool:
+        return self.synthesizer is not None and self.synthesizer.available()
+
+    def _gate_commands(self, plan: IncidentPlan, stuck: Set[str]) -> Dict[str, str]:
+        """The gates an approval of this plan would command now (observed state differs, not stuck)."""
+        assert self.controller is not None
+        return {door_id: "OPEN" if state == "open" else "CLOSED" for door_id, state in plan.door_states.items()
+                if self.controller.has_gate(door_id) and door_id not in stuck and self._observed(door_id) != state}
+
+    def _voice_job(self, text: str) -> str:
+        """One synthesis per distinct text: a clip prepared during the window is reused when the fail-safe acts."""
+        key = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+        job = self._voices.get(key)
+        if job is not None and job.error is None:
+            self._voices.move_to_end(key)
+            return key
+        self._voices[key] = _VoiceJob(text=text, task=asyncio.ensure_future(self._synthesize(key, text)))
+        while len(self._voices) > MAX_VOICE_JOBS:
+            _, old = self._voices.popitem(last=False)
+            if not old.task.done():
+                old.task.cancel()
+        return key
+
+    async def _synthesize(self, key: str, text: str) -> None:
+        assert self.synthesizer is not None
+        try:
+            clip = await self.synthesizer.speak(text)
+        except VoiceError as error:
+            outcome: Tuple[Optional[VoiceClip], Optional[str]] = (None, error.code)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            outcome = (None, "provider_error")
+        else:
+            outcome = (clip, None)
+            record_live_receipt("failsafe_voice", clip.model)
+        job = self._voices.get(key)
+        if job is None or job.text != text:
+            return
+        job.clip, job.error = outcome
+        if any(k == key for k in self._approval_voice.values()):
+            self._publish_failsafe(f"FAILSAFE voice ready: {job.clip.model}, {job.clip.seconds or '?'} s" if job.clip
+                                   else f"FAILSAFE voice failed ({job.error}); the browser speaks instead")
+
+    async def _prepare_voice(self, revision: int, epoch: int) -> None:
+        """During the window: synthesize what the fail-safe would say if it acted now, so it can speak at once."""
+        async with self._lock:
+            if (epoch != self._epoch or revision != self.plan_revision or not self.failsafe_armed
+                    or self.failsafe_voice != "gemini" or not self.voice_available() or self.plan is None
+                    or self._approved(revision)):
+                return
+            decision = await self._failsafe_decide()
+            if decision.failed:
+                return
+            plan = decision.checked or decision.primary
+            text = spoken_text(plan.announcement, self._gate_commands(plan, decision.stuck))
+        self._voice_job(text)
+
+    async def voice_clip(self, approval_id: str, wait_seconds: float = 25.0) -> VoiceClip:
+        """The clip the fail-safe spoke for this approval; waits for a synthesis still in flight."""
+        key = self._approval_voice.get(approval_id)
+        job = self._voices.get(key) if key else None
+        if job is None:
+            raise IncidentError("no_voice", 404)
+        if job.clip is None and job.error is None:
+            try:
+                await asyncio.wait_for(asyncio.shield(job.task), wait_seconds)
+            except (asyncio.TimeoutError, TimeoutError):
+                raise IncidentError("voice_pending", 504) from None
+            except Exception:
+                pass
+        if job.clip is None:
+            raise IncidentError(job.error or "provider_error", 502)
+        return job.clip
+
+    def _last_action(self) -> Optional[FailSafeAction]:
+        last = self.failsafe_last
+        if last is None or last.voice != "gemini":
+            return last
+        job = self._voices.get(self._approval_voice.get(last.approval_id, ""))
+        if job is None:
+            return last.model_copy(update={"voice_status": "failed", "voice_error": "no_voice"})
+        if job.clip is not None:
+            return last.model_copy(update={"voice_status": "ready", "voice_model": job.clip.model, "voice_seconds": job.clip.seconds})
+        return last.model_copy(update={"voice_status": "failed" if job.error else "pending", "voice_error": job.error})
 
     def failsafe_view(self) -> FailSafeView:
         plan = self.plan
         held = {gid: list(self.held.get(gid, [])) for gid in (plan.held_doors if plan else [])}
         base: Dict[str, Any] = {"armed": self.failsafe_armed, "window_seconds": self.failsafe_window,
-                                "held_doors": held, "last_action": self.failsafe_last}
+                                "held_doors": held, "last_action": self._last_action(), "voice": self.failsafe_voice,
+                                "voice_available": self.voice_available(),
+                                "voice_model": self.synthesizer.model if self.voice_available() else None}
         if not self.failsafe_armed:
             return FailSafeView(**base, status="off", note="Off: a person approves every door move.")
         if plan is None or not plan.valid:
@@ -555,15 +702,20 @@ class IncidentManager:
         return FailSafeView(**base, status="standing_by", plan_revision=plan.plan_revision,
                             note="Armed: standing by for the next checked plan.")
 
-    async def set_failsafe(self, armed: bool, window_seconds: float = DEFAULT_WINDOW_SECONDS) -> FailSafeView:
+    async def set_failsafe(self, armed: bool, window_seconds: float = DEFAULT_WINDOW_SECONDS,
+                           voice: Literal["gemini", "browser"] = "browser") -> FailSafeView:
         """Arm (starts the window for the current plan) or disarm. Disarming is a person taking over: any gate the
         fail-safe held closed is handed back to the planner, so the plan a person sees is the full one again."""
         async with self._lock:
             self._ensure_bound()
             if armed:
                 self.failsafe_armed, self.failsafe_window = True, float(window_seconds)
+                self.failsafe_voice = "gemini" if voice == "gemini" and self.voice_available() else "browser"
+                spoken = (f"it speaks with Gemini TTS ({self.synthesizer.model})" if self.failsafe_voice == "gemini" and self.synthesizer
+                          else "the browser speaks" + ("; Gemini TTS is not configured" if voice == "gemini" else ""))
                 self._publish_failsafe(f"FAILSAFE armed: if nobody approves a checked plan within {self.failsafe_window:g} s it "
-                                       "approves it, never opening a motorized door into a room with fire, smoke, gas or a chemical")
+                                       "approves it, never opening a motorized door into a room with fire, smoke, gas or a chemical; "
+                                       + spoken)
                 self._schedule_failsafe()
             else:
                 was_held = bool(self.plan and self.plan.held_doors)

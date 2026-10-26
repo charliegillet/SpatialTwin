@@ -68,7 +68,8 @@ export function TwinWorkspace({ twin, notice, mode, calibrateTick, imageFile, an
       <HazardToolbar armed={twin.armed} onArm={twin.setArmed} smokeSeconds={twin.smokeSeconds} onSmokeStep={twin.stepSmoke} hazards={twin.hazards} zoneNames={zoneNames}
         selectedId={twin.selectedId} onSelect={twin.setSelectedId} onRemove={twin.remove} canUndo={twin.canUndo} onUndo={twin.undo} onClear={twin.clear} notice={notice} />
       <DoorPlanBar plan={drawn} pending={pending} team={team} gates={incident.state.gates} executing={executingNote(summary)}
-        announceKey={failsafeAnnounceKey(incident.state.incident, drawn?.chosen.candidate_hash ?? null, incident.hazardsSynced)} />
+        announceKey={failsafeAnnounceKey(incident.state.incident, drawn?.chosen.candidate_hash ?? null, incident.hazardsSynced)}
+        announceVoice={incident.state.incident?.failsafe.voice ?? 'browser'} />
       <IncidentPanel incident={incident} />
       <SignsPanel venue={venue} onConfirmed={hazard => twin.addCamera([hazard])} />
       <LightsPanel venue={venue} plan={drawn} reducedMotion={reducedMotion} />

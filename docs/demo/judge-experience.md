@@ -87,9 +87,11 @@ If the reading is slow or fails, say so and open a **saved run** (labelled as su
    it closed and the whole twin switches to that **fallback** (hero "fallback · D9 stuck · −10 vs the plan", routes,
    lamps and door list). The fallback needs a fresh human approval.
 5. **Nobody there** (optional, 30 s). Reset devices, place a fire in a room next to a motorized door, then in the
-   Approve panel pick a window (10 s for the stage) and press **Arm fail-safe**. Nobody approves: the bar runs out,
+   Approve panel pick a window (10 s for the stage), keep **Voice: Gemini TTS** and press **Arm fail-safe**. Nobody approves: the bar runs out,
    the fail-safe holds shut every motorized door into the fire room, re-checks the plan, approves it and says so aloud
-   (speech needs the arm click, which the browser counts as a gesture). On building-v2, fire in the Hall: the best plan
+   in a Gemini TTS voice (`gemini-3.8-flash-tts`, made during the window, so it speaks the instant it acts; about $0.003
+   per action; the browser voice takes over, labelled, if the clip fails). Audio needs the arm click, which the browser
+   counts as a gesture. On building-v2, fire in the Hall: the best plan
    opens D4 into the stair (105 of 125); unattended, D4 stays shut and the hero reads "93 · fail-safe · D4 held closed ·
    −12 vs the plan", and the panel says "a person could approve 105 by opening D4". Press **I'm here · take over** and
    the full plan returns for a person to approve.

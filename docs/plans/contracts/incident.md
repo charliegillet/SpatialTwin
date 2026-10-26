@@ -125,7 +125,8 @@ heartbeat ok, in-flight commands cancelled. `plan_revision` still increases. Ret
 
 ## POST `/api/incident/failsafe` (the unattended fail-safe)
 
-Body `{armed: bool, window_seconds?: 5..120 (default 15)}`; returns the `failsafe` view. Local only, like every
+Body `{armed: bool, window_seconds?: 5..120 (default 15), voice?: "gemini" | "browser" (default "browser")}`; returns
+the `failsafe` view (`voice`, `voice_available` = GEMINI_API_KEY configured, `voice_model`). Local only, like every
 `/api/incident` route: a phone's scoped cookie never reaches it. **Off by default; reset and a venue change turn it off.**
 
 The one exception to "a human approves". Armed, every new checked plan (hazards, fallback, re-plan) starts a window. If
@@ -145,6 +146,21 @@ Everything after the approval is the normal path: ACK is not arrival, a jam re-p
 gets its own window. Disarming ("I'm here") hands held gates back to the planner (a new revision with the full plan, for
 a person to approve). `last_action.summary` says what it did and, when holding a gate cost crossings, what a person could
 approve instead ("a person could approve 105 by opening D4"). Counts stay modeled crossings.
+
+### The fail-safe's voice: GET `/api/incident/failsafe/voice/{approval_id}`
+
+Armed with `voice: "gemini"` (and a key), the server speaks for the fail-safe with Gemini TTS (`backend/app/ai/tts.py`,
+`gemini-3.8-flash-tts`, one Interactions call, `store: false`, echoed model checked). The text is "Nobody approved in
+time. The fail-safe approved the checked plan." plus the approved plan's announcement, with each door it is opening
+worded "is opening" (never "is open"). It is synthesized when the window starts, for the plan the fail-safe would approve
+(a dry run of the held re-check), and reused when it acts if the text is unchanged: one call per distinct text, at most
+8 kept. A person who approves in time makes that clip unused (about $0.003).
+
+The route returns `audio/wav` with `X-Voice-Model` and `X-Voice-Provenance: live`, waits up to 25 s for a clip still
+being made, and answers 404 `no_voice` (a person's approval, or browser voice), 502 with the provider code
+(`provider_timeout`, `provider_model_mismatch`, ...), or 504 `voice_pending`. `last_action.voice`,
+`voice_status` (`pending | ready | failed`), `voice_model`, `voice_seconds`, `voice_error` say which voice spoke. The
+browser plays the clip once per approval and falls back to its own voice on any failure, labelled on screen.
 
 ## GET `/api/incident/events` (SSE)
 

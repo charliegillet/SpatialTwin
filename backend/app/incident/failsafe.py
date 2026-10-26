@@ -13,6 +13,7 @@ Everything else is the normal path: the checker decides every number, ACK is not
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Iterable, List, Mapping, Set
 
@@ -40,6 +41,19 @@ def left_open(door_states: Mapping[str, str], risky: Mapping[str, List[str]]) ->
 
 def join_ids(items: List[str]) -> str:
     return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
+# Spoken before the plan's own announcement. Says what happened, not that everyone is safe.
+SPOKEN_PREFIX = "Nobody approved in time. The fail-safe approved the checked plan."
+_PLANNED = re.compile(r"Door (\S+) between (.+?) is to be opened\.")
+
+
+def spoken_text(announcement: str, commands: Mapping[str, str]) -> str:
+    """What the fail-safe says: the prefix, then the plan's announcement with each door it is opening now worded as
+    "is opening" (never "is open": that needs the endpoint switch, and the clip is made before the door arrives)."""
+    body = _PLANNED.sub(lambda m: f"Door {m.group(1)} between {m.group(2)} is opening." if commands.get(m.group(1)) == "OPEN"
+                        else m.group(0), (announcement or "").strip())
+    return f"{SPOKEN_PREFIX} {body}".strip()
 
 
 def held_reason(door_id: str, rooms: List[str]) -> str:

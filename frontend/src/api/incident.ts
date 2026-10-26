@@ -84,7 +84,13 @@ export interface IncidentApproval {
   actor: ApprovalActor;
 }
 
-export interface FailSafeAction { at: string; plan_revision: number; approval_id: string; summary: string }
+export type FailSafeVoice = 'gemini' | 'browser';
+
+export interface FailSafeAction {
+  at: string; plan_revision: number; approval_id: string; summary: string;
+  /** gemini: the server is making (or made) the spoken clip with Gemini TTS; null: the browser speaks. */
+  voice: FailSafeVoice | null; voice_status: 'pending' | 'ready' | 'failed' | null; voice_model: string | null; voice_error: string | null;
+}
 
 /** The unattended fail-safe (off by default). Armed, it approves a checked plan nobody approved in its window, never
  *  opening a gate into a room with a hazard. */
@@ -103,11 +109,16 @@ export interface FailSafe {
   in_doubt: string[];
   note: string;
   last_action: FailSafeAction | null;
+  voice: FailSafeVoice;
+  /** The server has GEMINI_API_KEY (configuration, not proof of model access). */
+  voice_available: boolean;
+  voice_model: string | null;
 }
 
 export const FAILSAFE_OFF: FailSafe = {
   armed: false, window_seconds: 15, status: 'off', plan_revision: null, deadline_at: null, seconds_left: null, held_doors: {},
-  would_hold: [], in_doubt: [], note: 'Off: a person approves every door move.', last_action: null,
+  would_hold: [], in_doubt: [], note: 'Off: a person approves every door move.', last_action: null, voice: 'browser',
+  voice_available: false, voice_model: null,
 };
 
 export interface IncidentState {
@@ -215,11 +226,22 @@ export function parseApproval(raw: unknown): IncidentApproval {
 const FAILSAFE_STATUSES: readonly string[] = ['off', 'standing_by', 'counting_down', 'acted', 'approved'];
 
 /** Tolerant: a server without the fail-safe (or a broken field) reads as "off", never as armed. */
+const VOICE_STATUSES: readonly string[] = ['pending', 'ready', 'failed'];
+const voiceAvailability = (raw: Record<string, unknown>) => ({
+  voice_available: raw.voice_available === true, voice_model: typeof raw.voice_model === 'string' ? raw.voice_model : null,
+});
+
 export function parseFailSafe(raw: unknown): FailSafe {
-  if (!isRecord(raw) || raw.armed !== true) return { ...FAILSAFE_OFF, window_seconds: isRecord(raw) ? num(raw.window_seconds, 15) : 15 };
-  const action = isRecord(raw.last_action) && typeof raw.last_action.approval_id === 'string' ? {
-    at: str(raw.last_action.at), plan_revision: num(raw.last_action.plan_revision), approval_id: raw.last_action.approval_id,
-    summary: str(raw.last_action.summary),
+  if (!isRecord(raw) || raw.armed !== true) {
+    return { ...FAILSAFE_OFF, window_seconds: isRecord(raw) ? num(raw.window_seconds, 15) : 15, ...(isRecord(raw) ? voiceAvailability(raw) : {}) };
+  }
+  const last = raw.last_action;
+  const action: FailSafeAction | null = isRecord(last) && typeof last.approval_id === 'string' ? {
+    at: str(last.at), plan_revision: num(last.plan_revision), approval_id: last.approval_id, summary: str(last.summary),
+    voice: last.voice === 'gemini' ? 'gemini' : last.voice === 'browser' ? 'browser' : null,
+    voice_status: VOICE_STATUSES.includes(last.voice_status as string) ? last.voice_status as FailSafeAction['voice_status'] : null,
+    voice_model: typeof last.voice_model === 'string' ? last.voice_model : null,
+    voice_error: typeof last.voice_error === 'string' ? last.voice_error : null,
   } : null;
   const held = isRecord(raw.held_doors) ? Object.fromEntries(Object.entries(raw.held_doors).map(([gate, rooms]) => [gate, strList(rooms)])) : {};
   return {
@@ -229,6 +251,7 @@ export function parseFailSafe(raw: unknown): FailSafe {
     deadline_at: typeof raw.deadline_at === 'string' ? raw.deadline_at : null,
     seconds_left: typeof raw.seconds_left === 'number' ? raw.seconds_left : null,
     held_doors: held, would_hold: strList(raw.would_hold), in_doubt: strList(raw.in_doubt), note: str(raw.note), last_action: action,
+    voice: raw.voice === 'gemini' ? 'gemini' : 'browser', ...voiceAvailability(raw),
   };
 }
 
@@ -327,11 +350,23 @@ export const clearIncidentFault = async (gateId?: string): Promise<IncidentContr
 export const resetIncident = async (): Promise<IncidentState> =>
   parseIncidentState(await requestJson<unknown>(`${base}/reset`, { method: 'POST', body: {}, timeoutMs: 8_000, fallback: 'The devices could not be reset', describe }));
 
-/** Arm (window 5-120 s) or disarm the unattended fail-safe. Disarming is a person taking over. */
-export const setIncidentFailsafe = async (armed: boolean, windowSeconds = 15): Promise<FailSafe> =>
+/** Arm (window 5-120 s, voice) or disarm the unattended fail-safe. Disarming is a person taking over. */
+export const setIncidentFailsafe = async (armed: boolean, windowSeconds = 15, voice: FailSafeVoice = 'browser'): Promise<FailSafe> =>
   parseFailSafe(await requestJson<unknown>(`${base}/failsafe`, {
-    method: 'POST', body: armed ? { armed, window_seconds: windowSeconds } : { armed }, timeoutMs: 20_000,
+    method: 'POST', body: armed ? { armed, window_seconds: windowSeconds, voice } : { armed }, timeoutMs: 20_000,
     fallback: armed ? 'The fail-safe could not be armed' : 'The fail-safe could not be turned off', describe,
   }));
+
+/** The fail-safe's spoken announcement for one approval (Gemini TTS, made on the server). The server waits for a clip
+ *  still being made; an error carries its code (no_voice, voice_pending, provider_timeout, ...). */
+export async function fetchFailsafeVoice(approvalId: string, signal?: AbortSignal): Promise<{ blob: Blob; model: string | null }> {
+  const response = await fetch(`${base}/failsafe/voice/${encodeURIComponent(approvalId)}`, { signal, cache: 'no-store' });
+  if (!response.ok) {
+    let code = `http_${response.status}`;
+    try { const body = await response.json() as { detail?: { code?: unknown } }; if (typeof body.detail?.code === 'string') code = body.detail.code; } catch { /* keep the status */ }
+    throw new ApiError(code, response.status, code);
+  }
+  return { blob: await response.blob(), model: response.headers.get('x-voice-model') };
+}
 
 export const INCIDENT_EVENTS_URL = `${base}/events`;

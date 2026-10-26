@@ -39,3 +39,60 @@ export function speak(synth: Synth | undefined | null, ctor: UtteranceCtor | und
 export function stopSpeaking(synth: Synth | undefined | null): void {
   try { synth?.cancel(); } catch { /* Nothing was speaking. */ }
 }
+
+// ---- the fail-safe's voice ---------------------------------------------------------------------------------------
+
+export interface VoicePlayer { play(blob: Blob): Promise<void>; stop(): void }
+
+/** Plays one clip at a time; `play` resolves once playback starts and rejects when the browser blocks it. */
+export function createAudioPlayer(make: (url: string) => { play(): Promise<void>; pause(): void } = url => new Audio(url),
+  urls: { create(blob: Blob): string; revoke(url: string): void } = { create: blob => URL.createObjectURL(blob), revoke: url => URL.revokeObjectURL(url) }): VoicePlayer {
+  let current: { audio: { pause(): void }; url: string } | null = null;
+  const stop = () => {
+    if (!current) return;
+    try { current.audio.pause(); } catch { /* already stopped */ }
+    urls.revoke(current.url);
+    current = null;
+  };
+  return {
+    async play(blob) {
+      stop();
+      const url = urls.create(blob);
+      const audio = make(url);
+      current = { audio, url };
+      await audio.play();
+    },
+    stop,
+  };
+}
+
+export type VoiceOutcome = { by: 'gemini'; model: string | null } | { by: 'browser' | 'none'; reason: string | null };
+
+/** The fail-safe speaks once: its Gemini TTS clip when it was armed with that voice, otherwise (or when the clip cannot
+ *  be fetched or played) the browser's voice. The outcome says which, so the screen can label it. */
+export async function announceFailsafe(options: {
+  voice: 'gemini' | 'browser'; text: string; player: VoicePlayer | null;
+  fetchVoice: () => Promise<{ blob: Blob; model: string | null }>; speakBrowser: (text: string) => boolean;
+}): Promise<VoiceOutcome> {
+  let reason: string | null = null;
+  if (options.voice === 'gemini') {
+    if (!options.player) reason = 'audio_unavailable';
+    else {
+      try {
+        const { blob, model } = await options.fetchVoice();
+        await options.player.play(blob);
+        return { by: 'gemini', model };
+      } catch (error) {
+        const code = (error as { code?: unknown } | null)?.code;
+        reason = typeof code === 'string' && code ? code : error instanceof DOMException ? error.name : 'playback_failed';
+      }
+    }
+  }
+  return { by: options.speakBrowser(options.text) ? 'browser' : 'none', reason };
+}
+
+export function voiceNote(outcome: VoiceOutcome): string {
+  if (outcome.by === 'gemini') return `Fail-safe voice · Gemini TTS${outcome.model ? ` (${outcome.model})` : ''}`;
+  if (outcome.by === 'browser') return `Fail-safe voice · browser speech${outcome.reason ? ` (Gemini TTS: ${outcome.reason.replace(/_/g, ' ')})` : ''}`;
+  return 'The fail-safe could not speak: the browser blocked audio. Click the page once, then press Announce.';
+}

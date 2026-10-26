@@ -6,7 +6,8 @@ POST /api/incident/approve         -> {plan_revision, candidate_hash, door_state
 POST /api/incident/faults          -> {gate_id, fault}
 POST /api/incident/faults/clear    -> {gate_id?}
 POST /api/incident/reset
-POST /api/incident/failsafe        -> {armed, window_seconds?}; the unattended fail-safe (off by default)
+POST /api/incident/failsafe        -> {armed, window_seconds?, voice?}; the unattended fail-safe (off by default)
+GET  /api/incident/failsafe/voice/{approval_id} -> the fail-safe's spoken announcement (audio/wav, Gemini TTS)
 GET  /api/incident/events          -> SSE (id:, Last-Event-ID replay, ": ping" every 10 s)
 
 Mount (backend/app/main.py, lead): `app.include_router(build_incident_router())`
@@ -15,8 +16,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, HTTPException, Path, Query, Request
+from fastapi.responses import Response, StreamingResponse
 
 from backend.app.incident.manager import IncidentError, IncidentManager
 from backend.app.incident.models import (
@@ -30,7 +31,8 @@ _default_manager: Optional[IncidentManager] = None
 def default_manager() -> IncidentManager:
     global _default_manager
     if _default_manager is None:
-        _default_manager = IncidentManager()
+        from backend.app.ai.tts import Synthesizer
+        _default_manager = IncidentManager(synthesizer=Synthesizer())
     return _default_manager
 
 
@@ -105,9 +107,19 @@ def build_incident_router(manager: Optional[IncidentManager] = None) -> APIRoute
     async def post_failsafe(request: FailSafeRequest) -> FailSafeView:
         """Arm or disarm. Local only, like every /api/incident route: a phone's scoped token never reaches it."""
         try:
-            return await mgr().set_failsafe(request.armed, request.window_seconds)
+            return await mgr().set_failsafe(request.armed, request.window_seconds, request.voice)
         except IncidentError as error:
             raise _http(error) from None
+
+    @router.get("/failsafe/voice/{approval_id}")
+    async def get_failsafe_voice(approval_id: str = Path(pattern=r"^apv-[0-9a-f]{12}$")) -> Response:
+        """Waits for a synthesis still in flight. 404 no_voice, 502 provider code, 504 voice_pending."""
+        try:
+            clip = await mgr().voice_clip(approval_id)
+        except IncidentError as error:
+            raise _http(error) from None
+        return Response(clip.audio, media_type=clip.mime_type, headers={
+            "Cache-Control": "no-store", "X-Voice-Model": clip.model, "X-Voice-Provenance": "live"})
 
     @router.get("/events")
     async def events(request: Request, last_event_id: Optional[int] = Query(default=None, ge=0)):

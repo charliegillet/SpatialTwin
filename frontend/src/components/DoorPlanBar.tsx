@@ -1,6 +1,10 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { ChevronDown, DoorClosed, DoorOpen, LockKeyhole, TriangleAlert, Volume2 } from 'lucide-react';
-import { ANNOUNCE_LABEL, SPEECH_UNAVAILABLE, announcementText, confirmedAnnouncement, speak, speechAvailable, stopSpeaking } from '../twin/announce';
+import { fetchFailsafeVoice } from '../api/incident';
+import {
+  ANNOUNCE_LABEL, SPEECH_UNAVAILABLE, announceFailsafe, announcementText, confirmedAnnouncement, createAudioPlayer, speak, speechAvailable,
+  stopSpeaking, voiceNote,
+} from '../twin/announce';
 import { FAILSAFE_SPOKEN } from '../twin/incidentFlow';
 import { FAILED_CHECK, NO_CHECKED_PLAN, alternativeRows, doorRows, gainFrom, groupDoorRows, planChecked, unsafeExits } from '../twin/twinHero';
 import type { DoorPlanResponse } from '../twin/types';
@@ -10,12 +14,16 @@ import { AgentTeamPanel } from './AgentTeamPanel';
 const SIMULATED = 'Simulated doors · a virtual door controller, no hardware';
 /** Fail-safe approvals already spoken, across remounts (Build and back must not repeat one). */
 const SPOKEN_FAILSAFE = new Set<string>();
+const PLAYER = typeof Audio !== 'undefined' ? createAudioPlayer() : null;
 
 /** The door decisions that changed, unsafe exits, advisories and the alternatives the planner compared. No approval: nothing physical moves. */
-export function DoorPlanBar({ plan, pending, team, gates = [], executing = null, announceKey = null }: { plan: DoorPlanResponse | null; pending: boolean; team?: AgentTeamController;
+export function DoorPlanBar({ plan, pending, team, gates = [], executing = null, announceKey = null, announceVoice = 'browser' }: { plan: DoorPlanResponse | null; pending: boolean; team?: AgentTeamController;
   gates?: ReadonlyArray<{ id: string; observed: string | null; moving: boolean; warn: boolean }>; executing?: string | null;
   /** Set once the armed fail-safe has approved the plan drawn here: it is then announced once, with nobody pressing Announce. */
-  announceKey?: string | null }) {
+  announceKey?: string | null;
+  /** How the armed fail-safe speaks: its Gemini TTS clip from the server, or the browser's voice. */
+  announceVoice?: 'gemini' | 'browser' }) {
+  const [voiceLine, setVoiceLine] = useState<string | null>(null);
   const text = announcementText(plan);
   // A planned door is announced open only once its endpoint switch says so (and "opening" while it moves).
   const spoken = confirmedAnnouncement(text, gates);
@@ -24,11 +32,18 @@ export function DoorPlanBar({ plan, pending, team, gates = [], executing = null,
   const canSpeak = speechAvailable(synth, Utterance);
   // A new plan, Clear, a mode switch or Next judge (unmount) silences a running announcement. Speech starts from the button,
   // or once when the armed fail-safe acts: then nobody is there to press it.
-  useEffect(() => { stopSpeaking(synth); return () => stopSpeaking(synth); }, [text, synth]);
+  useEffect(() => { stopSpeaking(synth); PLAYER?.stop(); return () => { stopSpeaking(synth); PLAYER?.stop(); }; }, [text, synth]);
   useEffect(() => {
     if (!announceKey || SPOKEN_FAILSAFE.has(announceKey)) return;
     SPOKEN_FAILSAFE.add(announceKey);
-    speak(synth, Utterance, `${FAILSAFE_SPOKEN} ${spoken}`.trim());  // once per approval, worded as the doors stand then
+    const controller = new AbortController();
+    setVoiceLine(announceVoice === 'gemini' ? 'Fail-safe voice · fetching the Gemini TTS clip…' : null);
+    void announceFailsafe({
+      voice: announceVoice, player: PLAYER, fetchVoice: () => fetchFailsafeVoice(announceKey, controller.signal),
+      // Worded as the doors stand now: the browser voice never says "is open" before an endpoint switch.
+      speakBrowser: words => speak(synth, Utterance, `${FAILSAFE_SPOKEN} ${words}`.trim()), text: spoken,
+    }).then(outcome => { if (!controller.signal.aborted) setVoiceLine(voiceNote(outcome)); });
+    return () => controller.abort();
   }, [announceKey, text, synth]);
   if (!plan) return <section className="door-plan twin-card" aria-label="Door plan"><p className="twin-quiet">{pending ? 'Solving\u2026' : 'Waiting for the planner.'}</p><p className="twin-quiet">{SIMULATED}</p></section>;
   const rows = groupDoorRows(doorRows(plan));
@@ -56,6 +71,7 @@ export function DoorPlanBar({ plan, pending, team, gates = [], executing = null,
     {text && <div className="door-announce">
       <button type="button" className="btn" disabled={!canSpeak} title={canSpeak ? ANNOUNCE_LABEL : SPEECH_UNAVAILABLE} onClick={() => speak(synth, Utterance, spoken)}><Volume2 size={14} aria-hidden="true" />Announce<small>{ANNOUNCE_LABEL}</small></button>
       <p className="twin-quiet">{spoken}</p>
+      {voiceLine && <small className="twin-quiet door-voice" role="status">{voiceLine}</small>}
     </div>}
     <details className="door-alt">
       <summary>Alternatives<ChevronDown size={13} aria-hidden="true" /></summary>

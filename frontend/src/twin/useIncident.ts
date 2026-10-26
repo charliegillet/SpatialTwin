@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
   approveIncidentPlan, clearIncidentFault, fetchIncident, fetchIncidentDoorPlan, INCIDENT_EVENTS_URL, injectIncidentFault, postIncidentHazards, resetIncident,
-  setIncidentFailsafe, type GateFault, type IncidentApproval, type IncidentEvent, type IncidentState,
+  setIncidentFailsafe, type FailSafeVoice, type GateFault, type IncidentApproval, type IncidentEvent, type IncidentState,
 } from '../api/incident.ts';
 import {
   addApprovalIfNew, applyIncidentState, approveAvailability, createHazardSync, createIncidentConnection, createStaleGuard, doorVisuals, failsafeDisplay,
@@ -130,8 +130,8 @@ export function useIncident(venueId: string, hazards: HazardInput[], options: { 
   const jam = useCallback((gateId: string, fault: GateFault = 'stall') => act('jam', async () => { await injectIncidentFault(gateId, fault); }), [act]);
   const clearFault = useCallback((gateId?: string) => act('clear', async () => { await clearIncidentFault(gateId); }), [act]);
   // Arming starts the window on the current plan; disarming ("I'm here") hands any held gate back to the planner.
-  const setFailsafe = useCallback((armed: boolean, windowSeconds?: number) => act('failsafe', async () => {
-    await setIncidentFailsafe(armed, windowSeconds);
+  const setFailsafe = useCallback((armed: boolean, windowSeconds?: number, voice?: FailSafeVoice) => act('failsafe', async () => {
+    await setIncidentFailsafe(armed, windowSeconds, voice);
   }), [act]);
   const reset = useCallback(() => act('reset', async () => {
     // Anything in flight from before the reset must not land after it.

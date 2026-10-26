@@ -76,6 +76,10 @@ export function IncidentPanel({ incident }: { incident: IncidentController }) {
 function FailSafeCard({ incident }: { incident: IncidentController }) {
   const display = incident.state.failsafe;
   const [seconds, setSeconds] = useState(15);
+  const failsafe = incident.state.incident?.failsafe;
+  const available = failsafe?.voice_available ?? false;
+  const [voicePick, setVoicePick] = useState<'gemini' | 'browser' | null>(null);
+  const voice = voicePick ?? (available ? 'gemini' : 'browser');
   const busy = incident.busy !== null;
   const disabled = busy || !incident.state.incident;
   return <section className={`incident-failsafe is-${display.tone}`} aria-label="Unattended fail-safe">
@@ -96,9 +100,13 @@ function FailSafeCard({ incident }: { incident: IncidentController }) {
       {display.armed
         ? <button type="button" className="btn btn-primary" disabled={disabled} onClick={() => void incident.setFailsafe(false)}><Hand size={14} aria-hidden="true" />I'm here · take over</button>
         : <>
-          <button type="button" className="btn" disabled={disabled} onClick={() => void incident.setFailsafe(true, seconds)}><ShieldAlert size={14} aria-hidden="true" />Arm fail-safe</button>
+          <button type="button" className="btn" disabled={disabled} onClick={() => void incident.setFailsafe(true, seconds, voice)}><ShieldAlert size={14} aria-hidden="true" />Arm fail-safe</button>
           <label className="incident-failsafe-window">Window<select aria-label="Fail-safe window" value={seconds} disabled={disabled} onChange={event => setSeconds(Number(event.target.value))}>
             {FAILSAFE_WINDOWS.map(item => <option key={item} value={item}>{item} s</option>)}
+          </select></label>
+          <label className="incident-failsafe-window">Voice<select aria-label="Fail-safe voice" value={voice} disabled={disabled} onChange={event => setVoicePick(event.target.value as 'gemini' | 'browser')}>
+            <option value="gemini" disabled={!available}>{available ? `Gemini TTS${failsafe?.voice_model ? ` · ${failsafe.voice_model}` : ''}` : 'Gemini TTS · needs GEMINI_API_KEY'}</option>
+            <option value="browser">Browser voice</option>
           </select></label>
         </>}
     </div>

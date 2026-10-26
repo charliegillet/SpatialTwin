@@ -3,6 +3,7 @@ import test from 'node:test';
 import { FAILSAFE_OFF, parseFailSafe, parseIncidentEvent, parseIncidentState } from '../api/incident.ts';
 import { approvalSummary, executingNote, failsafeAnnounceKey, failsafeDisplay, initialIncidentState, reduceIncidentEvent } from './incidentFlow.ts';
 import { twinHero, withFallback } from './twinHero.ts';
+import { announceFailsafe, createAudioPlayer, voiceNote } from './announce.ts';
 
 const gate = id => ({ gate_id: id, state: 'CLOSED', open_switch: false, closed_switch: true, epoch: 1, target: null, fault: null,
   last_command_id: null, last_ack: null, observed: 'closed', applied: 'closed', detail: '' });
@@ -109,4 +110,66 @@ test('approval lines and the hero name the fail-safe', () => {
   const shown = withFallback(hero, { valid: true, completed: 93, population: 125, stuck: [], held: ['D4'] }, stateless);
   assert.equal(shown.digits, '93');
   assert.equal(shown.delta.text, 'fail-safe · D4 held closed · −12 vs the plan');
+});
+
+// ---- the fail-safe's voice ---------------------------------------------------------------------------------------
+
+test('the fail-safe view carries its voice and whether Gemini TTS is configured', () => {
+  const view = parseFailSafe({ ...armed(), voice: 'gemini', voice_available: true, voice_model: 'gemini-3.8-flash-tts',
+    last_action: { approval_id: 'apv-1', plan_revision: 4, summary: 's', at: 't', voice: 'gemini', voice_status: 'ready', voice_model: 'gemini-3.8-flash-tts' } });
+  assert.equal(view.voice, 'gemini');
+  assert.equal(view.voice_model, 'gemini-3.8-flash-tts');
+  assert.equal(view.last_action.voice_status, 'ready');
+  assert.equal(parseFailSafe({ ...armed(), voice: 'robot' }).voice, 'browser');
+  const off = parseFailSafe({ armed: false, voice_available: true, voice_model: 'gemini-3.8-flash-tts' });
+  assert.equal(off.armed, false);
+  assert.equal(off.voice_available, true, 'the card can offer Gemini TTS before arming');
+});
+
+const blob = { size: 3 };
+const player = (fail = null) => {
+  const played = [];
+  return { played, play: async item => { if (fail) throw fail; played.push(item); }, stop: () => undefined };
+};
+
+test('armed with Gemini TTS it plays the server clip and never also speaks with the browser', async () => {
+  const spoken = [];
+  const p = player();
+  const outcome = await announceFailsafe({ voice: 'gemini', text: 'words', player: p,
+    fetchVoice: async () => ({ blob, model: 'gemini-3.8-flash-tts' }), speakBrowser: text => { spoken.push(text); return true; } });
+  assert.deepEqual(outcome, { by: 'gemini', model: 'gemini-3.8-flash-tts' });
+  assert.deepEqual(p.played, [blob]);
+  assert.deepEqual(spoken, []);
+  assert.equal(voiceNote(outcome), 'Fail-safe voice · Gemini TTS (gemini-3.8-flash-tts)');
+});
+
+test('any Gemini voice failure falls back to the browser voice and says why', async () => {
+  const spoken = [];
+  const speakBrowser = text => { spoken.push(text); return true; };
+  const failed = Object.assign(new Error('provider_timeout'), { code: 'provider_timeout' });
+  const fromServer = await announceFailsafe({ voice: 'gemini', text: 'words', player: player(), fetchVoice: async () => { throw failed; }, speakBrowser });
+  assert.deepEqual(fromServer, { by: 'browser', reason: 'provider_timeout' });
+  assert.equal(voiceNote(fromServer), 'Fail-safe voice · browser speech (Gemini TTS: provider timeout)');
+  const blocked = await announceFailsafe({ voice: 'gemini', text: 'words', player: player(new DOMException('blocked', 'NotAllowedError')),
+    fetchVoice: async () => ({ blob, model: null }), speakBrowser });
+  assert.deepEqual(blocked, { by: 'browser', reason: 'NotAllowedError' });
+  const browserOnly = await announceFailsafe({ voice: 'browser', text: 'words', player: player(), fetchVoice: async () => { throw new Error('never'); }, speakBrowser });
+  assert.deepEqual(browserOnly, { by: 'browser', reason: null });
+  assert.deepEqual(spoken, ['words', 'words', 'words']);
+  const silent = await announceFailsafe({ voice: 'browser', text: 'words', player: null, fetchVoice: async () => ({ blob, model: null }), speakBrowser: () => false });
+  assert.equal(silent.by, 'none');
+  assert.match(voiceNote(silent), /blocked audio/);
+});
+
+test('the audio player plays one clip at a time and frees each object URL', async () => {
+  const events = [];
+  const make = url => ({ play: async () => { events.push(`play ${url}`); }, pause: () => events.push(`pause ${url}`) });
+  let n = 0;
+  const urls = { create: () => `blob:${++n}`, revoke: url => events.push(`revoke ${url}`) };
+  const p = createAudioPlayer(make, urls);
+  await p.play(blob);
+  await p.play(blob);
+  p.stop();
+  p.stop();
+  assert.deepEqual(events, ['play blob:1', 'pause blob:1', 'revoke blob:1', 'play blob:2', 'pause blob:2', 'revoke blob:2']);
 });

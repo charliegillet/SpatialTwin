@@ -41,6 +41,8 @@ class FailSafeRequest(_Strict):
     """Arm or disarm the unattended fail-safe. Disarming is how a person takes over ("I'm here")."""
     armed: bool
     window_seconds: float = Field(default=15.0, ge=5, le=120, allow_inf_nan=False)
+    # "gemini": its announcement is spoken with Gemini TTS (one call per action); "browser": the browser's own voice.
+    voice: Literal["gemini", "browser"] = "browser"
 
 
 class PlanDoorView(_Strict):
@@ -114,6 +116,11 @@ class FailSafeAction(_Strict):
     plan_revision: int
     approval_id: str
     summary: str
+    voice: Optional[Literal["gemini", "browser"]] = None
+    voice_status: Optional[Literal["pending", "ready", "failed"]] = None
+    voice_model: Optional[str] = None
+    voice_seconds: Optional[float] = None
+    voice_error: Optional[str] = None
 
 
 class FailSafeView(_Strict):
@@ -136,6 +143,9 @@ class FailSafeView(_Strict):
     in_doubt: List[str] = Field(default_factory=list)
     note: str
     last_action: Optional[FailSafeAction] = None
+    voice: Literal["gemini", "browser"] = "browser"
+    voice_available: bool = False  # GEMINI_API_KEY configured (not proof of model access)
+    voice_model: Optional[str] = None
 
 
 class IncidentState(_Strict):
