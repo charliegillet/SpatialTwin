@@ -2,10 +2,10 @@
 
 # SpatialTwin
 
-### Snap the evacuation map. Break the building. Find the way out.
+### See the hazard. Plan the way out. Guide everyone to safety.
 
-**Gemini 4 Argon turns a photo of any posted evacuation map into a live 3D twin in a minute or two.**<br>
-Drop a fire anywhere and a team of Gemini managed agents stress-tests the door plan, while a local checker re-runs every number they claim. No door moves until a person approves.
+**Gemini 4 Argon turns a building's evacuation map today, and its live CCTV next, into a 3D twin that plans the way out.**<br>
+Drop a fire anywhere: everyone is re-routed in under a second, exit signs and phones flip on their own, and Gemini managed agents stress-test the plan while a local checker re-runs every number they claim. A person approves door moves; when nobody is there to answer, a fail-safe mode is designed to keep guiding people away from harm.
 
 [![Gemini 4 Argon](https://img.shields.io/badge/Gemini_4-Argon-8E75B2?style=for-the-badge&logo=googlegemini&logoColor=white)](#gemini-4-argon) [![Managed Agents](https://img.shields.io/badge/Gemini-Managed_Agents-4285F4?style=for-the-badge&logo=googlegemini&logoColor=white)](#managed-agents) [![Interactions API](https://img.shields.io/badge/Interactions_API-stream_%C2%B7_think_%C2%B7_JSON-34A853?style=for-the-badge&logo=google&logoColor=white)](#gemini-4-argon) [![Hackathon](https://img.shields.io/badge/Gemini_4_Argon_Hackathon-SF_2026-EA4335?style=for-the-badge&logo=google&logoColor=white)](#provenance)
 
